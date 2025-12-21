@@ -76,7 +76,7 @@ def render_sidebar():
     """Render the navigation sidebar with progress tracking."""
     with st.sidebar:
         st.title("🎨 BrandForge AI")
-        st.caption("Powered by Google Gemini Pro 3")
+        st.caption("Powered by Google Gemini 2.5 Flash")
         
         # Workflow Progress (using LangGraph tracking)
         workflow_progress = get_workflow_progress(st.session_state.brand_state)
@@ -89,7 +89,7 @@ def render_sidebar():
         
         # Show completed steps
         if workflow_progress["completed_steps"]:
-            with st.expander("✅ Completed Steps"):
+            with st.expander("✅ Completed Steps", expanded=False):
                 for step in workflow_progress["completed_steps"]:
                     st.caption(f"• {step.replace('_', ' ').title()}")
         
@@ -197,6 +197,28 @@ def render_sidebar():
         
         st.divider()
         
+        # ===== PHASE 9: DEMO MODE =====
+        st.subheader("🎬 Demo Mode")
+        st.caption("Load pre-filled examples")
+        
+        from modules.demo_data import get_demo_names, load_demo_state
+        demo_types = get_demo_names()
+        
+        demo_selection = st.selectbox(
+            "Choose Demo",
+            options=list(demo_types.keys()),
+            format_func=lambda x: demo_types[x],
+            key="demo_selector"
+        )
+        
+        if st.button("📥 Load Demo Data", use_container_width=True):
+            st.session_state.brand_state = load_demo_state(demo_selection)
+            st.session_state.current_page = "foundations"
+            st.success(f"✅ Loaded {demo_types[demo_selection]}!")
+            st.rerun()
+        
+        st.divider()
+        
         # Footer
         st.caption(f"Last updated: {datetime.now().strftime('%I:%M %p')}")
         st.caption("v0.1.0 | December 2025")
@@ -276,46 +298,58 @@ def page_foundations():
         "🚀 Generate with Gemini (via LangGraph)",
         disabled=not can_generate,
         use_container_width=True,
-        type="primary"
+        type="primary",
+        help="Generate AI-powered brand foundations using Google Gemini 2.5 Flash"  # Phase 9: Tooltip
     ):
         if not can_generate:
             st.error("Please fill in all required fields (marked with *)")
         else:
-            with st.spinner("🤖 Gemini is analyzing your brand via LangGraph workflow..."):
-                try:
-                    # Check if we can execute this step
-                    can_exec, message = can_execute_step("foundations", st.session_state.brand_state)
-                    
-                    if not can_exec:
-                        st.error(f"❌ {message}")
-                    else:
-                        # Execute the foundations node via workflow
-                        updated_state = st.session_state.workflow_executor.execute_step(
-                            "foundations",
-                            st.session_state.brand_state
-                        )
+            # Phase 9: Enhanced loading messages
+            progress_container = st.empty()
+            status_container = st.empty()
+            
+            with progress_container:
+                with st.spinner("🤖 Connecting to Gemini API..."):
+                    try:
+                        # Check if we can execute this step
+                        can_exec, message = can_execute_step("foundations", st.session_state.brand_state)
                         
-                        # Update session state with workflow results
-                        st.session_state.brand_state = updated_state
-                        
-                        # Also execute market analysis to get positioning
-                        with st.spinner("Generating positioning statement..."):
+                        if not can_exec:
+                            st.error(f"❌ {message}")
+                        else:
+                            status_container.info("📝 Analyzing your brand inputs...")
+                            
+                            # Execute the foundations node via workflow
+                            updated_state = st.session_state.workflow_executor.execute_step(
+                                "foundations",
+                                st.session_state.brand_state
+                            )
+                            
+                            # Update session state with workflow results
+                            st.session_state.brand_state = updated_state
+                            
+                            status_container.info("🎯 Generating positioning statement...")
+                            
+                            # Also execute market analysis to get positioning
                             updated_state = st.session_state.workflow_executor.execute_step(
                                 "market_analysis",
                                 st.session_state.brand_state
                             )
                             st.session_state.brand_state = updated_state
+                            
+                            status_container.empty()
+                            st.success("✨ Brand foundations generated successfully via LangGraph!")
+                            save_state_to_file(st.session_state.brand_state)
+                            st.rerun()
                         
-                        st.success("✨ Brand foundations generated successfully via LangGraph!")
-                        save_state_to_file(st.session_state.brand_state)
-                        st.rerun()
-                    
-                except ValueError as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    st.info("💡 Tip: Make sure your GOOGLE_API_KEY is set in the .env file")
-                except Exception as e:
-                    st.error(f"❌ Unexpected error: {str(e)}")
-                    st.info("Please try again or check your API key configuration")
+                    except ValueError as e:
+                        st.error(f"❌ Error: {str(e)}")
+                        st.info("💡 Tip: Make sure your GOOGLE_API_KEY is set in the .env file")
+                    except Exception as e:
+                        st.error(f"❌ Unexpected error: {str(e)}")
+                        st.info("Please try again or check your API key configuration")
+                    finally:
+                        progress_container.empty()
     
     if not can_generate:
         st.warning("Fill in all required fields above to generate AI recommendations")
@@ -337,6 +371,11 @@ def page_foundations():
                 label_visibility="collapsed"
             )
             st.session_state.brand_state["vision"] = edited_vision
+            
+            # Phase 9: Copy button
+            if st.button("📋 Copy Vision", key="copy_vision", use_container_width=True):
+                st.code(edited_vision, language=None)
+                st.caption("✅ Copied! Use Cmd/Ctrl+C")
         
         with col2:
             st.markdown("**Mission Statement**")
@@ -348,6 +387,11 @@ def page_foundations():
                 label_visibility="collapsed"
             )
             st.session_state.brand_state["mission"] = edited_mission
+            
+            # Phase 9: Copy button
+            if st.button("📋 Copy Mission", key="copy_mission", use_container_width=True):
+                st.code(edited_mission, language=None)
+                st.caption("✅ Copied! Use Cmd/Ctrl+C")
         
         st.markdown("**Core Values**")
         values_text = st.text_area(
