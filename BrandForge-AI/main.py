@@ -912,27 +912,368 @@ def page_kpi_dashboard():
     st.header("📊 KPI Dashboard Simulator")
     st.caption("Project your launch metrics and track progress")
     
-    # Coming soon message
-    st.info("🚧 This page will be implemented in Phase 7")
+    state = st.session_state.brand_state
+    executor = st.session_state.workflow_executor
     
-    st.markdown("""
-    ### What's Coming:
-    - 📈 Interactive KPI projections
-    - 🎯 Goal setting tools
-    - 📊 Visual charts and graphs
-    - 🤖 AI-powered insights and recommendations
-    - 📋 Google Sheets formulas generator
-    """)
+    # Check prerequisites
+    if not state.get("company_name"):
+        st.warning("⚠️ Please complete the Brand Foundations page first.")
+        if st.button("Go to Foundations →"):
+            st.session_state.current_page = "foundations"
+            st.rerun()
+        return
+    
+    # Check if KPI projections exist
+    has_kpis = state.get("kpi_projections") is not None
+    
+    # Configuration Section
+    st.subheader("🎯 KPI Configuration")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        base_visitors = st.number_input(
+            "Weekly Visitors (Week 1)",
+            min_value=100,
+            max_value=100000,
+            value=state.get("base_visitors", 1000),
+            step=100,
+            help="Expected number of website visitors in the first week"
+        )
+        if base_visitors != state.get("base_visitors"):
+            state["base_visitors"] = base_visitors
+            save_state_to_file(state)
+    
+    with col2:
+        conversion_rate = st.number_input(
+            "Conversion Rate (%)",
+            min_value=0.1,
+            max_value=50.0,
+            value=state.get("conversion_rate", 2.5),
+            step=0.1,
+            help="Percentage of visitors who signup/convert"
+        )
+        if conversion_rate != state.get("conversion_rate"):
+            state["conversion_rate"] = conversion_rate
+            save_state_to_file(state)
+    
+    with col3:
+        growth_rate = st.number_input(
+            "Weekly Growth Rate (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=state.get("growth_rate", 10.0),
+            step=1.0,
+            help="Expected week-over-week growth rate"
+        )
+        if growth_rate != state.get("growth_rate"):
+            state["growth_rate"] = growth_rate
+            save_state_to_file(state)
+    
+    # Advanced Settings (Collapsible)
+    with st.expander("⚙️ Advanced Settings"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            lead_conversion = st.slider(
+                "Lead Conversion Rate (%)",
+                min_value=10.0,
+                max_value=100.0,
+                value=state.get("lead_conversion", 30.0),
+                step=5.0,
+                help="Percentage of signups that become qualified leads"
+            )
+            if lead_conversion != state.get("lead_conversion"):
+                state["lead_conversion"] = lead_conversion
+                save_state_to_file(state)
+        
+        with col2:
+            revenue_per_lead = st.number_input(
+                "Revenue per Lead ($)",
+                min_value=10.0,
+                max_value=10000.0,
+                value=state.get("revenue_per_lead", 500.0),
+                step=50.0,
+                help="Average revenue expected per qualified lead"
+            )
+            if revenue_per_lead != state.get("revenue_per_lead"):
+                state["revenue_per_lead"] = revenue_per_lead
+                save_state_to_file(state)
+    
+    st.markdown("---")
+    
+    # Generate KPIs Button
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        if not has_kpis:
+            st.info("💡 Click the button to generate your 90-day KPI projections")
+        else:
+            st.success("✅ KPI projections generated! You can regenerate with updated parameters.")
+    
+    with col2:
+        if st.button("🤖 Generate KPIs", type="primary", use_container_width=True):
+            with st.spinner("Calculating KPI projections..."):
+                try:
+                    # Execute the KPI node
+                    updated_state = executor.execute_step("kpis", state)
+                    
+                    # Update session state
+                    st.session_state.brand_state = updated_state
+                    save_state_to_file(updated_state)
+                    st.success("🎉 KPI projections generated successfully!")
+                    st.rerun()
+                
+                except Exception as e:
+                    st.error(f"Error generating KPIs: {str(e)}")
+    
+    # Display KPI Dashboard
+    if has_kpis:
+        st.markdown("---")
+        
+        # Tabs for different views
+        tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "📊 Detailed Metrics", "💡 AI Insights", "📥 Export"])
+        
+        with tab1:
+            st.subheader("90-Day Projection Overview")
+            
+            import pandas as pd
+            kpi_df = pd.DataFrame(state["kpi_projections"])
+            
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            total_visitors = kpi_df["Visitors"].sum()
+            total_signups = kpi_df["Signups"].sum()
+            total_leads = kpi_df["Leads"].sum()
+            total_revenue = kpi_df["Revenue"].sum()
+            
+            with col1:
+                st.metric("Total Visitors", f"{total_visitors:,}")
+            with col2:
+                st.metric("Total Signups", f"{total_signups:,}")
+            with col3:
+                st.metric("Total Leads", f"{total_leads:,}")
+            with col4:
+                st.metric("Total Revenue", f"${total_revenue:,.0f}")
+            
+            st.markdown("---")
+            
+            # Line Charts
+            import plotly.graph_objects as go
+            
+            # Visitors & Signups Chart
+            fig1 = go.Figure()
+            fig1.add_trace(go.Scatter(
+                x=kpi_df["Week"],
+                y=kpi_df["Visitors"],
+                mode='lines+markers',
+                name='Visitors',
+                line=dict(color='#1f77b4', width=3)
+            ))
+            fig1.add_trace(go.Scatter(
+                x=kpi_df["Week"],
+                y=kpi_df["Signups"],
+                mode='lines+markers',
+                name='Signups',
+                line=dict(color='#ff7f0e', width=3)
+            ))
+            fig1.update_layout(
+                title="Weekly Visitors & Signups",
+                xaxis_title="Week",
+                yaxis_title="Count",
+                hovermode='x unified',
+                height=400
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+            
+            # Revenue Chart
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(
+                x=kpi_df["Week"],
+                y=kpi_df["Revenue"],
+                name='Weekly Revenue',
+                marker_color='#2ca02c'
+            ))
+            
+            # Add cumulative line
+            cumulative_revenue = kpi_df["Revenue"].cumsum()
+            fig2.add_trace(go.Scatter(
+                x=kpi_df["Week"],
+                y=cumulative_revenue,
+                mode='lines+markers',
+                name='Cumulative Revenue',
+                line=dict(color='#d62728', width=3),
+                yaxis='y2'
+            ))
+            
+            fig2.update_layout(
+                title="Revenue Projection",
+                xaxis_title="Week",
+                yaxis_title="Weekly Revenue ($)",
+                yaxis2=dict(
+                    title="Cumulative Revenue ($)",
+                    overlaying='y',
+                    side='right'
+                ),
+                hovermode='x unified',
+                height=400
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+        
+        with tab2:
+            st.subheader("Detailed Weekly Metrics")
+            
+            # Format the dataframe for display
+            display_df = kpi_df.copy()
+            display_df["Visitors"] = display_df["Visitors"].apply(lambda x: f"{x:,}")
+            display_df["Signups"] = display_df["Signups"].apply(lambda x: f"{x:,}")
+            display_df["Leads"] = display_df["Leads"].apply(lambda x: f"{x:,}")
+            display_df["Revenue"] = display_df["Revenue"].apply(lambda x: f"${x:,.2f}")
+            
+            st.dataframe(display_df, use_container_width=True, height=500)
+            
+            st.markdown("---")
+            st.markdown("### Key Assumptions")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f"""
+                **Traffic & Conversion**
+                - Starting Visitors: {base_visitors:,}/week
+                - Conversion Rate: {conversion_rate}%
+                - Weekly Growth: {growth_rate}%
+                """)
+            
+            with col2:
+                st.markdown(f"""
+                **Lead Generation & Revenue**
+                - Lead Conversion: {state.get('lead_conversion', 30.0)}%
+                - Revenue per Lead: ${state.get('revenue_per_lead', 500.0):,.2f}
+                - Total Pipeline: ${total_revenue:,.0f}
+                """)
+        
+        with tab3:
+            st.subheader("💡 AI-Generated Insights")
+            
+            if state.get("kpi_insights"):
+                st.markdown(state["kpi_insights"])
+            else:
+                st.info("AI insights will be generated along with your KPI projections")
+            
+            st.markdown("---")
+            st.markdown("### Recommendations")
+            
+            # Calculate some metrics for recommendations
+            avg_weekly_growth = ((kpi_df["Visitors"].iloc[-1] / kpi_df["Visitors"].iloc[0]) ** (1/12) - 1) * 100
+            final_conversion = (kpi_df["Signups"].iloc[-1] / kpi_df["Visitors"].iloc[-1]) * 100
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**📈 Growth Opportunities**")
+                if avg_weekly_growth < 10:
+                    st.warning("Consider increasing marketing spend to achieve target growth")
+                elif avg_weekly_growth > 20:
+                    st.success("Strong growth trajectory - ensure infrastructure can scale")
+                else:
+                    st.info("Healthy growth rate - maintain current strategy")
+            
+            with col2:
+                st.markdown("**🎯 Conversion Optimization**")
+                if final_conversion < 2:
+                    st.warning("Focus on optimizing your landing page and value proposition")
+                elif final_conversion > 5:
+                    st.success("Excellent conversion rate - scale your traffic sources")
+                else:
+                    st.info("Good conversion rate - continue A/B testing")
+        
+        with tab4:
+            st.subheader("📥 Export Options")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### Download as CSV")
+                st.caption("Import into Excel or Google Sheets")
+                
+                csv_data = kpi_df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_data,
+                    file_name=f"{state['company_name']}_kpi_projections.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.markdown("#### Copy as JSON")
+                st.caption("For API integration or custom tools")
+                
+                import json
+                json_data = kpi_df.to_dict('records')
+                st.download_button(
+                    label="Download JSON",
+                    data=json.dumps(json_data, indent=2),
+                    file_name=f"{state['company_name']}_kpi_projections.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+            
+            st.markdown("---")
+            st.markdown("#### 📊 Google Sheets Formulas")
+            st.caption("Use these formulas to track actual vs projected metrics")
+            
+            formulas_code = """
+            # Week-over-Week Growth
+            =(B3-B2)/B2
+            
+            # Conversion Rate
+            =C2/B2
+            
+            # Cumulative Revenue
+            =SUM($E$2:E2)
+            
+            # Target Achievement
+            =ACTUAL_VALUE/PROJECTED_VALUE
+            """
+            st.code(formulas_code, language="excel")
+    
+    else:
+        # No KPIs yet - show preview
+        st.info("📝 Configure your KPI parameters above and click 'Generate KPIs' to see your projections")
+        
+        st.markdown("### What You'll Get:")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            ✅ **Visual Dashboard**
+            - Interactive charts with Plotly
+            - Visitor & signup trends
+            - Revenue projections
+            - Week-by-week breakdown
+            """)
+        
+        with col2:
+            st.markdown("""
+            ✅ **AI-Powered Insights**
+            - Growth opportunity analysis
+            - Conversion optimization tips
+            - Benchmark comparisons
+            - Actionable recommendations
+            """)
     
     # Navigation
+    st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("← Back to Launch Plan", use_container_width=True):
             st.session_state.current_page = "launch_plan"
             st.rerun()
     with col2:
-        if st.button("Download Playbook 📦", use_container_width=True, type="primary"):
-            st.info("Playbook export will be available in Phase 8")
+        st.markdown("*🎉 You've reached the end of the workflow!*")
 
 
 def main():

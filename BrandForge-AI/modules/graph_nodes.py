@@ -198,29 +198,38 @@ def node_calculate_kpis(state: BrandState) -> BrandState:
     print("[LangGraph] Executing Node: KPI Calculation")
     
     # Default KPI targets if not provided
-    if not state.get("kpi_targets"):
-        state["kpi_targets"] = {
-            "weekly_traffic_growth": 15.0,
-            "conversion_rate": 2.5,
-            "email_open_rate": 25.0,
-            "social_engagement_rate": 5.0,
-            "customer_acquisition_cost": 50.0
-        }
+    if not state.get("base_visitors"):
+        state["base_visitors"] = 1000
+    if not state.get("conversion_rate"):
+        state["conversion_rate"] = 2.5
+    if not state.get("growth_rate"):
+        state["growth_rate"] = 10.0
+    if not state.get("lead_conversion"):
+        state["lead_conversion"] = 30.0
+    if not state.get("revenue_per_lead"):
+        state["revenue_per_lead"] = 500.0
     
     # Calculate projections
-    projections = calculate_kpi_projections(
+    projections_df = calculate_kpi_projections(
+        base_visitors=state["base_visitors"],
+        conversion_rate=state["conversion_rate"] / 100.0,  # Convert to decimal
+        growth_rate=state["growth_rate"] / 100.0,  # Convert to decimal
         weeks=13,  # 90 days / 7 = ~13 weeks
-        targets=state["kpi_targets"]
+        lead_conversion=state["lead_conversion"] / 100.0,
+        revenue_per_lead=state["revenue_per_lead"]
     )
     
     # Generate AI insights about the projections
+    total_signups = projections_df["Signups"].sum()
     insights = generate_kpi_insights(
-        projections=projections,
-        targets=state["kpi_targets"],
+        base_visitors=state["base_visitors"],
+        conversion_rate=state["conversion_rate"],
+        growth_rate=state["growth_rate"],
+        total_signups=total_signups,
         brand_type=state.get("brand_type", "SaaS")
     )
     
-    state["kpi_projections"] = projections
+    state["kpi_projections"] = projections_df.to_dict('records')
     state["kpi_insights"] = insights
     state["current_step"] = 5
     state["last_updated"] = datetime.now().isoformat()
