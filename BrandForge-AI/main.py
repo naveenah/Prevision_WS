@@ -652,18 +652,250 @@ def page_launch_plan():
     st.header("📅 90-Day Launch Plan")
     st.caption("Your week-by-week roadmap to launch")
     
-    # Coming soon message
-    st.info("🚧 This page will be implemented in Phase 6")
+    state = st.session_state.brand_state
+    executor = st.session_state.workflow_executor
     
-    st.markdown("""
-    ### What's Coming:
-    - 📊 Interactive 90-day calendar
-    - ✏️ Editable task lists
-    - 📥 CSV export for project management tools
-    - 🤖 AI-customized recommendations based on your brand type
-    """)
+    # Check prerequisites
+    if not state.get("company_name"):
+        st.warning("⚠️ Please complete the Brand Foundations page first.")
+        if st.button("Go to Foundations →"):
+            st.session_state.current_page = "foundations"
+            st.rerun()
+        return
+    
+    # Check if launch plan exists
+    has_launch_plan = state.get("launch_plan_df") is not None
+    
+    # Configuration Section
+    st.subheader("🎯 Launch Configuration")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Brand Type Selection
+        brand_type_options = ["SaaS", "D2C", "Agency", "E-commerce"]
+        current_brand_type = state.get("brand_type", "SaaS")
+        brand_type = st.selectbox(
+            "Brand Type",
+            options=brand_type_options,
+            index=brand_type_options.index(current_brand_type) if current_brand_type in brand_type_options else 0,
+            help="Select your brand type to get a customized launch plan"
+        )
+        
+        # Update state if changed
+        if brand_type != state.get("brand_type"):
+            state["brand_type"] = brand_type
+            save_state_to_file(state)
+    
+    with col2:
+        # Launch Start Date
+        from datetime import date, timedelta
+        default_date = date.today() + timedelta(days=7)
+        
+        current_start_date = state.get("launch_start_date")
+        if current_start_date:
+            try:
+                start_date_obj = date.fromisoformat(current_start_date)
+            except:
+                start_date_obj = default_date
+        else:
+            start_date_obj = default_date
+        
+        start_date = st.date_input(
+            "Launch Start Date",
+            value=start_date_obj,
+            help="When do you plan to begin executing your launch plan?"
+        )
+        
+        # Update state if changed
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        if start_date_str != state.get("launch_start_date"):
+            state["launch_start_date"] = start_date_str
+            save_state_to_file(state)
+    
+    st.markdown("---")
+    
+    # Generate Launch Plan Button
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        if not has_launch_plan:
+            st.info("💡 Click the button to generate your customized 90-day launch plan")
+        else:
+            st.success("✅ Launch plan generated! You can regenerate it anytime to apply configuration changes.")
+    
+    with col2:
+        if st.button("🤖 Generate Plan", type="primary", use_container_width=True):
+            with st.spinner("Generating your 90-day launch plan..."):
+                try:
+                    # Execute the launch plan node
+                    updated_state = executor.execute_step("launch_plan", state)
+                    
+                    # Update session state with new launch plan
+                    st.session_state.brand_state = updated_state
+                    save_state_to_file(updated_state)
+                    st.success("🎉 Launch plan generated successfully!")
+                    st.rerun()
+                
+                except Exception as e:
+                    st.error(f"Error generating launch plan: {str(e)}")
+                    import traceback
+                    st.error(traceback.format_exc())
+    
+    # Display Launch Plan
+    if has_launch_plan:
+        st.markdown("---")
+        st.subheader("📋 Your 90-Day Launch Roadmap")
+        
+        # Convert serialized DataFrame back to DataFrame
+        import pandas as pd
+        launch_df = pd.DataFrame(state["launch_plan_df"])
+        
+        # Add date information if available
+        if "Start Date" in launch_df.columns and "End Date" in launch_df.columns:
+            launch_df["Date Range"] = launch_df.apply(
+                lambda row: f"{row['Start Date']} to {row['End Date']}", axis=1
+            )
+        
+        # Display summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_weeks = len(launch_df)
+            st.metric("Total Weeks", total_weeks)
+        
+        with col2:
+            phases = launch_df["phase"].nunique() if "phase" in launch_df.columns else 0
+            st.metric("Phases", phases)
+        
+        with col3:
+            completed = len(launch_df[launch_df["status"] == "Completed"]) if "status" in launch_df.columns else 0
+            st.metric("Completed", completed)
+        
+        with col4:
+            pending = len(launch_df[launch_df["status"] == "Pending"]) if "status" in launch_df.columns else total_weeks
+            st.metric("Pending", pending)
+        
+        st.markdown("---")
+        
+        # Display plan in tabs
+        tab1, tab2, tab3 = st.tabs(["📊 Timeline View", "📝 Detailed Tasks", "📥 Export"])
+        
+        with tab1:
+            st.markdown("### Timeline by Phase")
+            
+            # Group by phase
+            if "phase" in launch_df.columns:
+                phases = launch_df["phase"].unique()
+                
+                for phase in phases:
+                    phase_df = launch_df[launch_df["phase"] == phase]
+                    
+                    with st.expander(f"🎯 {phase} (Weeks {phase_df['week'].min()}-{phase_df['week'].max()})", expanded=True):
+                        for _, row in phase_df.iterrows():
+                            week_col, deliverable_col, owner_col, status_col = st.columns([1, 5, 2, 2])
+                            
+                            with week_col:
+                                st.markdown(f"**Week {row['week']}**")
+                            
+                            with deliverable_col:
+                                st.markdown(row['deliverables'])
+                            
+                            with owner_col:
+                                st.markdown(f"👤 {row['owner']}")
+                            
+                            with status_col:
+                                status = row.get('status', 'Pending')
+                                if status == "Completed":
+                                    st.markdown("✅ Done")
+                                elif status == "In Progress":
+                                    st.markdown("🔄 Active")
+                                else:
+                                    st.markdown("⏳ Pending")
+            else:
+                st.dataframe(launch_df, use_container_width=True)
+        
+        with tab2:
+            st.markdown("### Detailed Task List")
+            st.caption("Full breakdown of deliverables, owners, and status")
+            
+            # Display as interactive dataframe
+            st.dataframe(
+                launch_df,
+                use_container_width=True,
+                height=600
+            )
+            
+            # Option to edit status (simple version)
+            st.markdown("---")
+            st.markdown("**💡 Tip:** Export to CSV to track progress in your project management tool")
+        
+        with tab3:
+            st.markdown("### Export Options")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📥 Download as CSV")
+                st.caption("Import into Excel, Google Sheets, or project management tools")
+                
+                csv_data = launch_df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_data,
+                    file_name=f"{state['company_name']}_launch_plan.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.markdown("#### 📋 Copy to Clipboard")
+                st.caption("Copy as markdown for documentation")
+                
+                # Generate markdown table
+                markdown_table = launch_df.to_markdown(index=False)
+                st.text_area(
+                    "Markdown Format",
+                    value=markdown_table,
+                    height=200,
+                    label_visibility="collapsed"
+                )
+            
+            st.markdown("---")
+            st.markdown("#### 🔗 Integration Tips")
+            st.markdown("""
+            - **Asana/Trello**: Import CSV and map columns to custom fields
+            - **Notion**: Paste markdown table into a Notion page
+            - **Monday.com**: Use CSV import to create new board
+            - **ClickUp**: Import tasks via CSV with custom fields mapping
+            """)
+    
+    else:
+        # No launch plan yet - show placeholder
+        st.info("📝 Configure your launch settings above and click 'Generate Plan' to create your customized 90-day roadmap")
+        
+        st.markdown("### What You'll Get:")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            ✅ **Week-by-week task breakdown**
+            - Phase-based organization
+            - Clear deliverables
+            - Owner assignments
+            """)
+        
+        with col2:
+            st.markdown("""
+            ✅ **Customized for your brand type**
+            - SaaS: Product-led growth focus
+            - D2C: E-commerce & retail strategy
+            - Agency: Service delivery & client acquisition
+            - E-commerce: Marketplace & inventory management
+            """)
     
     # Navigation
+    st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("← Back to Identity", use_container_width=True):

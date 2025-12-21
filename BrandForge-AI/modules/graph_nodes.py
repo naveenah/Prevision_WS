@@ -76,6 +76,7 @@ def node_market_analysis(state: BrandState) -> BrandState:
         company_name=state["company_name"],
         target_audience=state["target_audience"],
         core_problem=state["core_problem"],
+        brand_voice=state.get("brand_voice", "Professional"),
         values=state["values"]
     )
     state["positioning_statement"] = positioning
@@ -168,8 +169,8 @@ def node_plan_launch(state: BrandState) -> BrandState:
         
         # Add date ranges to DataFrame
         if len(weeks) >= len(launch_df):
-            launch_df["Start Date"] = [w["start"] for w in weeks[:len(launch_df)]]
-            launch_df["End Date"] = [w["end"] for w in weeks[:len(launch_df)]]
+            launch_df["Start Date"] = [w["start_date"] for w in weeks[:len(launch_df)]]
+            launch_df["End Date"] = [w["end_date"] for w in weeks[:len(launch_df)]]
     
     # Serialize DataFrame to dict for state storage
     state["launch_plan_df"] = launch_df.to_dict('records')
