@@ -7,6 +7,7 @@ import streamlit as st
 from datetime import datetime
 import sys
 from pathlib import Path
+import pandas as pd
 
 # Add modules to path
 sys.path.append(str(Path(__file__).parent))
@@ -24,7 +25,10 @@ from modules.utils import calculate_workflow_statistics
 from modules.langchain_agents import (
     generate_brand_foundations,
     generate_positioning_statement,
-    test_api_connection
+    test_api_connection,
+    refine_content_with_feedback,
+    generate_alternative_versions,
+    compare_versions
 )
 from modules.workflow import (
     BrandWorkflowExecutor,
@@ -128,6 +132,43 @@ def render_sidebar():
         
         # Actions
         st.subheader("⚙️ Actions")
+        
+        # Complete Playbook Export (New Phase 7 feature)
+        if workflow_progress["percentage"] >= 75:  # At least 75% complete
+            st.markdown("**📦 Export Complete Playbook**")
+            if st.button("📥 Download Everything", use_container_width=True, type="primary"):
+                with st.spinner("Preparing your complete brand playbook..."):
+                    try:
+                        # Gather all data
+                        state = st.session_state.brand_state
+                        
+                        # Get launch plan if exists
+                        launch_df = None
+                        if state.get("launch_plan_df"):
+                            launch_df = pd.DataFrame(state["launch_plan_df"])
+                        
+                        # Get KPI projections if exists
+                        kpi_df = None
+                        if state.get("kpi_projections"):
+                            kpi_df = pd.DataFrame(state["kpi_projections"])
+                        
+                        # Create ZIP package
+                        from modules.utils import create_brand_playbook_zip
+                        zip_buffer = create_brand_playbook_zip(state, launch_df, kpi_df)
+                        
+                        # Provide download
+                        st.download_button(
+                            label="💾 Download Complete Package",
+                            data=zip_buffer,
+                            file_name=f"{state['company_name']}_BrandPlaybook.zip",
+                            mime="application/zip",
+                            use_container_width=True
+                        )
+                        st.success("✅ Package ready! Click above to download.")
+                    except Exception as e:
+                        st.error(f"Error creating package: {str(e)}")
+            
+            st.divider()
         
         if st.button("💾 Save Progress", use_container_width=True):
             save_state_to_file(st.session_state.brand_state)
@@ -330,6 +371,206 @@ def page_foundations():
                 label_visibility="collapsed"
             )
             st.session_state.brand_state["positioning_statement"] = edited_positioning
+        
+        # ===== PHASE 8: AI REFINEMENT SECTION =====
+        st.divider()
+        st.subheader("✨ AI Refinement Tools")
+        st.caption("Not quite right? Get AI-powered refinements based on your feedback")
+        
+        # Refinement tabs
+        refine_tab1, refine_tab2, refine_tab3 = st.tabs(["🔄 Refine with Feedback", "🎯 Generate Alternatives", "📊 Version History"])
+        
+        with refine_tab1:
+            st.markdown("**Refine Content with Your Feedback**")
+            
+            # Select field to refine
+            refine_field = st.selectbox(
+                "What would you like to refine?",
+                options=["Vision Statement", "Mission Statement", "Positioning Statement", "Values (all)"],
+                key="refine_field_selector"
+            )
+            
+            # Show current content
+            field_mapping = {
+                "Vision Statement": ("vision", "vision"),
+                "Mission Statement": ("mission", "mission"),
+                "Positioning Statement": ("positioning_statement", "positioning statement"),
+                "Values (all)": ("values", "core values")
+            }
+            
+            state_key, display_name = field_mapping[refine_field]
+            current_content = st.session_state.brand_state.get(state_key, "")
+            
+            if isinstance(current_content, list):
+                current_content = "\n".join(current_content)
+            
+            st.info(f"**Current {display_name}:**\n\n{current_content}")
+            
+            # Feedback input
+            user_feedback = st.text_area(
+                "What would you like to change or improve?",
+                placeholder="Example: Make it more aspirational and less generic, or focus more on the environmental impact",
+                key="refine_feedback_input",
+                height=80
+            )
+            
+            # Refine button
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if st.button("🚀 Refine with Gemini", use_container_width=True, type="primary", disabled=not user_feedback):
+                    if user_feedback:
+                        with st.spinner(f"🤖 Gemini is refining your {display_name}..."):
+                            try:
+                                context = f"{st.session_state.brand_state.get('company_name')} - {st.session_state.brand_state.get('target_audience')}"
+                                
+                                refined = refine_content_with_feedback(
+                                    original_text=current_content,
+                                    user_feedback=user_feedback,
+                                    context=context,
+                                    field_name=display_name
+                                )
+                                
+                                # Show comparison
+                                st.success("✨ Refinement complete!")
+                                
+                                col_a, col_b = st.columns(2)
+                                with col_a:
+                                    st.markdown("**Before:**")
+                                    st.text_area("", value=current_content, height=120, disabled=True, key="before_refine", label_visibility="collapsed")
+                                with col_b:
+                                    st.markdown("**After:**")
+                                    st.text_area("", value=refined, height=120, disabled=True, key="after_refine", label_visibility="collapsed")
+                                
+                                # Stats
+                                comparison = compare_versions(current_content, refined, context)
+                                st.caption(f"📊 Length: {comparison['word_count_original']} → {comparison['word_count_refined']} words ({comparison['length_change_pct']:+.0f}%)")
+                                
+                                # Apply button
+                                if st.button("✅ Apply This Version", use_container_width=True, key="apply_refined"):
+                                    if state_key == "values":
+                                        st.session_state.brand_state[state_key] = [v.strip() for v in refined.split("\n") if v.strip()]
+                                    else:
+                                        st.session_state.brand_state[state_key] = refined
+                                    
+                                    # Track version history
+                                    if "refinement_history" not in st.session_state.brand_state:
+                                        st.session_state.brand_state["refinement_history"] = []
+                                    
+                                    st.session_state.brand_state["refinement_history"].append({
+                                        "field": state_key,
+                                        "original": current_content,
+                                        "refined": refined,
+                                        "feedback": user_feedback,
+                                        "timestamp": datetime.now().isoformat()
+                                    })
+                                    
+                                    save_state_to_file(st.session_state.brand_state)
+                                    st.success("✅ Applied! The content has been updated.")
+                                    st.rerun()
+                                    
+                            except Exception as e:
+                                st.error(f"❌ Error during refinement: {str(e)}")
+            
+            with col2:
+                st.caption("💡 Be specific with your feedback for best results")
+        
+        with refine_tab2:
+            st.markdown("**Generate Alternative Versions**")
+            st.caption("Get 3 different versions to choose from")
+            
+            # Select field for alternatives
+            alt_field = st.selectbox(
+                "Generate alternatives for:",
+                options=["Vision Statement", "Mission Statement", "Positioning Statement"],
+                key="alt_field_selector"
+            )
+            
+            field_map = {
+                "Vision Statement": "vision",
+                "Mission Statement": "mission",
+                "Positioning Statement": "positioning_statement"
+            }
+            
+            alt_state_key = field_map[alt_field]
+            alt_current = st.session_state.brand_state.get(alt_state_key, "")
+            
+            st.info(f"**Current:** {alt_current}")
+            
+            if st.button("🎲 Generate 3 Alternatives", use_container_width=True, type="primary"):
+                with st.spinner("🤖 Gemini is creating alternatives..."):
+                    try:
+                        context = f"{st.session_state.brand_state.get('company_name')} - {st.session_state.brand_state.get('target_audience')}"
+                        
+                        alternatives = generate_alternative_versions(
+                            original_text=alt_current,
+                            context=context,
+                            field_name=alt_field,
+                            num_versions=3
+                        )
+                        
+                        st.success(f"✨ Generated {len(alternatives)} alternatives!")
+                        
+                        for i, alt in enumerate(alternatives, 1):
+                            with st.container():
+                                st.markdown(f"**Option {i}:**")
+                                st.write(alt)
+                                
+                                if st.button(f"✅ Use Option {i}", key=f"use_alt_{i}", use_container_width=True):
+                                    st.session_state.brand_state[alt_state_key] = alt
+                                    
+                                    # Track in history
+                                    if "refinement_history" not in st.session_state.brand_state:
+                                        st.session_state.brand_state["refinement_history"] = []
+                                    
+                                    st.session_state.brand_state["refinement_history"].append({
+                                        "field": alt_state_key,
+                                        "original": alt_current,
+                                        "refined": alt,
+                                        "feedback": f"Selected alternative version {i}",
+                                        "timestamp": datetime.now().isoformat()
+                                    })
+                                    
+                                    save_state_to_file(st.session_state.brand_state)
+                                    st.success(f"✅ Applied Option {i}!")
+                                    st.rerun()
+                                
+                                st.divider()
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error generating alternatives: {str(e)}")
+        
+        with refine_tab3:
+            st.markdown("**Refinement History**")
+            
+            history = st.session_state.brand_state.get("refinement_history", [])
+            
+            if not history:
+                st.info("No refinements yet. Use the tabs above to start refining your content!")
+            else:
+                st.caption(f"Total refinements: {len(history)}")
+                
+                for i, entry in enumerate(reversed(history[-10:]), 1):  # Show last 10
+                    with st.expander(f"🔄 {entry['field'].replace('_', ' ').title()} - {entry.get('timestamp', 'N/A')[:16]}"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**Before:**")
+                            st.text(entry['original'][:200] + ("..." if len(entry['original']) > 200 else ""))
+                        with col2:
+                            st.markdown("**After:**")
+                            st.text(entry['refined'][:200] + ("..." if len(entry['refined']) > 200 else ""))
+                        
+                        st.caption(f"**Feedback:** {entry.get('feedback', 'N/A')}")
+                        
+                        # Restore button
+                        if st.button(f"↶ Restore This Version", key=f"restore_{i}"):
+                            field_key = entry['field']
+                            if field_key == "values":
+                                st.session_state.brand_state[field_key] = [v.strip() for v in entry['refined'].split("\n") if v.strip()]
+                            else:
+                                st.session_state.brand_state[field_key] = entry['refined']
+                            save_state_to_file(st.session_state.brand_state)
+                            st.success("✅ Version restored!")
+                            st.rerun()
         
         # Next Steps
         st.divider()
@@ -535,6 +776,89 @@ def page_identity():
             if st.button("💾 Save Messaging", use_container_width=True):
                 save_state_to_file(st.session_state.brand_state)
                 st.success("✅ Messaging saved!")
+            
+            # ===== PHASE 8: REFINEMENT FOR IDENTITY CONTENT =====
+            st.divider()
+            st.subheader("✨ Refine Your Messaging")
+            st.caption("Use AI to improve your brand voice and messaging")
+            
+            with st.expander("🔄 Refine Messaging Content", expanded=False):
+                # Select what to refine
+                identity_field = st.selectbox(
+                    "What would you like to refine?",
+                    options=["Messaging Guide", "Tagline", "Value Proposition", "Elevator Pitch"],
+                    key="identity_refine_selector"
+                )
+                
+                field_key_map = {
+                    "Messaging Guide": "messaging_guide",
+                    "Tagline": "tagline",
+                    "Value Proposition": "value_proposition",
+                    "Elevator Pitch": "elevator_pitch"
+                }
+                
+                selected_key = field_key_map[identity_field]
+                current_value = st.session_state.brand_state.get(selected_key, "")
+                
+                if current_value:
+                    st.info(f"**Current {identity_field}:**\n\n{current_value[:300]}{'...' if len(current_value) > 300 else ''}")
+                    
+                    # Feedback input
+                    identity_feedback = st.text_area(
+                        "What improvements would you like?",
+                        placeholder="Example: Make it more concise, emphasize the innovation aspect, use simpler language",
+                        key="identity_feedback_input",
+                        height=80
+                    )
+                    
+                    if st.button("🚀 Refine with Gemini", use_container_width=True, type="primary", disabled=not identity_feedback, key="refine_identity_btn"):
+                        if identity_feedback:
+                            with st.spinner(f"🤖 Refining your {identity_field}..."):
+                                try:
+                                    context = f"{st.session_state.brand_state.get('company_name')} - Brand identity content"
+                                    
+                                    refined = refine_content_with_feedback(
+                                        original_text=current_value,
+                                        user_feedback=identity_feedback,
+                                        context=context,
+                                        field_name=identity_field
+                                    )
+                                    
+                                    # Show comparison
+                                    st.success("✨ Refinement complete!")
+                                    
+                                    col_a, col_b = st.columns(2)
+                                    with col_a:
+                                        st.markdown("**Before:**")
+                                        st.text_area("", value=current_value, height=150, disabled=True, key="identity_before", label_visibility="collapsed")
+                                    with col_b:
+                                        st.markdown("**After:**")
+                                        st.text_area("", value=refined, height=150, disabled=True, key="identity_after", label_visibility="collapsed")
+                                    
+                                    # Apply button
+                                    if st.button("✅ Apply Refined Version", use_container_width=True, key="apply_identity_refined"):
+                                        st.session_state.brand_state[selected_key] = refined
+                                        
+                                        # Track in history
+                                        if "refinement_history" not in st.session_state.brand_state:
+                                            st.session_state.brand_state["refinement_history"] = []
+                                        
+                                        st.session_state.brand_state["refinement_history"].append({
+                                            "field": selected_key,
+                                            "original": current_value,
+                                            "refined": refined,
+                                            "feedback": identity_feedback,
+                                            "timestamp": datetime.now().isoformat()
+                                        })
+                                        
+                                        save_state_to_file(st.session_state.brand_state)
+                                        st.success("✅ Applied! Content updated.")
+                                        st.rerun()
+                                        
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                else:
+                    st.warning(f"No {identity_field} found. Please complete the field first.")
         
         else:
             st.info("Generate brand identity first to see messaging guidelines")
@@ -1267,9 +1591,48 @@ def page_kpi_dashboard():
     
     # Navigation
     st.markdown("---")
+    
+    # Workflow completion celebration (Phase 7 feature)
+    if has_kpis and state.get("current_step", 0) >= 5:
+        st.balloons()
+        st.success("🎉 **Congratulations!** You've completed the entire BrandForge AI workflow!")
+        
+        with st.expander("📊 Your Accomplishments", expanded=True):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**✅ Brand Strategy**")
+                st.caption(f"• Vision: {state.get('vision', 'N/A')[:50]}...")
+                st.caption(f"• Mission: {state.get('mission', 'N/A')[:50]}...")
+                st.caption(f"• Values: {len(state.get('values', []))} defined")
+            
+            with col2:
+                st.markdown("**✅ Brand Identity**")
+                st.caption("• Visual identity created")
+                st.caption("• Messaging guide developed")
+                st.caption("• Brand assets packaged")
+            
+            with col3:
+                st.markdown("**✅ Launch Plan**")
+                if state.get("launch_plan_df"):
+                    launch_df_check = pd.DataFrame(state["launch_plan_df"])
+                    st.caption(f"• {len(launch_df_check)} week roadmap")
+                st.caption(f"• {total_visitors:,} projected visitors")
+                st.caption(f"• ${total_revenue:,.0f} revenue target")
+            
+            st.markdown("---")
+            st.markdown("### 🚀 Next Steps:")
+            st.markdown("""
+            1. **Download your complete playbook** from the sidebar (📥 Download Everything)
+            2. **Share with your team** and gather feedback
+            3. **Set up tracking** using the Google Sheets formulas
+            4. **Execute your launch plan** week by week
+            5. **Monitor KPIs** and adjust strategy as needed
+            """)
+    
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Back to Launch Plan", use_container_width=True):
+        if st.button("← Back to Launch Plan", use_container_width=True, key="back_to_launch"):
             st.session_state.current_page = "launch_plan"
             st.rerun()
     with col2:

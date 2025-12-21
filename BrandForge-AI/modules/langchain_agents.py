@@ -437,3 +437,149 @@ def generate_brand_foundations_streaming(
             yield chunk.content
     
     return full_response
+
+@retry_on_error(max_retries=3)
+def refine_content_with_feedback(
+    original_text: str,
+    user_feedback: str,
+    context: str,
+    field_name: str = "content"
+) -> str:
+    """
+    Refine generated content based on user feedback using Gemini.
+    
+    Args:
+        original_text: The original AI-generated text to refine
+        user_feedback: User's specific feedback or improvement suggestions
+        context: Additional context about the content (brand name, purpose, etc.)
+        field_name: Name of the field being refined (for better context)
+        
+    Returns:
+        Refined text incorporating the user's feedback
+        
+    Example:
+        >>> refine_content_with_feedback(
+        ...     original_text="We help businesses grow online",
+        ...     user_feedback="Make it more aspirational and less generic",
+        ...     context="Mission statement for TechFlow AI, a SaaS automation platform",
+        ...     field_name="mission"
+        ... )
+    """
+    llm = get_llm(temperature=0.7)
+    
+    prompt = REFINEMENT_PROMPT.format(
+        field_name=field_name,
+        context=context,
+        original_text=original_text,
+        user_feedback=user_feedback
+    )
+    
+    messages = [HumanMessage(content=prompt)]
+    response = llm.invoke(messages)
+    
+    refined_text = response.content.strip()
+    
+    # Remove any markdown formatting or explanations
+    if refined_text.startswith("**") or refined_text.startswith("*"):
+        lines = refined_text.split("\n")
+        refined_text = "\n".join(line for line in lines if not line.startswith("**") and not line.startswith("*"))
+    
+    return refined_text.strip()
+
+
+@retry_on_error(max_retries=3)
+def generate_alternative_versions(
+    original_text: str,
+    context: str,
+    field_name: str = "content",
+    num_versions: int = 3
+) -> List[str]:
+    """
+    Generate multiple alternative versions of content for user to choose from.
+    
+    Args:
+        original_text: The original text to create alternatives for
+        context: Context about the brand and purpose
+        field_name: Name of the field (vision, mission, etc.)
+        num_versions: Number of alternative versions to generate (default: 3)
+        
+    Returns:
+        List of alternative text versions
+        
+    Example:
+        >>> generate_alternative_versions(
+        ...     original_text="Empowering businesses with AI",
+        ...     context="Vision for TechFlow AI",
+        ...     field_name="vision",
+        ...     num_versions=3
+        ... )
+    """
+    llm = get_llm(temperature=0.9)  # Higher temperature for more variety
+    
+    prompt = f"""You are an expert brand strategist. Generate {num_versions} alternative versions of the following {field_name}.
+
+Context: {context}
+Original {field_name}: {original_text}
+
+Requirements:
+1. Each version should convey the same core message
+2. Vary the tone, style, and wording
+3. Keep similar length to the original (±30%)
+4. Make each version distinct and compelling
+5. Number each version (1., 2., 3.)
+
+Generate {num_versions} alternatives:"""
+    
+    messages = [HumanMessage(content=prompt)]
+    response = llm.invoke(messages)
+    
+    # Parse numbered alternatives
+    alternatives = []
+    lines = response.content.strip().split("\n")
+    current_version = ""
+    
+    for line in lines:
+        line = line.strip()
+        if line and (line[0].isdigit() and line[1:3] in [". ", ") "]):
+            # New version starting
+            if current_version:
+                alternatives.append(current_version.strip())
+            current_version = line[3:].strip() if line[2] == " " else line[2:].strip()
+        elif current_version:
+            current_version += " " + line
+    
+    # Add last version
+    if current_version:
+        alternatives.append(current_version.strip())
+    
+    # Fallback if parsing failed
+    if not alternatives:
+        alternatives = [response.content.strip()]
+    
+    return alternatives[:num_versions]
+
+
+def compare_versions(
+    original: str,
+    refined: str,
+    context: str
+) -> Dict[str, any]:
+    """
+    Compare original and refined versions, providing analysis.
+    
+    Args:
+        original: Original text
+        refined: Refined text
+        context: Context about the content
+        
+    Returns:
+        Dictionary with comparison metrics and insights
+    """
+    return {
+        "original_length": len(original),
+        "refined_length": len(refined),
+        "length_change_pct": round((len(refined) - len(original)) / len(original) * 100, 1),
+        "word_count_original": len(original.split()),
+        "word_count_refined": len(refined.split()),
+        "context": context
+    }
