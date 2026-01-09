@@ -64,6 +64,10 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lamb
 
 INSTALLED_APPS = [
     'tenants',  # our tenant app
+    'onboarding',  # onboarding flow
+    'ai_services',  # AI integration
+    'files',  # file management
+    'automation',  # automation features
 
     # Django apps
     'django.contrib.admin',
