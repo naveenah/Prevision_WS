@@ -4,10 +4,13 @@ Integration with Google Gemini AI
 """
 import os
 import time
+import logging
 from typing import Dict, List, Any, Optional
 from django.conf import settings
 import google.generativeai as genai
 from .models import AIGeneration
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiAIService:
@@ -19,9 +22,15 @@ class GeminiAIService:
         self.api_key = os.getenv('GOOGLE_API_KEY') or settings.GOOGLE_API_KEY
         self.model_name = 'gemini-1.5-flash'
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel(self.model_name)
+            try:
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel(self.model_name)
+                logger.info(f"Gemini AI service initialized with model: {self.model_name}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Gemini AI: {str(e)}")
+                self.model = None
         else:
+            logger.warning("GOOGLE_API_KEY not configured. AI service will use fallback responses.")
             self.model = None
 
     def generate_brand_strategy(self, company_data: Dict[str, Any]) -> Dict[str, str]:
@@ -60,7 +69,8 @@ class GeminiAIService:
                 }
 
         except Exception as e:
-            # Fallback on error
+            # Log error and use fallback
+            logger.error(f"AI brand strategy generation failed: {str(e)}", exc_info=True)
             result = {
                 'vision_statement': f"Our vision is to revolutionize the {company_data.get('industry', 'industry')} through innovative solutions.",
                 'mission_statement': f"To provide exceptional {company_data.get('industry', 'services')} that solve {company_data.get('core_problem', 'key challenges')} for our customers.",
@@ -71,14 +81,17 @@ class GeminiAIService:
         processing_time = time.time() - start_time
 
         # Log the generation
-        AIGeneration.objects.create(
-            tenant=company_data.get('tenant'),
-            content_type='brand_strategy',
-            prompt=prompt,
-            response=str(result),
-            tokens_used=len(prompt.split()) + len(str(result).split()),  # Rough estimate
-            processing_time=processing_time
-        )
+        try:
+            AIGeneration.objects.create(
+                tenant=company_data.get('tenant'),
+                content_type='brand_strategy',
+                prompt=prompt,
+                response=str(result),
+                tokens_used=len(prompt.split()) + len(str(result).split()),  # Rough estimate
+                processing_time=processing_time
+            )
+        except Exception as e:
+            logger.error(f"Failed to log AI generation: {str(e)}", exc_info=True)
 
         return result
 
@@ -114,7 +127,8 @@ class GeminiAIService:
                 }
 
         except Exception as e:
-            # Fallback on error
+            # Log error and use fallback
+            logger.error(f"AI brand identity generation failed: {str(e)}", exc_info=True)
             result = {
                 'color_palette_desc': "Primary: Deep Blue (#1a365d) for trust and professionalism, Secondary: Teal (#319795) for innovation, Accent: Orange (#ed8936) for energy",
                 'font_recommendations': "Primary: Inter (clean, modern sans-serif for body text), Secondary: Playfair Display (elegant serif for headings)",
@@ -124,14 +138,17 @@ class GeminiAIService:
         processing_time = time.time() - start_time
 
         # Log the generation
-        AIGeneration.objects.create(
-            tenant=company_data.get('tenant'),
-            content_type='brand_identity',
-            prompt=prompt,
-            response=str(result),
-            tokens_used=len(prompt.split()) + len(str(result).split()),
-            processing_time=processing_time
-        )
+        try:
+            AIGeneration.objects.create(
+                tenant=company_data.get('tenant'),
+                content_type='brand_identity',
+                prompt=prompt,
+                response=str(result),
+                tokens_used=len(prompt.split()) + len(str(result).split()),
+                processing_time=processing_time
+            )
+        except Exception as e:
+            logger.error(f"Failed to log AI generation: {str(e)}", exc_info=True)
 
         return result
 
@@ -159,14 +176,17 @@ class GeminiAIService:
         processing_time = time.time() - start_time
 
         # Log the generation
-        AIGeneration.objects.create(
-            tenant=context.get('tenant'),
-            content_type='content',
-            prompt=prompt,
-            response=response,
-            tokens_used=80,
-            processing_time=processing_time
-        )
+        try:
+            AIGeneration.objects.create(
+                tenant=context.get('tenant'),
+                content_type='content',
+                prompt=prompt,
+                response=response,
+                tokens_used=80,
+                processing_time=processing_time
+            )
+        except Exception as e:
+            logger.error(f"Failed to log chat AI generation: {str(e)}", exc_info=True)
 
         return response
 
