@@ -1,0 +1,275 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api';
+
+interface CompanyData {
+  id: number;
+  name: string;
+  industry: string;
+  description: string;
+  target_audience: string;
+  brand_voice: string;
+  vision_statement: string;
+  mission_statement: string;
+  values: string[];
+  positioning_statement: string;
+}
+
+export function OnboardingReview() {
+  const router = useRouter();
+  const [company, setCompany] = useState<CompanyData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchCompanyData();
+  }, []);
+
+  const fetchCompanyData = async () => {
+    try {
+      const companyId = localStorage.getItem('company_id');
+      if (!companyId) {
+        setError('Company ID not found. Please start from step 1.');
+        setLoading(false);
+        return;
+      }
+
+      const response = await apiClient.get(`/api/v1/companies/${companyId}/`);
+      if (response.ok) {
+        const data = await response.json();
+        setCompany(data);
+      } else {
+        setError('Failed to load company data');
+      }
+    } catch (error) {
+      console.error('Error fetching company data:', error);
+      setError('An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateBrandStrategy = async () => {
+    setGenerating(true);
+    setError('');
+
+    try {
+      const companyId = localStorage.getItem('company_id');
+      if (!companyId) {
+        setError('Company ID not found');
+        setGenerating(false);
+        return;
+      }
+
+      const response = await apiClient.post(
+        `/api/v1/companies/${companyId}/generate_brand_strategy/`,
+        {}
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        // Update company data with generated strategy
+        setCompany(prev => prev ? { ...prev, ...data } : null);
+        alert('Brand strategy generated successfully! Redirecting to dashboard...');
+        setTimeout(() => router.push('/dashboard'), 1500);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to generate brand strategy');
+      }
+    } catch (error) {
+      console.error('Error generating brand strategy:', error);
+      setError('An unexpected error occurred');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleGenerateBrandIdentity = async () => {
+    setGenerating(true);
+    setError('');
+
+    try {
+      const companyId = localStorage.getItem('company_id');
+      if (!companyId) {
+        setError('Company ID not found');
+        setGenerating(false);
+        return;
+      }
+
+      const response = await apiClient.post(
+        `/api/v1/companies/${companyId}/generate_brand_identity/`,
+        {}
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        alert('Brand identity generated successfully!');
+        // Optionally fetch updated company data
+        fetchCompanyData();
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to generate brand identity');
+      }
+    } catch (error) {
+      console.error('Error generating brand identity:', error);
+      setError('An unexpected error occurred');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="text-center py-12">
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <p className="mt-4 text-gray-600">Loading your company data...</p>
+      </div>
+    );
+  }
+
+  if (!company) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-600">{error || 'Company data not found'}</p>
+        <button
+          onClick={() => router.push('/onboarding/step-1')}
+          className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+        >
+          Start Over
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      {/* Company Information */}
+      <div className="bg-gray-50 rounded-lg p-6">
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">Company Information</h2>
+        <dl className="grid grid-cols-1 gap-4">
+          <div>
+            <dt className="text-sm font-medium text-gray-500">Company Name</dt>
+            <dd className="mt-1 text-sm text-gray-900">{company.name}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-gray-500">Industry</dt>
+            <dd className="mt-1 text-sm text-gray-900">{company.industry}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-gray-500">Description</dt>
+            <dd className="mt-1 text-sm text-gray-900">{company.description}</dd>
+          </div>
+        </dl>
+      </div>
+
+      {/* Brand Details */}
+      {company.brand_voice && (
+        <div className="bg-gray-50 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Brand Details</h2>
+          <dl className="grid grid-cols-1 gap-4">
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Brand Voice</dt>
+              <dd className="mt-1 text-sm text-gray-900">{company.brand_voice}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+
+      {/* Target Audience */}
+      {company.target_audience && (
+        <div className="bg-gray-50 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Target Audience</h2>
+          <p className="text-sm text-gray-900">{company.target_audience}</p>
+        </div>
+      )}
+
+      {/* AI-Generated Brand Strategy */}
+      {company.vision_statement && (
+        <div className="bg-indigo-50 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            🎯 AI-Generated Brand Strategy
+          </h2>
+          <dl className="grid grid-cols-1 gap-4">
+            <div>
+              <dt className="text-sm font-medium text-indigo-700">Vision Statement</dt>
+              <dd className="mt-1 text-sm text-gray-900">{company.vision_statement}</dd>
+            </div>
+            {company.mission_statement && (
+              <div>
+                <dt className="text-sm font-medium text-indigo-700">Mission Statement</dt>
+                <dd className="mt-1 text-sm text-gray-900">{company.mission_statement}</dd>
+              </div>
+            )}
+            {company.values && company.values.length > 0 && (
+              <div>
+                <dt className="text-sm font-medium text-indigo-700">Core Values</dt>
+                <dd className="mt-1">
+                  <ul className="list-disc list-inside text-sm text-gray-900">
+                    {company.values.map((value, idx) => (
+                      <li key={idx}>{value}</li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            )}
+            {company.positioning_statement && (
+              <div>
+                <dt className="text-sm font-medium text-indigo-700">Positioning Statement</dt>
+                <dd className="mt-1 text-sm text-gray-900">{company.positioning_statement}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="flex flex-col space-y-4 pt-6">
+        {!company.vision_statement && (
+          <button
+            onClick={handleGenerateBrandStrategy}
+            disabled={generating}
+            className="w-full px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 font-medium"
+          >
+            {generating ? 'Generating Brand Strategy...' : '✨ Generate Brand Strategy with AI'}
+          </button>
+        )}
+
+        {company.vision_statement && (
+          <button
+            onClick={handleGenerateBrandIdentity}
+            disabled={generating}
+            className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 font-medium"
+          >
+            {generating ? 'Generating Brand Identity...' : '🎨 Generate Brand Identity (Colors, Fonts)'}
+          </button>
+        )}
+
+        <div className="flex justify-between">
+          <button
+            type="button"
+            onClick={() => router.push('/onboarding/step-4')}
+            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard')}
+            className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+          >
+            Complete & Go to Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,197 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api';
+
+interface UploadedFile {
+  id: string;
+  file_name: string;
+  asset_type: string;
+  file_size: number;
+}
+
+export function AssetUploadForm() {
+  const router = useRouter();
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    setError('');
+
+    try {
+      const companyId = localStorage.getItem('company_id');
+      if (!companyId) {
+        setError('Company ID not found. Please start from step 1.');
+        setUploading(false);
+        return;
+      }
+
+      // Upload each file
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('company_id', companyId);
+        formData.append('asset_type', getAssetType(file.type));
+        formData.append('file_name', file.name);
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/assets/upload/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUploadedFiles((prev) => [...prev, data]);
+        } else {
+          const errorData = await response.json();
+          setError(`Failed to upload ${file.name}: ${errorData.message || 'Unknown error'}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const getAssetType = (mimeType: string): string => {
+    if (mimeType.startsWith('image/')) return 'logo';
+    if (mimeType === 'application/pdf') return 'document';
+    if (mimeType.startsWith('video/')) return 'video';
+    return 'other';
+  };
+
+  const handleSkip = () => {
+    router.push('/onboarding/step-5');
+  };
+
+  const handleNext = () => {
+    if (uploadedFiles.length === 0) {
+      setError('Please upload at least one file or click Skip to continue.');
+      return;
+    }
+    router.push('/onboarding/step-5');
+  };
+
+  return (
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+        <div className="space-y-4">
+          <div className="text-gray-500">
+            <svg
+              className="mx-auto h-12 w-12 text-gray-400"
+              stroke="currentColor"
+              fill="none"
+              viewBox="0 0 48 48"
+              aria-hidden="true"
+            >
+              <path
+                d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <div>
+            <label
+              htmlFor="file-upload"
+              className="relative cursor-pointer rounded-md font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              <span>Upload files</span>
+              <input
+                id="file-upload"
+                name="file-upload"
+                type="file"
+                className="sr-only"
+                multiple
+                onChange={handleFileUpload}
+                accept="image/*,.pdf,.doc,.docx"
+                disabled={uploading}
+              />
+            </label>
+            <p className="text-sm text-gray-500 mt-1">
+              or drag and drop
+            </p>
+          </div>
+          <p className="text-xs text-gray-500">
+            PNG, JPG, PDF up to 10MB each
+          </p>
+        </div>
+      </div>
+
+      {uploading && (
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+          <p className="mt-2 text-sm text-gray-600">Uploading files...</p>
+        </div>
+      )}
+
+      {uploadedFiles.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-medium text-gray-900">Uploaded Files</h3>
+          <ul className="divide-y divide-gray-200 border border-gray-200 rounded-lg">
+            {uploadedFiles.map((file) => (
+              <li key={file.id} className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center">
+                  <span className="text-sm font-medium text-gray-900">
+                    {file.file_name}
+                  </span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    ({(file.file_size / 1024).toFixed(1)} KB)
+                  </span>
+                </div>
+                <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                  {file.asset_type}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex justify-between pt-6">
+        <button
+          type="button"
+          onClick={() => router.push('/onboarding/step-3')}
+          className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+        >
+          Back
+        </button>
+        <div className="space-x-3">
+          <button
+            type="button"
+            onClick={handleSkip}
+            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={handleNext}
+            disabled={uploading}
+            className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+          >
+            Next Step
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
