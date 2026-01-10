@@ -17,11 +17,6 @@ class CompanySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'tenant', 'created_at', 'updated_at']
 
-    def create(self, validated_data):
-        # Ensure tenant is set from request context
-        validated_data['tenant'] = self.context['request'].tenant
-        return super().create(validated_data)
-
 
 class BrandAssetSerializer(serializers.ModelSerializer):
     """Serializer for BrandAsset model"""
@@ -33,11 +28,6 @@ class BrandAssetSerializer(serializers.ModelSerializer):
             'file_size', 'gcs_path', 'gcs_bucket', 'uploaded_at', 'processed'
         ]
         read_only_fields = ['id', 'tenant', 'uploaded_at']
-
-    def create(self, validated_data):
-        # Ensure tenant is set from request context
-        validated_data['tenant'] = self.context['request'].tenant
-        return super().create(validated_data)
 
 
 class OnboardingProgressSerializer(serializers.ModelSerializer):
@@ -54,11 +44,6 @@ class OnboardingProgressSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'tenant', 'started_at', 'last_updated']
 
-    def create(self, validated_data):
-        # Ensure tenant is set from request context
-        validated_data['tenant'] = self.context['request'].tenant
-        return super().create(validated_data)
-
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating a new company during onboarding"""
@@ -66,23 +51,19 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = ['name', 'description', 'industry', 'target_audience', 'core_problem', 'brand_voice']
-        read_only_fields = []
-
-    def create(self, validated_data):
-        # Ensure tenant is set from request context
-        validated_data['tenant'] = self.context['request'].tenant
-        return super().create(validated_data)
+        # Tenant is set in the viewset's perform_create method
 
 
 class CompanyUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating company information"""
-
+    """Serializer for updating company after onboarding (brand strategy)"""
+    
     class Meta:
         model = Company
         fields = [
             'description', 'industry', 'target_audience', 'core_problem', 'brand_voice',
             'vision_statement', 'mission_statement', 'values', 'positioning_statement',
-            'tagline', 'value_proposition', 'elevator_pitch'
+            'tagline', 'value_proposition', 'elevator_pitch', 'color_palette_desc',
+            'font_recommendations', 'messaging_guide'
         ]
 
 

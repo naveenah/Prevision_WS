@@ -20,12 +20,21 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from onboarding.auth_serializers import EmailTokenObtainPairSerializer
+from onboarding.registration import UserRegistrationView
+
+
+class EmailTokenObtainPairView(TokenObtainPairView):
+    """Custom view that uses email-based authentication"""
+    serializer_class = EmailTokenObtainPairSerializer
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/', include([
-        # Authentication
-        path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+        # Authentication - now accepts email instead of username
+        path('auth/register/', UserRegistrationView.as_view(), name='user_register'),
+        path('auth/login/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
         path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
         # Onboarding
