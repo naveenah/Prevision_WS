@@ -23,10 +23,21 @@ from brand_automator.auth_views import (
     EmailVerificationView,
     PasswordResetRequestView,
 )
+from brand_automator.health_views import (
+    HealthCheckView,
+    ReadinessCheckView,
+    LivenessCheckView,
+)
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    
+    # Health check endpoints
+    path('health/', HealthCheckView.as_view(), name='health_check'),
+    path('ready/', ReadinessCheckView.as_view(), name='readiness_check'),
+    path('alive/', LivenessCheckView.as_view(), name='liveness_check'),
+    
     path('api/v1/', include([
         # Authentication - now accepts email instead of username
         path('auth/register/', UserRegistrationView.as_view(), name='user_register'),
