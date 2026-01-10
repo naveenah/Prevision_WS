@@ -1,5 +1,5 @@
-// API configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { env } from './env';
+import { toast } from './toast';
 
 let isRefreshing = false;
 let failedQueue: Array<{ resolve: (value: unknown) => void; reject: (reason?: any) => void }> = [];
@@ -24,7 +24,7 @@ const refreshAccessToken = async (): Promise<string | null> => {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/token/refresh/`, {
+    const response = await fetch(env.getApiUrl('/auth/token/refresh/'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -53,7 +53,7 @@ const refreshAccessToken = async (): Promise<string | null> => {
 
 export const apiClient = {
   async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const url = env.getApiUrl(endpoint);
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
     const config: RequestInit = {

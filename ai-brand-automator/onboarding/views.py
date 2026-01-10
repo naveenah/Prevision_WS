@@ -11,19 +11,20 @@ from .serializers import (
 )
 from files.services import gcs_service
 from ai_services.services import ai_service
+from brand_automator.validators import validate_file_upload, sanitize_filename
 
 
 class CompanyViewSet(viewsets.ModelViewSet):
     """ViewSet for Company model"""
-    queryset = Company.objects.all()
+    queryset = Company.objects.select_related('tenant').all()
     serializer_class = CompanySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Filter by tenant in multi-tenant setup
+        # Filter by tenant in multi-tenant setup with optimized queries
         if hasattr(self.request, 'tenant') and self.request.tenant:
-            return Company.objects.filter(tenant=self.request.tenant)
-        return Company.objects.all()
+            return Company.objects.filter(tenant=self.request.tenant).select_related('tenant')
+        return Company.objects.select_related('tenant').all()
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -115,15 +116,15 @@ class CompanyViewSet(viewsets.ModelViewSet):
 
 class BrandAssetViewSet(viewsets.ModelViewSet):
     """ViewSet for BrandAsset model"""
-    queryset = BrandAsset.objects.all()
+    queryset = BrandAsset.objects.select_related('tenant', 'company').all()
     serializer_class = BrandAssetSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Filter by tenant in multi-tenant setup
+        # Filter by tenant in multi-tenant setup with optimized queries
         if hasattr(self.request, 'tenant') and self.request.tenant:
-            return BrandAsset.objects.filter(tenant=self.request.tenant)
-        return BrandAsset.objects.all()
+            return BrandAsset.objects.filter(tenant=self.request.tenant).select_related('tenant', 'company')
+        return BrandAsset.objects.select_related('tenant', 'company').all()
 
     @action(detail=False, methods=['post'])
     def upload(self, request):
@@ -134,6 +135,26 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
 
         file = serializer.validated_data['file']
         file_type = serializer.validated_data['file_type']
+        
+        # Define allowed file types
+        allowed_types = [
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/quicktime',
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ]
+        
+        # Validate file
+        validation_result = validate_file_upload(file, allowed_types, max_size_mb=50)
+        if not validation_result['valid']:
+            return Response(
+                {'error': validation_result['error']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Sanitize filename
+        safe_filename = sanitize_filename(file.name)
 
         # Get or create company for the tenant
         # TODO: Get actual tenant from request in multi-tenant setup
@@ -141,7 +162,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         company = get_object_or_404(Company, tenant=tenant)
 
         # Upload to Google Cloud Storage
-        gcs_path = f"assets/{tenant.id}/{file.name}"
+        gcs_path = f"assets/{tenant.id}/{safe_filename}"
         try:
             public_url = gcs_service.upload_file(file, gcs_path, file.content_type)
         except Exception as e:
@@ -154,7 +175,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         asset = BrandAsset.objects.create(
             tenant=tenant,
             company=company,
-            file_name=file.name,
+            file_name=safe_filename,
             file_type=file_type,
             file_size=file.size,
             gcs_path=gcs_path,

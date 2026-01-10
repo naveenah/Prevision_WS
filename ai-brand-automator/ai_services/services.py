@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional
 from django.conf import settings
 import google.generativeai as genai
 from .models import AIGeneration
+from brand_automator.validators import sanitize_ai_prompt, sanitize_text_input
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,10 @@ class GeminiAIService:
         """
         Chat with AI using brand context
         """
-        prompt = self._build_chat_prompt(message, context)
+        # Sanitize user message to prevent prompt injection
+        sanitized_message = sanitize_ai_prompt(message)
+        
+        prompt = self._build_chat_prompt(sanitized_message, context)
 
         # TODO: Replace with actual Gemini API call
         start_time = time.time()

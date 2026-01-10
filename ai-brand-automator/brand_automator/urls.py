@@ -16,17 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
+from rest_framework_simplejwt.views import TokenRefreshView
+from brand_automator.auth_views import (
+    EmailTokenObtainPairView,
+    UserRegistrationView,
+    EmailVerificationView,
+    PasswordResetRequestView,
 )
-from onboarding.auth_serializers import EmailTokenObtainPairSerializer
-from onboarding.registration import UserRegistrationView
-
-
-class EmailTokenObtainPairView(TokenObtainPairView):
-    """Custom view that uses email-based authentication"""
-    serializer_class = EmailTokenObtainPairSerializer
 
 
 urlpatterns = [
@@ -36,6 +32,8 @@ urlpatterns = [
         path('auth/register/', UserRegistrationView.as_view(), name='user_register'),
         path('auth/login/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
         path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+        path('auth/verify-email/', EmailVerificationView.as_view(), name='email_verify'),
+        path('auth/password-reset/', PasswordResetRequestView.as_view(), name='password_reset'),
 
         # Onboarding
         path('', include('onboarding.urls')),
