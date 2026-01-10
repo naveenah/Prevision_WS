@@ -27,10 +27,24 @@ export function BrandForm() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      // Assume company ID is stored after creation, for now use 1
-      const companyId = localStorage.getItem('company_id') || '1';
+      const companyId = localStorage.getItem('company_id');
+      
+      if (!companyId) {
+        alert('Company ID not found. Please complete step 1 first.');
+        router.push('/onboarding/step-1');
+        return;
+      }
 
-      const response = await apiClient.put(`/api/v1/companies/${companyId}/`, formData);
+      // Convert camelCase to snake_case for backend
+      const apiData = {
+        brand_voice: formData.brandVoice,
+        vision_statement: formData.visionStatement,
+        mission_statement: formData.missionStatement,
+        values: formData.values,
+        positioning_statement: formData.positioningStatement,
+      };
+
+      const response = await apiClient.put(`/api/v1/companies/${companyId}/`, apiData);
 
       if (response.ok) {
         const data = await response.json();

@@ -1,7 +1,11 @@
+'use client';
+
 import { StepWizard } from '@/components/onboarding/StepWizard';
 import { BrandForm } from '@/components/onboarding/BrandForm';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function OnboardingStep2() {
+  useAuth(); // Protect this route
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
