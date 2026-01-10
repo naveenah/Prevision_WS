@@ -1,30 +1,36 @@
 # AI Brand Automator - Copilot Instructions
 
-## Project Architecture
+## Project Overview
 
-This is a **multi-tenant SaaS platform** for AI-powered brand building with:
+**Multi-tenant SaaS platform** for AI-powered brand building combining Django REST API with Next.js frontend:
 - **Backend**: Django 4.2 + DRF at `ai-brand-automator/` (port 8000)
 - **Frontend**: Next.js 16 + React 19 + TypeScript at `ai-brand-automator-frontend/` (port 3000)
-- **Database**: PostgreSQL (Neon hosted) with planned schema-based multi-tenancy via `django-tenants`
+- **Database**: PostgreSQL (Neon hosted) with schema-based multi-tenancy via `django-tenants`
 - **AI**: Google Gemini 1.5 Flash via `google-generativeai` for brand strategy generation
 
-**Critical**: Multi-tenancy infrastructure (django-tenants) is **currently disabled** in settings.py. The codebase has tenant references but runs in single-tenant mode. When referencing `request.tenant`, know this won't work until multi-tenancy is re-enabled.
+**⚠️ CRITICAL**: Multi-tenancy is **ENABLED** but **PARTIALLY BROKEN**. The middleware is active (`TenantMainMiddleware` in MIDDLEWARE list) but SHARED_APPS/TENANT_APPS split is configured. Every request expects `request.tenant` to exist. See Multi-Tenancy section for handling strategies.
 
-## Key Components & Data Flow
+## Key Architecture Decisions
 
 ### Django Apps Structure
-- `onboarding/`: Company creation → Brand strategy generation → Asset uploads
-- `ai_services/`: Chat sessions + AI content generation (brand strategy, identity, messaging)
-- `tenants/`: Multi-tenant models (disabled but present in migrations)
-- `files/`: GCS upload service (referenced but not fully implemented)
-- `automation/`: Placeholder for future Celery background tasks
+- `onboarding/`: Company creation → Brand strategy generation → Asset uploads (TENANT_APPS)
+- `ai_services/`: Chat sessions + AI content generation (SHARED_APPS for logging)
+- `tenants/`: Multi-tenant models (Tenant, Domain) - SHARED_APPS
+- `files/`: GCS upload service (TENANT_APPS, not fully implemented)
+- `automation/`: Placeholder for Celery background tasks (TENANT_APPS)
 
-### Brand Creation Workflow
+**Why this split?** 
+- SHARED_APPS: Available in public schema + all tenants (authentication, tenant management, AI logging)
+- TENANT_APPS: Isolated per-tenant data (companies, files, automation configs)
+
+### Critical Data Flow
 1. User creates `Company` via `POST /api/v1/companies/`
 2. `OnboardingProgress` auto-created with `current_step='company_info'`
 3. Frontend calls `POST /api/v1/companies/{id}/generate_brand_strategy/`
 4. `GeminiAIService.generate_brand_strategy()` generates vision/mission/values/positioning
 5. AI responses saved to Company model + `AIGeneration` logging model
+
+**Gotcha**: Company model has `OneToOneField(Tenant)` - creation fails without valid tenant context.
 
 ### API Authentication
 - JWT via `djangorestframework-simplejwt` with Bearer tokens
@@ -36,30 +42,44 @@ This is a **multi-tenant SaaS platform** for AI-powered brand building with:
 
 ### Running Services
 ```bash
-# Backend (Django)
+# Backend (Django) - REQUIRED ORDER
 cd ai-brand-automator
-source ../.venv/bin/activate  # Virtual env is in workspace root
-python manage.py runserver
+source ../.venv/bin/activate  # Virtual env is ONE LEVEL UP in workspace root
+python manage.py runserver     # Starts on http://localhost:8000
 
-# Frontend (Next.js)
+# Frontend (Next.js) - In separate terminal
 cd ai-brand-automator-frontend
-npm run dev
+npm run dev                    # Starts on http://localhost:3000
 ```
+
+**⚠️ Critical**: Virtual environment is at `/Users/naveenhanuman/Documents/Workspace/git-ws/Prevision_WS/.venv`, NOT inside ai-brand-automator/
 
 ### Database Operations
 ```bash
-# Migrations (multi-tenancy disabled, so standard Django)
+# Standard Django (NOT schema-per-tenant migrations due to broken config)
 python manage.py makemigrations
-python manage.py migrate
+python manage.py migrate        # Applies to default database only
 
-# Access Neon PostgreSQL (credentials in settings.py)
-# Connection string in settings.py - avoid committing credentials
+# When multi-tenancy is properly enabled, use:
+# python manage.py migrate_schemas --shared  # For SHARED_APPS
+# python manage.py migrate_schemas           # For all tenant schemas
 ```
 
+**Current State**: Database is Neon PostgreSQL but multi-tenancy NOT functional, so migrations behave like standard Django.
+
 ### Environment Configuration
-- Uses `python-decouple` for settings via `.env` files (not committed)
-- Key variables: `SECRET_KEY`, `DEBUG`, `GOOGLE_API_KEY`, `GS_BUCKET_NAME`
-- Frontend API URL: `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:8000`)
+```bash
+# Required .env variables (at ai-brand-automator/.env):
+SECRET_KEY=<generate-with-django>
+DEBUG=True
+GOOGLE_API_KEY=<your-gemini-api-key>
+DATABASE_URL=postgresql://...  # Optional if using hardcoded settings
+
+# Frontend .env.local:
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+**Security Issue**: Database credentials currently hardcoded in settings.py (lines 103-109) - should migrate to .env
 
 ## Project-Specific Patterns
 
@@ -102,31 +122,54 @@ def generate_brand_strategy(self, request, pk=None):
 ## Common Issues & Solutions
 
 ### Multi-Tenancy References
-When seeing `request.tenant` in views, this currently fails. Either:
-- Remove tenant filtering in `get_queryset()` temporarily
-- Add try/except with fallback to `.all()`
-- Wait for multi-tenancy re-enablement per settings.py comments
+When seeing `request.tenant` in views, this currently fails because middleware expects tenant but models aren't properly configured. Either:
+- **Temporary Fix**: Remove tenant filtering in `get_queryset()` - replace `Company.objects.filter(tenant=request.tenant)` with `Company.objects.all()`
+- **Proper Fix**: Complete multi-tenancy setup per CODEBASE_ANALYSIS document Option B
+- **Do NOT** just remove middleware - it's in MIDDLEWARE list but other configs are missing
 
 ### AI Service Failures
-`GeminiAIService` returns mock data if API key missing. Check console logs for:
+`GeminiAIService` returns mock data if `GOOGLE_API_KEY` not configured. Check logs for:
 ```python
-# In services.py - always returns dict even on error
+# In ai_services/services.py - always returns dict even on error
 except Exception as e:
     result = {'vision_statement': f"...fallback...", ...}
 ```
+**Test if AI is working**: Look for real generation vs "Based on {industry} industry..." fallback text
 
 ### CORS Issues
-Frontend must run on `localhost:3000` (not 127.0.0.1) to match CORS_ALLOWED_ORIGINS. Update settings.py if different ports needed.
+Frontend must run on **localhost:3000** (NOT 127.0.0.1) to match `CORS_ALLOWED_ORIGINS` in settings.py.
+- If using different port, update settings.py: `CORS_ALLOWED_ORIGINS = ['http://localhost:YOUR_PORT']`
+- If seeing CORS errors, check both URL and port match exactly
 
-### Database Credentials
-Neon PostgreSQL credentials are hardcoded in settings.py (should move to .env). Connection requires `sslmode=require`.
+### Database Connection Issues
+- Neon PostgreSQL requires `sslmode=require` and `channel_binding=require` (already in settings.py)
+- Credentials are HARDCODED in settings.py lines 103-109 - do NOT commit changes to this file
+- Connection string format: `postgresql://user:pass@host:5432/dbname?sslmode=require`
+
+### Frontend API Errors
+```typescript
+// Common issue: Token expired
+// apiClient.ts auto-redirects to /auth/login on 401
+// But NO automatic token refresh implemented yet
+
+// Field name mismatch:
+// Backend expects snake_case (target_audience)
+// Frontend might send camelCase (targetAudience)
+// Solution: Convert in serializer or frontend
+```
 
 ## Testing & Quality
 
 No test suite currently implemented. When adding tests:
-- Use `pytest` + `pytest-django` (add to requirements.txt)
-- Test AI service with mocked Gemini responses
-- Integration tests need separate test database schema
+- Backend: Use `pytest` + `pytest-django` (add to requirements.txt)
+  - Test structure: `app_name/tests/test_models.py`, `test_views.py`, `test_serializers.py`
+  - Fixtures in `conftest.py` at app and project level
+  - Target: 70% coverage for Phase 3
+- Frontend: Use Jest + React Testing Library (already in devDependencies)
+  - Test location: `__tests__/` or `component.test.tsx` next to component
+  - Target: 60% coverage for Phase 3
+- AI service tests MUST mock `google.generativeai.GenerativeModel` responses
+- Integration tests need proper tenant context (currently blocked by multi-tenancy issue)
 
 ## Implementation Plan & Issue Tracking
 

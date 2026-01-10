@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
@@ -43,6 +43,7 @@ class AIGenerationViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def chat_with_ai(request):
     """Chat with AI using brand context"""
     serializer = ChatMessageSerializer(data=request.data)
@@ -96,6 +97,7 @@ def chat_with_ai(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def generate_brand_strategy(request):
     """Generate brand strategy using AI"""
     serializer = BrandStrategyRequestSerializer(data=request.data)
@@ -139,6 +141,7 @@ def generate_brand_strategy(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def generate_brand_identity(request):
     """Generate brand identity using AI"""
     serializer = BrandIdentityRequestSerializer(data=request.data)
@@ -179,6 +182,7 @@ def generate_brand_identity(request):
 
 
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def analyze_market(request):
     """Perform market analysis using AI"""
     serializer = MarketAnalysisRequestSerializer(data=request.data)

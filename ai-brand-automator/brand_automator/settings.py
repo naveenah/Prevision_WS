@@ -22,7 +22,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-3nmrwkw3+s&f$vh0_++o6)b8#53t2e-=v$*6#&j^*wv$=+cofn')
+# Generate with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+SECRET_KEY = config('SECRET_KEY')  # No default - MUST be set in .env
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
@@ -100,6 +101,8 @@ TENANT_APPS = [
 INSTALLED_APPS = list(SHARED_APPS) + [app for app in TENANT_APPS if app not in SHARED_APPS]
 
 MIDDLEWARE = [
+    # Multi-tenancy middleware - MUST BE FIRST
+    "django_tenants.middleware.main.TenantMainMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -108,8 +111,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    # Multi-tenancy middleware
-    "django_tenants.middleware.main.TenantMainMiddleware",
 ]
 
 ROOT_URLCONF = "brand_automator.urls"
@@ -138,14 +139,14 @@ WSGI_APPLICATION = "brand_automator.wsgi.application"
 DATABASES = {
     "default": {
         'ENGINE': 'django_tenants.postgresql_backend',
-        'NAME': 'neondb',
-        'USER': 'neondb_owner',
-        'PASSWORD': 'npg_ihO4oHanJW8e',
-        'HOST': 'ep-delicate-unit-aes0pu6a-pooler.c-2.us-east-2.aws.neon.tech',
-        'PORT': '5432',
+        'NAME': config('DB_NAME', default='neondb'),
+        'USER': config('DB_USER', default='neondb_owner'),
+        'PASSWORD': config('DB_PASSWORD', default=''),  # MUST set in .env
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
-            'sslmode': 'require',
-            'channel_binding': 'require',
+            'sslmode': config('DB_SSLMODE', default='require'),
+            'channel_binding': config('DB_CHANNEL_BINDING', default='require'),
         },
     }
 }

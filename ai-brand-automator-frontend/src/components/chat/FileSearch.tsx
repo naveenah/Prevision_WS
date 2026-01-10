@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-interface FileResult {
+export interface FileResult {
   id: string;
   name: string;
   type: string;

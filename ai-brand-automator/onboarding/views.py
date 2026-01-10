@@ -33,10 +33,26 @@ class CompanyViewSet(viewsets.ModelViewSet):
         return CompanySerializer
 
     def perform_create(self, serializer):
-        # Create onboarding progress when company is created
-        company = serializer.save()
+        """
+        Create company with proper tenant context.
+        Each user's tenant gets exactly one company (OneToOneField).
+        """
+        # Get tenant from request (set by TenantMainMiddleware)
+        if not hasattr(self.request, 'tenant') or not self.request.tenant:
+            raise ValueError("No tenant context available. Ensure TenantMainMiddleware is properly configured.")
+        
+        tenant = self.request.tenant
+        
+        # Check if tenant already has a company (OneToOneField constraint)
+        if Company.objects.filter(tenant=tenant).exists():
+            raise ValueError(f"Tenant {tenant.name} already has a company. Cannot create another.")
+        
+        # Save company with tenant
+        company = serializer.save(tenant=tenant)
+        
+        # Create onboarding progress
         OnboardingProgress.objects.create(
-            tenant=company.tenant,
+            tenant=tenant,
             company=company,
             current_step='company_info',
             completed_steps=['company_info']
