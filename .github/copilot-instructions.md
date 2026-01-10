@@ -128,11 +128,73 @@ No test suite currently implemented. When adding tests:
 - Test AI service with mocked Gemini responses
 - Integration tests need separate test database schema
 
-## Next Development Priorities
+## Implementation Plan & Issue Tracking
 
-Per architecture doc phase tracking:
-1. Complete onboarding UI steps (step-2, brand assets upload)
-2. Implement GCS integration in `files/services.py`
-3. Wire up chat interface to `/api/v1/ai/chat/` endpoint
-4. Add Celery + Redis for background automation tasks
-5. Re-enable multi-tenancy after single-tenant MVP validation
+**Status**: Phase 3 implemented but non-functional - 63 issues identified requiring fixes
+
+**Full Analysis**: See [CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md](../CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md)
+
+**GitHub Issues**: All issues tracked in repository issue tracker - reference by issue number when fixing
+
+### Current Implementation Priority
+
+**Phase 1: Critical Fixes (BLOCKING)** - Must complete before any other work
+- Issue #1: Multi-tenancy middleware enabled but broken (C-01)
+- Issue #2: No user registration endpoint (C-02)
+- Issue #3: JWT login email/username mismatch (C-03)
+- Issue #4: No tenant creation workflow (C-04)
+
+**Timeline**: ~15 hours | **Status**: Not started
+
+**Phase 2: High Priority Issues** (20 issues H-01 through H-15)
+- Foreign key constraints, security vulnerabilities, missing features
+- **Timeline**: ~30 hours | **Status**: Pending Phase 1 completion
+
+**Phase 3: Testing Implementation**
+- Backend: pytest with 70% coverage target
+- Frontend: Jest with 60% coverage target
+- Integration tests for full user flows
+- **Timeline**: ~43 hours | **Status**: Pending Phase 2 completion
+
+**Phase 4: Production Readiness** (Optional - Post-MVP)
+- Medium/Low priority issues (28 remaining)
+- Performance optimization
+- Security hardening
+- Deployment automation
+
+### Multi-Tenancy Decision
+
+**APPROVED: Option B - Full Multi-Tenancy Implementation**
+
+Must properly configure schema-based multi-tenancy from the start:
+- Enable `django-tenants` with proper SHARED_APPS and TENANT_APPS
+- Configure DATABASE_ROUTERS for schema isolation
+- Create tenant on user registration with domain routing
+- Test tenant isolation rigorously
+
+**Critical**: Do NOT temporarily disable multi-tenancy. Fix the existing broken configuration instead.
+
+### When Fixing Issues
+
+1. **Always reference issue number** in commits: `git commit -m "Fix #1: Enable multi-tenancy properly"`
+2. **Follow implementation plan** in analysis document - includes code examples
+3. **Write tests** as you implement fixes (TDD approach)
+4. **Update issue** with progress comments and blockers
+5. **Cross-reference dependencies** between issues
+
+### Issue Priority Rules
+
+- 🔴 **Critical (Blocking)**: Application doesn't work - fix immediately
+- 🟠 **High**: Core features broken - fix after critical
+- 🟡 **Medium**: Quality/UX issues - fix after high priority
+- 🟢 **Low**: Enhancements - fix in Phase 4
+
+### Testing Requirements
+
+Every fix must include:
+- Unit tests for models/views/services
+- Integration tests for API endpoints
+- Frontend component tests where applicable
+- Manual testing verification
+
+See detailed testing strategy in [CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md](../CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md#4-testing-strategy)
