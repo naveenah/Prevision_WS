@@ -9,3 +9,4 @@ psycopg2-binary==2.9.9
 google-cloud-storage==2.18.2
 google-generativeai==0.8.3
 Pillow==10.4.0
+bleach==6.1.0

@@ -1,44 +1,50 @@
 from django.contrib import admin
+
 # from django.contrib.auth.admin import UserAdmin
 # from django_tenants.admin import TenantAdminMixin  # Temporarily disabled
 from .models import Tenant, Domain
+
 # from .models import User
 
 
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):  # TenantAdminMixin temporarily disabled
-    list_display = ('name', 'get_primary_domain', 'subscription_status', 'created_at')
-    list_filter = ('subscription_status', 'created_at')
-    search_fields = ('name',)
-    readonly_fields = ('created_at', 'updated_at')
+    list_display = (
+        "name",
+        "get_primary_domain",
+        "subscription_status",
+        "created_at",
+    )
+    list_filter = ("subscription_status", "created_at")
+    search_fields = ("name",)
+    readonly_fields = ("created_at", "updated_at")
 
     def get_primary_domain(self, obj):
         return obj.get_primary_domain()
-    get_primary_domain.short_description = 'Domain'
-    get_primary_domain.admin_order_field = 'domains__domain'
+
+    get_primary_domain.short_description = "Domain"
+    get_primary_domain.admin_order_field = "domains__domain"
 
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('name', 'description', 'domain')
-        }),
-        ('Subscription', {
-            'fields': ('subscription_status', 'stripe_customer_id')
-        }),
-        ('Limits', {
-            'fields': ('max_users', 'storage_limit_gb')
-        }),
-        ('Metadata', {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
+        ("Basic Information", {"fields": ("name", "description", "domain")}),
+        (
+            "Subscription",
+            {"fields": ("subscription_status", "stripe_customer_id")},
+        ),
+        ("Limits", {"fields": ("max_users", "storage_limit_gb")}),
+        (
+            "Metadata",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
     )
 
 
 @admin.register(Domain)
 class DomainAdmin(admin.ModelAdmin):
-    list_display = ('domain', 'tenant', 'is_primary')
-    list_filter = ('is_primary',)
-    search_fields = ('domain', 'tenant__name')
+    list_display = ("domain", "tenant", "is_primary")
+    list_filter = ("is_primary",)
+    search_fields = ("domain", "tenant__name")
+
 
 # Custom User admin temporarily disabled
 # @admin.register(User)

@@ -27,7 +27,15 @@ export function CompanyForm() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await apiClient.post('/api/v1/companies/', formData);
+      // Convert camelCase to snake_case for backend
+      const apiData = {
+        name: formData.name,
+        description: formData.description,
+        industry: formData.industry,
+        target_audience: formData.targetAudience,
+        core_problem: formData.coreProblem,
+      };
+      const response = await apiClient.post('/api/v1/companies/', apiData);
 
       if (response.ok) {
         const data = await response.json();

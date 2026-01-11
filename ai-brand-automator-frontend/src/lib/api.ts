@@ -1,9 +1,58 @@
-// API configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { env } from './env';
+
+let isRefreshing = false;
+let failedQueue: Array<{ resolve: (value: unknown) => void; reject: (reason?: Error) => void }> = [];
+
+const processQueue = (error: Error | null = null, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+
+  failedQueue = [];
+};
+
+const refreshAccessToken = async (): Promise<string | null> => {
+  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null;
+
+  if (!refreshToken) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(env.getApiUrl('/auth/token/refresh/'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh: refreshToken }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('access_token', data.access);
+        // If a new refresh token is provided, update it
+        if (data.refresh) {
+          localStorage.setItem('refresh_token', data.refresh);
+        }
+      }
+      return data.access;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+    return null;
+  }
+};
 
 export const apiClient = {
   async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const url = env.getApiUrl(endpoint);
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
     const config: RequestInit = {
@@ -17,12 +66,48 @@ export const apiClient = {
 
     const response = await fetch(url, config);
 
-    if (response.status === 401) {
-      // Token expired, redirect to login
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.location.href = '/auth/login';
+    if (response.status === 401 && typeof window !== 'undefined') {
+      // Token expired or invalid
+      if (isRefreshing) {
+        // Wait for the token refresh to complete
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(token => {
+            config.headers = {
+              ...config.headers,
+              'Authorization': `Bearer ${token}`,
+            };
+            return fetch(url, config);
+          })
+          .catch(err => {
+            return Promise.reject(err);
+          });
+      }
+
+      isRefreshing = true;
+
+      try {
+        const newToken = await refreshAccessToken();
+
+        if (newToken) {
+          processQueue(null, newToken);
+          // Retry original request with new token
+          config.headers = {
+            ...config.headers,
+            'Authorization': `Bearer ${newToken}`,
+          };
+          return fetch(url, config);
+        } else {
+          // Refresh failed, redirect to login
+          processQueue(new Error('Token refresh failed'), null);
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          window.location.href = '/auth/login';
+          return response;
+        }
+      } finally {
+        isRefreshing = false;
       }
     }
 
@@ -33,14 +118,14 @@ export const apiClient = {
     return this.request(endpoint);
   },
 
-  async post(endpoint: string, data: any) {
+  async post(endpoint: string, data: unknown) {
     return this.request(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  async put(endpoint: string, data: any) {
+  async put(endpoint: string, data: unknown) {
     return this.request(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),

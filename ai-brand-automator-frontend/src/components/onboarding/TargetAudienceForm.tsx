@@ -1,0 +1,175 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { apiClient } from '@/lib/api';
+
+export function TargetAudienceForm() {
+  const router = useRouter();
+  const [formData, setFormData] = useState({
+    targetAudience: '',
+    demographics: '',
+    psychographics: '',
+    painPoints: '',
+    desiredOutcomes: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const companyId = localStorage.getItem('company_id');
+      if (!companyId) {
+        setError('Company ID not found. Please start from step 1.');
+        setLoading(false);
+        return;
+      }
+
+      // Update company with target audience data
+      const apiData = {
+        target_audience: formData.targetAudience,
+        demographics: formData.demographics,
+        psychographics: formData.psychographics,
+        pain_points: formData.painPoints,
+        desired_outcomes: formData.desiredOutcomes,
+      };
+
+      const response = await apiClient.put(
+        `/api/v1/companies/${companyId}/`,
+        apiData
+      );
+
+      if (response.ok) {
+        // Move to next step
+        router.push('/onboarding/step-4');
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to save target audience data');
+      }
+    } catch (error) {
+      console.error('Error saving target audience:', error);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      <div>
+        <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700">
+          Primary Target Audience *
+        </label>
+        <textarea
+          id="targetAudience"
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          value={formData.targetAudience}
+          onChange={(e) => setFormData({ ...formData, targetAudience: e.target.value })}
+          placeholder="e.g., Small business owners aged 30-50 who struggle with marketing automation"
+          required
+        />
+        <p className="mt-1 text-sm text-gray-500">
+          Describe who your ideal customers are
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="demographics" className="block text-sm font-medium text-gray-700">
+          Demographics
+        </label>
+        <textarea
+          id="demographics"
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          value={formData.demographics}
+          onChange={(e) => setFormData({ ...formData, demographics: e.target.value })}
+          placeholder="e.g., Age range, gender, location, income level, education, occupation"
+        />
+        <p className="mt-1 text-sm text-gray-500">
+          Statistical characteristics of your audience
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="psychographics" className="block text-sm font-medium text-gray-700">
+          Psychographics
+        </label>
+        <textarea
+          id="psychographics"
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          value={formData.psychographics}
+          onChange={(e) => setFormData({ ...formData, psychographics: e.target.value })}
+          placeholder="e.g., Values, interests, lifestyle, personality traits, attitudes"
+        />
+        <p className="mt-1 text-sm text-gray-500">
+          Psychological characteristics and lifestyle
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="painPoints" className="block text-sm font-medium text-gray-700">
+          Key Pain Points *
+        </label>
+        <textarea
+          id="painPoints"
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          value={formData.painPoints}
+          onChange={(e) => setFormData({ ...formData, painPoints: e.target.value })}
+          placeholder="e.g., Wasting time on manual tasks, struggling to reach customers, limited marketing budget"
+          required
+        />
+        <p className="mt-1 text-sm text-gray-500">
+          What problems does your audience face?
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="desiredOutcomes" className="block text-sm font-medium text-gray-700">
+          Desired Outcomes *
+        </label>
+        <textarea
+          id="desiredOutcomes"
+          rows={3}
+          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          value={formData.desiredOutcomes}
+          onChange={(e) => setFormData({ ...formData, desiredOutcomes: e.target.value })}
+          placeholder="e.g., Save time, grow revenue, reach more customers, streamline operations"
+          required
+        />
+        <p className="mt-1 text-sm text-gray-500">
+          What do they want to achieve?
+        </p>
+      </div>
+
+      <div className="flex justify-between pt-6">
+        <button
+          type="button"
+          onClick={() => router.push('/onboarding/step-2')}
+          className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+        >
+          Back
+        </button>
+        <button
+          type="submit"
+          disabled={loading}
+          className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+        >
+          {loading ? 'Saving...' : 'Next Step'}
+        </button>
+      </div>
+    </form>
+  );
+}

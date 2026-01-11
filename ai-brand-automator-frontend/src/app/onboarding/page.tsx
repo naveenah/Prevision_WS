@@ -1,6 +1,15 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { useEffect } from 'react';
 
 export default function OnboardingPage() {
-  // Redirect to first step
-  redirect('/onboarding/step-1');
+  useAuth(); // Protect this route
+  const router = useRouter();
+  
+  useEffect(() => {
+    // Redirect to first step
+    router.push('/onboarding/step-1');
+  }, [router]);
 }

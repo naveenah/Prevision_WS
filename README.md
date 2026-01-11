@@ -1,1 +1,336 @@
-# Prevision_WS
+# AI Brand Automator
+
+**Multi-tenant SaaS platform for AI-powered brand building**
+
+A Django REST Framework backend with Next.js frontend that helps businesses create and manage their brand strategy using Google Gemini AI.
+
+## Features
+
+- 🔐 **Multi-tenant Architecture** - Schema-based data isolation with django-tenants
+- 🤖 **AI Brand Strategy Generation** - Powered by Google Gemini 1.5 Flash
+- 📝 **5-Step Onboarding** - Guided company setup with asset uploads
+- 💬 **AI Chatbot** - Interactive brand guidance and file search
+- 📊 **Dynamic Dashboard** - Real-time metrics and activity tracking
+- 🔄 **Auto Token Refresh** - Seamless 7-day authentication
+- 📁 **File Upload** - Multi-file drag-and-drop with GCS integration
+
+## Tech Stack
+
+### Backend
+- **Django 4.2** + Django REST Framework
+- **PostgreSQL** (Neon hosted) with multi-tenancy
+- **Google Gemini AI** for content generation
+- **JWT Authentication** with token refresh
+
+### Frontend
+- **Next.js 16** + React 19
+- **TypeScript** for type safety
+- **Tailwind CSS** for styling
+- **Automatic API client** with token management
+
+## Project Structure
+
+```
+.
+├── ai-brand-automator/          # Django backend
+│   ├── ai_services/             # AI integration & chat
+│   ├── automation/              # Background tasks (future)
+│   ├── files/                   # File upload service
+│   ├── onboarding/              # Company onboarding
+│   ├── tenants/                 # Multi-tenancy models
+│   └── brand_automator/         # Django settings
+│
+├── ai-brand-automator-frontend/ # Next.js frontend
+│   └── src/
+│       ├── app/                 # Next.js pages
+│       ├── components/          # React components
+│       ├── hooks/               # Custom hooks (useAuth)
+│       └── lib/                 # API client & utilities
+│
+└── plans/                       # Architecture documentation
+```
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL database (or use Neon)
+- Google Cloud account (for Gemini API)
+
+### Backend Setup
+
+1. **Create virtual environment**:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   cd ai-brand-automator
+   pip install -r requirements.txt
+   ```
+
+3. **Configure environment variables**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual values
+   ```
+
+   **Required variables**:
+   ```bash
+   # Django
+   SECRET_KEY=your-secret-key-here  # Generate with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+   DEBUG=True
+   ALLOWED_HOSTS=localhost,127.0.0.1
+
+   # Database (PostgreSQL)
+   DB_NAME=your-database-name
+   DB_USER=your-db-user
+   DB_PASSWORD=your-db-password
+   DB_HOST=your-host.neon.tech
+   DB_PORT=5432
+
+   # AI Services
+   GOOGLE_API_KEY=your-google-gemini-api-key
+
+   # Google Cloud Storage (optional for MVP)
+   GS_BUCKET_NAME=your-bucket-name
+   GS_PROJECT_ID=your-project-id
+   GS_CREDENTIALS_PATH=path/to/service-account.json
+
+   # CORS
+   CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+   ```
+
+4. **Run migrations**:
+   ```bash
+   python manage.py migrate
+   ```
+
+5. **Start development server**:
+   ```bash
+   python manage.py runserver
+   # Server runs at http://localhost:8000
+   ```
+
+### Frontend Setup
+
+1. **Install dependencies**:
+   ```bash
+   cd ai-brand-automator-frontend
+   npm install
+   ```
+
+2. **Configure environment**:
+   ```bash
+   cp .env.example .env.local
+   # Edit .env.local
+   ```
+
+   **Required variables**:
+   ```bash
+   NEXT_PUBLIC_API_URL=http://localhost:8000
+   ```
+
+3. **Start development server**:
+   ```bash
+   npm run dev
+   # Server runs at http://localhost:3000
+   ```
+
+4. **Build for production**:
+   ```bash
+   npm run build
+   npm start
+   ```
+
+## API Endpoints
+
+### Authentication
+- `POST /api/v1/auth/register/` - User registration with tenant creation
+- `POST /api/v1/auth/login/` - Email-based JWT login
+- `POST /api/v1/auth/token/refresh/` - Refresh access token
+
+### Onboarding
+- `GET|POST /api/v1/companies/` - Company CRUD
+- `PUT /api/v1/companies/{id}/` - Update company data
+- `POST /api/v1/companies/{id}/generate_brand_strategy/` - AI brand strategy
+- `POST /api/v1/companies/{id}/generate_brand_identity/` - AI brand identity
+- `GET|POST /api/v1/assets/` - Brand assets
+- `POST /api/v1/assets/upload/` - File upload
+
+### AI Services
+- `POST /api/v1/ai/chat/` - AI chatbot interaction
+- `GET /api/v1/ai/chat-sessions/` - Chat history
+- `GET /api/v1/ai/generations/` - AI generation logs
+
+## User Flow
+
+1. **Registration** → Create account + tenant
+2. **Onboarding Step 1** → Company information
+3. **Onboarding Step 2** → Brand details
+4. **Onboarding Step 3** → Target audience
+5. **Onboarding Step 4** → Upload assets (optional)
+6. **Onboarding Step 5** → Review & generate brand strategy with AI
+7. **Dashboard** → View metrics and recent activity
+8. **Chat** → Interact with AI for brand guidance
+
+## Development
+
+### Running Tests
+
+**Backend**:
+```bash
+cd ai-brand-automator
+pytest  # (to be implemented)
+```
+
+**Frontend**:
+```bash
+cd ai-brand-automator-frontend
+npm test  # (to be implemented)
+```
+
+### Code Quality
+
+**Backend**:
+```bash
+python manage.py check  # Django system check
+```
+
+**Frontend**:
+```bash
+npm run build  # TypeScript compilation check
+```
+
+## Multi-Tenancy
+
+The application uses **schema-based multi-tenancy** with django-tenants:
+
+- Each user gets a unique tenant on registration
+- Data is isolated in separate PostgreSQL schemas
+- `PUBLIC_SCHEMA_NAME = 'public'` for shared data
+- `TENANT_MODEL = 'tenants.Tenant'`
+- `TENANT_DOMAIN_MODEL = 'tenants.Domain'`
+
+### Tenant Creation
+
+Automatic on user registration:
+```python
+tenant = Tenant.objects.create(
+    schema_name=f'tenant_{user.id}',
+    name=f"{user.username}'s Company"
+)
+```
+
+## Security Features
+
+- ✅ No hardcoded credentials (all in .env)
+- ✅ JWT tokens with 60-min access + 7-day refresh
+- ✅ Automatic token refresh with queue management
+- ✅ Authentication guards on all protected routes
+- ✅ CORS properly configured with allowed headers
+- ✅ Schema-based tenant data isolation
+- ✅ IsAuthenticated permission on all API endpoints
+
+## Environment Variables Reference
+
+### Backend (.env)
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `SECRET_KEY` | ✅ Yes | Django secret key | Generate with Django command |
+| `DEBUG` | ✅ Yes | Debug mode | `True` or `False` |
+| `DB_NAME` | ✅ Yes | PostgreSQL database | `ai_brand_automator` |
+| `DB_USER` | ✅ Yes | Database user | `postgres` |
+| `DB_PASSWORD` | ✅ Yes | Database password | `your-secure-password` |
+| `DB_HOST` | ✅ Yes | Database host | `ep-xxx.neon.tech` |
+| `GOOGLE_API_KEY` | ✅ Yes | Gemini API key | `AIza...` |
+| `GS_BUCKET_NAME` | ⚠️ Optional | GCS bucket | `my-bucket` |
+| `GS_PROJECT_ID` | ⚠️ Optional | GCP project | `my-project-123` |
+| `CORS_ALLOWED_ORIGINS` | ⚠️ Optional | Frontend URLs | `http://localhost:3000` |
+
+### Frontend (.env.local)
+
+| Variable | Required | Description | Default |
+|----------|----------|-------------|---------|
+| `NEXT_PUBLIC_API_URL` | ✅ Yes | Backend API URL | `http://localhost:8000` |
+
+## Troubleshooting
+
+### Backend Issues
+
+**Database connection fails**:
+- Check `.env` has correct DB credentials
+- Ensure Neon database is running
+- Verify `sslmode=require` for Neon
+
+**AI generation returns fallback text**:
+- Check `GOOGLE_API_KEY` is set in `.env`
+- Verify API key is valid in Google Cloud Console
+- Check rate limits haven't been exceeded
+
+**Token authentication fails**:
+- Clear localStorage in browser
+- Verify `SECRET_KEY` hasn't changed
+- Check token hasn't expired (60 min access)
+
+### Frontend Issues
+
+**CORS errors**:
+- Verify backend `CORS_ALLOWED_ORIGINS` includes `http://localhost:3000`
+- Check frontend uses correct API URL
+- Ensure both servers are running
+
+**Build fails**:
+- Run `npm run build` to see TypeScript errors
+- Check all imports are correct
+- Verify all required components exported
+
+**401 Unauthorized**:
+- Token expired - will auto-refresh
+- If refresh fails, redirects to login
+- Check `access_token` and `refresh_token` in localStorage
+
+## Contributing
+
+1. Create feature branch from `main`
+2. Make changes with descriptive commits
+3. Test locally (backend + frontend)
+4. Push and create pull request
+
+## Documentation
+
+- [Architecture Plan](plans/ai_brand_automator_mvp_plan.md)
+- [Codebase Analysis](CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md)
+- [Copilot Instructions](.github/copilot-instructions.md)
+
+## License
+
+See [LICENSE.md](LICENSE.md)
+
+## Status
+
+**Current Version**: MVP 1.0  
+**Status**: ✅ Ready for End-to-End Testing  
+**Last Updated**: January 10, 2026
+
+### Completed Features
+- ✅ Multi-tenant authentication
+- ✅ User registration with tenant creation
+- ✅ 5-step onboarding flow
+- ✅ AI brand strategy generation
+- ✅ Dynamic dashboard
+- ✅ Token refresh
+- ✅ File upload UI
+- ✅ Chat interface
+
+### Pending Features (Post-MVP)
+- ⏳ Social media automation
+- ⏳ Stripe payment integration
+- ⏳ Content scheduling
+- ⏳ Advanced analytics
+- ⏳ Team member invites

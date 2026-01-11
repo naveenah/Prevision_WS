@@ -18,7 +18,10 @@ class Migration(migrations.Migration):
             model_name="tenant",
             name="schema_name",
             field=models.CharField(
-                blank=True, help_text="Database schema name", max_length=63, unique=True
+                blank=True,
+                help_text="Database schema name",
+                max_length=63,
+                unique=True,
             ),
         ),
         migrations.AlterField(

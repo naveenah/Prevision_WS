@@ -94,7 +94,9 @@ class Migration(migrations.Migration):
                 (
                     "tagline",
                     models.CharField(
-                        blank=True, help_text="Brand tagline/slogan", max_length=255
+                        blank=True,
+                        help_text="Brand tagline/slogan",
+                        max_length=255,
                     ),
                 ),
                 (
@@ -123,7 +125,10 @@ class Migration(migrations.Migration):
                         blank=True, help_text="Brand messaging guidelines"
                     ),
                 ),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "tenant",
@@ -189,7 +194,8 @@ class Migration(migrations.Migration):
                 (
                     "processed",
                     models.BooleanField(
-                        default=False, help_text="Whether file has been processed"
+                        default=False,
+                        help_text="Whether file has been processed",
                     ),
                 ),
                 (
@@ -245,16 +251,21 @@ class Migration(migrations.Migration):
                 (
                     "completed_steps",
                     models.JSONField(
-                        default=list, help_text="List of completed step identifiers"
+                        default=list,
+                        help_text="List of completed step identifiers",
                     ),
                 ),
                 (
                     "is_completed",
                     models.BooleanField(
-                        default=False, help_text="Whether onboarding is fully complete"
+                        default=False,
+                        help_text="Whether onboarding is fully complete",
                     ),
                 ),
-                ("started_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "started_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("completed_at", models.DateTimeField(blank=True, null=True)),
                 ("last_updated", models.DateTimeField(auto_now=True)),
                 (

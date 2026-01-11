@@ -8,14 +8,28 @@ class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = [
-            'id', 'tenant', 'name', 'description', 'industry',
-            'target_audience', 'core_problem', 'brand_voice',
-            'vision_statement', 'mission_statement', 'values',
-            'positioning_statement', 'tagline', 'value_proposition',
-            'elevator_pitch', 'color_palette_desc', 'font_recommendations',
-            'messaging_guide', 'created_at', 'updated_at'
+            "id",
+            "tenant",
+            "name",
+            "description",
+            "industry",
+            "target_audience",
+            "core_problem",
+            "brand_voice",
+            "vision_statement",
+            "mission_statement",
+            "values",
+            "positioning_statement",
+            "tagline",
+            "value_proposition",
+            "elevator_pitch",
+            "color_palette_desc",
+            "font_recommendations",
+            "messaging_guide",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = ['id', 'tenant', 'created_at', 'updated_at']
+        read_only_fields = ["id", "tenant", "created_at", "updated_at"]
 
 
 class BrandAssetSerializer(serializers.ModelSerializer):
@@ -24,10 +38,18 @@ class BrandAssetSerializer(serializers.ModelSerializer):
     class Meta:
         model = BrandAsset
         fields = [
-            'id', 'tenant', 'company', 'file_name', 'file_type',
-            'file_size', 'gcs_path', 'gcs_bucket', 'uploaded_at', 'processed'
+            "id",
+            "tenant",
+            "company",
+            "file_name",
+            "file_type",
+            "file_size",
+            "gcs_path",
+            "gcs_bucket",
+            "uploaded_at",
+            "processed",
         ]
-        read_only_fields = ['id', 'tenant', 'uploaded_at']
+        read_only_fields = ["id", "tenant", "uploaded_at"]
 
 
 class OnboardingProgressSerializer(serializers.ModelSerializer):
@@ -38,11 +60,18 @@ class OnboardingProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = OnboardingProgress
         fields = [
-            'id', 'tenant', 'company', 'current_step', 'completed_steps',
-            'is_completed', 'started_at', 'completed_at', 'last_updated',
-            'completion_percentage'
+            "id",
+            "tenant",
+            "company",
+            "current_step",
+            "completed_steps",
+            "is_completed",
+            "started_at",
+            "completed_at",
+            "last_updated",
+            "completion_percentage",
         ]
-        read_only_fields = ['id', 'tenant', 'started_at', 'last_updated']
+        read_only_fields = ["id", "tenant", "started_at", "last_updated"]
 
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -50,20 +79,38 @@ class CompanyCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Company
-        fields = ['name', 'description', 'industry', 'target_audience', 'core_problem', 'brand_voice']
+        fields = [
+            "name",
+            "description",
+            "industry",
+            "target_audience",
+            "core_problem",
+            "brand_voice",
+        ]
         # Tenant is set in the viewset's perform_create method
 
 
 class CompanyUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating company after onboarding (brand strategy)"""
-    
+
     class Meta:
         model = Company
         fields = [
-            'description', 'industry', 'target_audience', 'core_problem', 'brand_voice',
-            'vision_statement', 'mission_statement', 'values', 'positioning_statement',
-            'tagline', 'value_proposition', 'elevator_pitch', 'color_palette_desc',
-            'font_recommendations', 'messaging_guide'
+            "description",
+            "industry",
+            "target_audience",
+            "core_problem",
+            "brand_voice",
+            "vision_statement",
+            "mission_statement",
+            "values",
+            "positioning_statement",
+            "tagline",
+            "value_proposition",
+            "elevator_pitch",
+            "color_palette_desc",
+            "font_recommendations",
+            "messaging_guide",
         ]
 
 
@@ -71,12 +118,14 @@ class BrandAssetUploadSerializer(serializers.Serializer):
     """Serializer for file upload"""
 
     file = serializers.FileField()
-    file_type = serializers.ChoiceField(choices=[
-        ('image', 'Image'),
-        ('video', 'Video'),
-        ('document', 'Document'),
-        ('other', 'Other'),
-    ])
+    file_type = serializers.ChoiceField(
+        choices=[
+            ("image", "Image"),
+            ("video", "Video"),
+            ("document", "Document"),
+            ("other", "Other"),
+        ]
+    )
 
     def validate_file(self, value):
         # Basic file validation
@@ -86,13 +135,21 @@ class BrandAssetUploadSerializer(serializers.Serializer):
 
         # File type validation
         allowed_types = {
-            'image': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-            'video': ['video/mp4', 'video/avi', 'video/mov'],
-            'document': ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+            "image": ["image/jpeg", "image/png", "image/gif", "image/webp"],
+            "video": ["video/mp4", "video/avi", "video/mov"],
+            "document": [
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document",
+            ],
         }
 
-        file_type = self.initial_data.get('file_type')
-        if file_type in allowed_types and value.content_type not in allowed_types[file_type]:
+        file_type = self.initial_data.get("file_type")
+        if (
+            file_type in allowed_types
+            and value.content_type not in allowed_types[file_type]
+        ):
             raise serializers.ValidationError(f"Invalid file type for {file_type}")
 
         return value

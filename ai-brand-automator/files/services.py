@@ -2,6 +2,7 @@
 File Storage Services for BrandForge AI
 Integration with Google Cloud Storage
 """
+
 import os
 from django.conf import settings
 from google.cloud import storage
@@ -24,7 +25,9 @@ class GCSService:
                 credentials = service_account.Credentials.from_service_account_file(
                     self.credentials_path
                 )
-                self.client = storage.Client(credentials=credentials, project=self.project_id)
+                self.client = storage.Client(
+                    credentials=credentials, project=self.project_id
+                )
             else:
                 # Try to use default credentials (for GCP environments)
                 self.client = storage.Client(project=self.project_id)

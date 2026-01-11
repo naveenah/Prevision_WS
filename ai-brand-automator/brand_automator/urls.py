@@ -14,33 +14,64 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
+from rest_framework_simplejwt.views import TokenRefreshView
+from brand_automator.auth_views import (
+    EmailTokenObtainPairView,
+    UserRegistrationView,
+    EmailVerificationView,
+    PasswordResetRequestView,
 )
-from onboarding.auth_serializers import EmailTokenObtainPairSerializer
-from onboarding.registration import UserRegistrationView
-
-
-class EmailTokenObtainPairView(TokenObtainPairView):
-    """Custom view that uses email-based authentication"""
-    serializer_class = EmailTokenObtainPairSerializer
+from brand_automator.health_views import (
+    HealthCheckView,
+    ReadinessCheckView,
+    LivenessCheckView,
+)
 
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/v1/', include([
-        # Authentication - now accepts email instead of username
-        path('auth/register/', UserRegistrationView.as_view(), name='user_register'),
-        path('auth/login/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
-        path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-
-        # Onboarding
-        path('', include('onboarding.urls')),
-
-        # AI Services
-        path('ai/', include('ai_services.urls')),
-    ])),
+    path("admin/", admin.site.urls),
+    # Health check endpoints
+    path("health/", HealthCheckView.as_view(), name="health_check"),
+    path("ready/", ReadinessCheckView.as_view(), name="readiness_check"),
+    path("alive/", LivenessCheckView.as_view(), name="liveness_check"),
+    path(
+        "api/v1/",
+        include(
+            [
+                # Authentication - now accepts email instead of username
+                path(
+                    "auth/register/",
+                    UserRegistrationView.as_view(),
+                    name="user_register",
+                ),
+                path(
+                    "auth/login/",
+                    EmailTokenObtainPairView.as_view(),
+                    name="token_obtain_pair",
+                ),
+                path(
+                    "auth/refresh/",
+                    TokenRefreshView.as_view(),
+                    name="token_refresh",
+                ),
+                path(
+                    "auth/verify-email/",
+                    EmailVerificationView.as_view(),
+                    name="email_verify",
+                ),
+                path(
+                    "auth/password-reset/",
+                    PasswordResetRequestView.as_view(),
+                    name="password_reset",
+                ),
+                # Onboarding
+                path("", include("onboarding.urls")),
+                # AI Services
+                path("ai/", include("ai_services.urls")),
+            ]
+        ),
+    ),
 ]
