@@ -10,8 +10,5 @@ def create_tenant_schema(sender, instance, created, **kwargs):
     Note: Domain must be created separately.
     """
     if created:
-        print(
-            f"✅ Tenant {instance.name} created with schema "
-            f"'{instance.schema_name}'"
-        )
+        print(f"✅ Tenant {instance.name} created with schema '{instance.schema_name}'")
         print("   Remember to create a Domain for this tenant")
