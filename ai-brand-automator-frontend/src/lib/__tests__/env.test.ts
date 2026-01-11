@@ -38,15 +38,33 @@ describe('env configuration', () => {
   })
 
   it('correctly identifies development environment', async () => {
-    process.env.NODE_ENV = 'development'
+    const originalEnv = process.env.NODE_ENV
+    Object.defineProperty(process.env, 'NODE_ENV', {
+      value: 'development',
+      writable: true,
+      configurable: true
+    })
     const { env: newEnv } = await import('@/lib/env')
     expect(newEnv.isDevelopment).toBe(true)
     expect(newEnv.isProduction).toBe(false)
+    
+    // Restore original value
+    Object.defineProperty(process.env, 'NODE_ENV', {
+      value: originalEnv,
+      writable: true,
+      configurable: true
+    })
   })
 
   it('correctly identifies production environment', async () => {
-    process.env.NODE_ENV = 'production'
+    const originalEnv = process.env.NODE_ENV
+    Object.defineProperty(process.env, 'NODE_ENV', {
+      value: 'production',
+      writable: true,
+      configurable: true
+    })
     const { env: newEnv } = await import('@/lib/env')
+    expect(newEnv.isDevelopment).toBe(false)
     expect(newEnv.isDevelopment).toBe(false)
     expect(newEnv.isProduction).toBe(true)
   })

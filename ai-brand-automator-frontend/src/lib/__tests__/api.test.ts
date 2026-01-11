@@ -13,14 +13,22 @@ describe('apiClient', () => {
   const originalLocation = window.location
   
   beforeAll(() => {
-    // Mock window.location before all tests
-    delete (window as Window & { location?: Location }).location
-    ;(window as Window & { location: { href: string } }).location = { href: '' }
+    // Mock window.location with proper typing
+    const mockLocation = { href: '' } as Location
+    Object.defineProperty(window, 'location', {
+      value: mockLocation,
+      writable: true,
+      configurable: true
+    })
   })
   
   afterAll(() => {
     // Restore original location
-    ;(window as Window & { location: { href: string } }).location = originalLocation
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: true,
+      configurable: true
+    })
   })
   
   beforeEach(() => {

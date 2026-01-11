@@ -34,7 +34,7 @@ def test_tenant_creation():
         subscription_status="trial",
     )
 
-    print("✅ Tenant created successfully!")
+    print(\"✅ Tenant created successfully!\")
     print(f"   - ID: {tenant.id}")
     print(f"   - Name: {tenant.name}")
     print(f"   - Schema Name: {tenant.schema_name}")
@@ -56,7 +56,7 @@ def test_domain_creation(tenant):
         domain=f\"{tenant.schema_name}.localhost\",\n        tenant=tenant,\n        is_primary=True
     )
 
-        print("✅ Domain created successfully!")
+    print(\"✅ Domain created successfully!\")
     print(f"   - Domain: {domain.domain}")
     print(f"   - Tenant: {domain.tenant.name}")
     print(f"   - Is Primary: {domain.is_primary}")

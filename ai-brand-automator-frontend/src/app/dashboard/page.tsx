@@ -1,7 +1,7 @@
 'use client';
 
 import { OverviewCards } from '@/components/dashboard/OverviewCards';
-import { RecentActivity } from '@/components/dashboard/RecentActivity';
+import RecentActivity from '@/components/dashboard/RecentActivity';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { useAuth } from '@/hooks/useAuth';
 
