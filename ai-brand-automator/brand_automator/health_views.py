@@ -45,28 +45,18 @@ class HealthCheckView(APIView):
 
         # Check AI service configuration
         if settings.GOOGLE_API_KEY:
-            health_status["components"]["ai_service"] = {
-                "status": "configured"
-            }
+            health_status["components"]["ai_service"] = {"status": "configured"}
         else:
-            health_status["components"]["ai_service"] = {
-                "status": "not_configured"
-            }
+            health_status["components"]["ai_service"] = {"status": "not_configured"}
 
         # Check GCS configuration
         if settings.GS_BUCKET_NAME and settings.GS_PROJECT_ID:
-            health_status["components"]["file_storage"] = {
-                "status": "configured"
-            }
+            health_status["components"]["file_storage"] = {"status": "configured"}
         else:
-            health_status["components"]["file_storage"] = {
-                "status": "not_configured"
-            }
+            health_status["components"]["file_storage"] = {"status": "not_configured"}
 
         # Response time
-        health_status["response_time_ms"] = round(
-            (time.time() - start_time) * 1000, 2
-        )
+        health_status["response_time_ms"] = round((time.time() - start_time) * 1000, 2)
 
         # Set HTTP status code
         status_code = 200 if health_status["status"] == "healthy" else 503

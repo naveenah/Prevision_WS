@@ -23,9 +23,7 @@ class ChatSession(models.Model):
     )
 
     # Chat data
-    messages = models.JSONField(
-        default=list, help_text="List of chat messages"
-    )
+    messages = models.JSONField(default=list, help_text="List of chat messages")
     context = models.JSONField(
         default=dict, help_text="Session context (company info, etc.)"
     )
@@ -83,9 +81,7 @@ class AIGeneration(models.Model):
     )
 
     # Metadata
-    model_used = models.CharField(
-        max_length=100, default="gemini-2.0-flash-exp"
-    )
+    model_used = models.CharField(max_length=100, default="gemini-2.0-flash-exp")
     created_at = models.DateTimeField(default=timezone.now)
     processing_time = models.FloatField(
         default=0.0, help_text="Processing time in seconds"

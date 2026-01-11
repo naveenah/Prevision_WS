@@ -80,9 +80,7 @@ class UserRegistrationView(APIView):
             errors["last_name"] = "Last name is required"
 
         if errors:
-            return Response(
-                {"errors": errors}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         # Create user with email as username
         username = email.split("@")[0] + "_" + get_random_string(6)
@@ -202,6 +200,4 @@ class PasswordResetRequestView(APIView):
             )
 
         # TODO: Implement password reset flow
-        return Response(
-            {"message": "Password reset functionality coming soon"}
-        )
+        return Response({"message": "Password reset functionality coming soon"})

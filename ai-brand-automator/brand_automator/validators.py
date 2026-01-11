@@ -83,9 +83,7 @@ def sanitize_ai_prompt(prompt: str) -> str:
         prompt = prompt[:max_prompt_length]
 
     # Remove control characters
-    prompt = "".join(
-        char for char in prompt if ord(char) >= 32 or char in "\n\r\t"
-    )
+    prompt = "".join(char for char in prompt if ord(char) >= 32 or char in "\n\r\t")
 
     return prompt.strip()
 
@@ -176,22 +174,16 @@ def validate_password_strength(password: str) -> Dict[str, Any]:
         result["errors"].append("Password must be at least 8 characters long")
 
     if not re.search(r"[A-Z]", password):
-        result["errors"].append(
-            "Password must contain at least one uppercase letter"
-        )
+        result["errors"].append("Password must contain at least one uppercase letter")
 
     if not re.search(r"[a-z]", password):
-        result["errors"].append(
-            "Password must contain at least one lowercase letter"
-        )
+        result["errors"].append("Password must contain at least one lowercase letter")
 
     if not re.search(r"\d", password):
         result["errors"].append("Password must contain at least one digit")
 
     if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        result["errors"].append(
-            "Password must contain at least one special character"
-        )
+        result["errors"].append("Password must contain at least one special character")
 
     # Check for common passwords
     common_passwords = [
@@ -229,13 +221,9 @@ def sanitize_filename(filename: str) -> str:
     # Limit length
     max_length = 255
     if len(filename) > max_length:
-        name, ext = (
-            filename.rsplit(".", 1) if "." in filename else (filename, "")
-        )
+        name, ext = filename.rsplit(".", 1) if "." in filename else (filename, "")
         filename = (
-            name[: max_length - len(ext) - 1] + "." + ext
-            if ext
-            else name[:max_length]
+            name[: max_length - len(ext) - 1] + "." + ext if ext else name[:max_length]
         )
 
     return filename or "unnamed_file"

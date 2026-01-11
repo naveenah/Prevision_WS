@@ -30,9 +30,7 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         return ChatSession.objects.filter(tenant=self.request.tenant)
 
     def perform_create(self, serializer):
-        serializer.save(
-            tenant=self.request.tenant, session_id=str(uuid.uuid4())
-        )
+        serializer.save(tenant=self.request.tenant, session_id=str(uuid.uuid4()))
 
 
 class AIGenerationViewSet(viewsets.ReadOnlyModelViewSet):

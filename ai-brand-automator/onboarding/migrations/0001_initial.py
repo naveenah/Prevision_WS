@@ -27,15 +27,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "name",
-                    models.CharField(
-                        help_text="Company/Brand name", max_length=255
-                    ),
+                    models.CharField(help_text="Company/Brand name", max_length=255),
                 ),
                 (
                     "description",
-                    models.TextField(
-                        blank=True, help_text="Brief company description"
-                    ),
+                    models.TextField(blank=True, help_text="Brief company description"),
                 ),
                 (
                     "industry",
@@ -87,9 +83,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "values",
-                    models.JSONField(
-                        default=list, help_text="List of core values"
-                    ),
+                    models.JSONField(default=list, help_text="List of core values"),
                 ),
                 (
                     "positioning_statement",
@@ -107,15 +101,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "value_proposition",
-                    models.TextField(
-                        blank=True, help_text="Key value proposition"
-                    ),
+                    models.TextField(blank=True, help_text="Key value proposition"),
                 ),
                 (
                     "elevator_pitch",
-                    models.TextField(
-                        blank=True, help_text="30-second elevator pitch"
-                    ),
+                    models.TextField(blank=True, help_text="30-second elevator pitch"),
                 ),
                 (
                     "color_palette_desc",
@@ -168,9 +158,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "file_name",
-                    models.CharField(
-                        help_text="Original file name", max_length=255
-                    ),
+                    models.CharField(help_text="Original file name", max_length=255),
                 ),
                 (
                     "file_type",
@@ -187,9 +175,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "file_size",
-                    models.PositiveIntegerField(
-                        help_text="File size in bytes"
-                    ),
+                    models.PositiveIntegerField(help_text="File size in bytes"),
                 ),
                 (
                     "gcs_path",
@@ -199,9 +185,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "gcs_bucket",
-                    models.CharField(
-                        default="brand-automator-assets", max_length=100
-                    ),
+                    models.CharField(default="brand-automator-assets", max_length=100),
                 ),
                 (
                     "uploaded_at",

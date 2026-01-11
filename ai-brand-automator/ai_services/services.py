@@ -39,9 +39,7 @@ class GeminiAIService:
             )
             self.model = None
 
-    def generate_brand_strategy(
-        self, company_data: Dict[str, Any]
-    ) -> Dict[str, str]:
+    def generate_brand_strategy(self, company_data: Dict[str, Any]) -> Dict[str, str]:
         """
         Generate brand strategy content using AI
         """
@@ -57,9 +55,7 @@ class GeminiAIService:
                 # Parse the AI response (assuming it returns structured text)
                 # For simplicity, we'll extract key sections
                 vision = self._extract_section(ai_response, "Vision Statement")
-                mission = self._extract_section(
-                    ai_response, "Mission Statement"
-                )
+                mission = self._extract_section(ai_response, "Mission Statement")
                 values = self._extract_list_section(ai_response, "Core Values")
                 positioning = self._extract_section(
                     ai_response, "Positioning Statement"
@@ -152,15 +148,11 @@ class GeminiAIService:
                 processing_time=processing_time,
             )
         except Exception as e:
-            logger.error(
-                f"Failed to log AI generation: {str(e)}", exc_info=True
-            )
+            logger.error(f"Failed to log AI generation: {str(e)}", exc_info=True)
 
         return result
 
-    def generate_brand_identity(
-        self, company_data: Dict[str, Any]
-    ) -> Dict[str, str]:
+    def generate_brand_identity(self, company_data: Dict[str, Any]) -> Dict[str, str]:
         """
         Generate brand identity elements using AI
         """
@@ -174,9 +166,7 @@ class GeminiAIService:
                 ai_response = response.text
 
                 # Parse the AI response
-                color_palette = self._extract_section(
-                    ai_response, "Color Palette"
-                )
+                color_palette = self._extract_section(ai_response, "Color Palette")
                 fonts = self._extract_section(
                     ai_response, "Typography"
                 ) or self._extract_section(ai_response, "Fonts")
@@ -224,15 +214,11 @@ class GeminiAIService:
                 processing_time=processing_time,
             )
         except Exception as e:
-            logger.error(
-                f"Failed to log AI generation: {str(e)}", exc_info=True
-            )
+            logger.error(f"Failed to log AI generation: {str(e)}", exc_info=True)
 
         return result
 
-    def chat_with_brand_context(
-        self, message: str, context: Dict[str, Any]
-    ) -> str:
+    def chat_with_brand_context(self, message: str, context: Dict[str, Any]) -> str:
         """
         Chat with AI using brand context
         """
@@ -269,9 +255,7 @@ class GeminiAIService:
                 processing_time=processing_time,
             )
         except Exception as e:
-            logger.error(
-                f"Failed to log chat AI generation: {str(e)}", exc_info=True
-            )
+            logger.error(f"Failed to log chat AI generation: {str(e)}", exc_info=True)
 
         return response
 
@@ -304,9 +288,7 @@ class GeminiAIService:
 
         return mock_response
 
-    def _build_brand_strategy_prompt(
-        self, company_data: Dict[str, Any]
-    ) -> str:
+    def _build_brand_strategy_prompt(self, company_data: Dict[str, Any]) -> str:
         """Build prompt for brand strategy generation"""
         return f"""
         Generate a comprehensive brand strategy for a company with the following details:
@@ -326,9 +308,7 @@ class GeminiAIService:
         Make it professional, compelling, and tailored to the company details provided.
         """
 
-    def _build_brand_identity_prompt(
-        self, company_data: Dict[str, Any]
-    ) -> str:
+    def _build_brand_identity_prompt(self, company_data: Dict[str, Any]) -> str:
         """Build prompt for brand identity generation"""
         return f"""
         Generate brand identity elements for a company with these characteristics:
@@ -364,9 +344,7 @@ class GeminiAIService:
         Provide helpful, professional advice about brand strategy and building.
         """
 
-    def _build_market_analysis_prompt(
-        self, company_data: Dict[str, Any]
-    ) -> str:
+    def _build_market_analysis_prompt(self, company_data: Dict[str, Any]) -> str:
         """Build prompt for market analysis"""
         return f"""
         Perform a market analysis for a company with these details:
@@ -404,11 +382,7 @@ class GeminiAIService:
             content = match.group(1).strip()
             # Split by common list separators
             items = re.split(r"[,;]|\sand\s|\sor\s", content)
-            return [
-                item.strip().strip("-•*").strip()
-                for item in items
-                if item.strip()
-            ]
+            return [item.strip().strip("-•*").strip() for item in items if item.strip()]
         return None
 
 

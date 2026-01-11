@@ -31,9 +31,7 @@ class Command(BaseCommand):
                 subscription_status="trial",
             )
             self.stdout.write(
-                self.style.SUCCESS(
-                    f"✅ Tenant created: {test_tenant.schema_name}"
-                )
+                self.style.SUCCESS(f"✅ Tenant created: {test_tenant.schema_name}")
             )
 
             # Create domain
@@ -59,9 +57,7 @@ class Command(BaseCommand):
                 result = cursor.fetchone()
 
             if result:
-                self.stdout.write(
-                    self.style.SUCCESS("✅ Schema exists in database")
-                )
+                self.stdout.write(self.style.SUCCESS("✅ Schema exists in database"))
             else:
                 self.stdout.write(self.style.ERROR("❌ Schema NOT found"))
 
@@ -71,9 +67,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("✅ Test data cleaned up"))
 
             self.stdout.write(
-                self.style.SUCCESS(
-                    "\n✅ Multi-tenancy configuration is WORKING!"
-                )
+                self.style.SUCCESS("\n✅ Multi-tenancy configuration is WORKING!")
             )
 
         except Exception as e:

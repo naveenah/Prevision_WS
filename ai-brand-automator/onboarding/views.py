@@ -28,9 +28,9 @@ class CompanyViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Filter by tenant in multi-tenant setup with optimized queries
         if hasattr(self.request, "tenant") and self.request.tenant:
-            return Company.objects.filter(
-                tenant=self.request.tenant
-            ).select_related("tenant")
+            return Company.objects.filter(tenant=self.request.tenant).select_related(
+                "tenant"
+            )
         return Company.objects.select_related("tenant").all()
 
     def get_serializer_class(self):
@@ -135,9 +135,9 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Filter by tenant in multi-tenant setup with optimized queries
         if hasattr(self.request, "tenant") and self.request.tenant:
-            return BrandAsset.objects.filter(
-                tenant=self.request.tenant
-            ).select_related("tenant", "company")
+            return BrandAsset.objects.filter(tenant=self.request.tenant).select_related(
+                "tenant", "company"
+            )
         return BrandAsset.objects.select_related("tenant", "company").all()
 
     @action(detail=False, methods=["post"])
@@ -145,9 +145,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         """Upload a brand asset file"""
         serializer = BrandAssetUploadSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response(
-                serializer.errors, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         file = serializer.validated_data["file"]
         file_type = serializer.validated_data["file_type"]
@@ -166,9 +164,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         ]
 
         # Validate file
-        validation_result = validate_file_upload(
-            file, allowed_types, max_size_mb=50
-        )
+        validation_result = validate_file_upload(file, allowed_types, max_size_mb=50)
         if not validation_result["valid"]:
             return Response(
                 {"error": validation_result["error"]},
@@ -180,9 +176,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
 
         # Get or create company for the tenant
         # TODO: Get actual tenant from request in multi-tenant setup
-        tenant = (
-            request.tenant
-        )  # This will be set by middleware in multi-tenant setup
+        tenant = request.tenant  # This will be set by middleware in multi-tenant setup
         company = get_object_or_404(Company, tenant=tenant)
 
         # Upload to Google Cloud Storage
@@ -207,9 +201,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         )
 
         response_serializer = BrandAssetSerializer(asset)
-        return Response(
-            response_serializer.data, status=status.HTTP_201_CREATED
-        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class OnboardingProgressViewSet(viewsets.ModelViewSet):
@@ -222,9 +214,7 @@ class OnboardingProgressViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Filter by tenant in multi-tenant setup
         if hasattr(self.request, "tenant") and self.request.tenant:
-            return OnboardingProgress.objects.filter(
-                tenant=self.request.tenant
-            )
+            return OnboardingProgress.objects.filter(tenant=self.request.tenant)
         return OnboardingProgress.objects.all()
 
     @action(detail=False, methods=["get"])

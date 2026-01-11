@@ -28,9 +28,7 @@ class SecurityMiddleware:
         if request.method in ["POST", "PUT", "PATCH"]:
             content_length = request.META.get("CONTENT_LENGTH")
             if content_length and int(content_length) > self.MAX_REQUEST_SIZE:
-                return JsonResponse(
-                    {"error": "Request body too large"}, status=413
-                )
+                return JsonResponse({"error": "Request body too large"}, status=413)
 
         response = self.get_response(request)
 
@@ -76,9 +74,7 @@ class RequestValidationMiddleware:
                 logger.warning(
                     f"Suspicious input detected from {request.META.get('REMOTE_ADDR')}"
                 )
-                return JsonResponse(
-                    {"error": "Invalid input detected"}, status=400
-                )
+                return JsonResponse({"error": "Invalid input detected"}, status=400)
 
         response = self.get_response(request)
         return response
@@ -93,9 +89,7 @@ class RequestValidationMiddleware:
         # Check POST data (only if it's form data)
         if request.content_type == "application/x-www-form-urlencoded":
             for key, value in request.POST.items():
-                if isinstance(value, str) and self.injection_regex.search(
-                    value
-                ):
+                if isinstance(value, str) and self.injection_regex.search(value):
                     return False
 
         return True
@@ -117,9 +111,7 @@ class RateLimitMiddleware:
         import time
 
         # Skip rate limiting for static files
-        if request.path.startswith("/static/") or request.path.startswith(
-            "/media/"
-        ):
+        if request.path.startswith("/static/") or request.path.startswith("/media/"):
             return self.get_response(request)
 
         ip_address = self._get_client_ip(request)
@@ -134,9 +126,7 @@ class RateLimitMiddleware:
             ]
 
         # Count requests in current window
-        request_count = sum(
-            count for ts, count in self.requests.get(ip_address, [])
-        )
+        request_count = sum(count for ts, count in self.requests.get(ip_address, []))
 
         if request_count >= self.rate_limit:
             logger.warning(f"Rate limit exceeded for IP: {ip_address}")

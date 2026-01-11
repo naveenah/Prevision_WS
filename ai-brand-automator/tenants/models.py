@@ -9,9 +9,7 @@ class Tenant(TenantMixin):
     Each tenant represents an enterprise customer.
     """
 
-    name = models.CharField(
-        max_length=100, help_text="Company/Organization name"
-    )
+    name = models.CharField(max_length=100, help_text="Company/Organization name")
     description = models.TextField(
         blank=True, help_text="Brief description of the company"
     )
@@ -36,9 +34,7 @@ class Tenant(TenantMixin):
         ],
         default="trial",
     )
-    stripe_customer_id = models.CharField(
-        max_length=100, blank=True, null=True
-    )
+    stripe_customer_id = models.CharField(max_length=100, blank=True, null=True)
 
     # Metadata
     created_at = models.DateTimeField(default=timezone.now)

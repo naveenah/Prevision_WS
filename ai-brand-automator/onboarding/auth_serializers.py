@@ -55,6 +55,4 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
             return data
         else:
-            raise serializers.ValidationError(
-                'Must include "email" and "password".'
-            )
+            raise serializers.ValidationError('Must include "email" and "password".')

@@ -51,9 +51,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "model_used",
-                    models.CharField(
-                        default="gemini-2.0-flash-exp", max_length=100
-                    ),
+                    models.CharField(default="gemini-2.0-flash-exp", max_length=100),
                 ),
                 (
                     "created_at",
@@ -108,9 +106,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "messages",
-                    models.JSONField(
-                        default=list, help_text="List of chat messages"
-                    ),
+                    models.JSONField(default=list, help_text="List of chat messages"),
                 ),
                 (
                     "context",
