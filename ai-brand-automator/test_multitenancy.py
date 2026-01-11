@@ -55,7 +55,7 @@ def test_domain_creation(tenant):
     domain = Domain.objects.create(
         domain=f"{tenant.schema_name}.localhost",
         tenant=tenant,
-        is_primary=True
+        is_primary=True,
     )
 
     print("✅ Domain created successfully!")
@@ -107,7 +107,7 @@ def test_tenant_data_isolation(tenant):
     public_user = User.objects.create_user(
         username="public_user",
         email="public@example.com",
-        password="testpass123"
+        password="testpass123",
     )
     print(f"✅ Created user in PUBLIC schema: {public_user.username}")
 
@@ -116,7 +116,7 @@ def test_tenant_data_isolation(tenant):
         tenant_user = User.objects.create_user(
             username="tenant_user",
             email="tenant@example.com",
-            password="testpass123"
+            password="testpass123",
         )
         print(
             f"✅ Created user in TENANT schema "
