@@ -9,7 +9,6 @@ This tests:
 """
 
 import os
-import sys
 import django
 import pytest
 
@@ -193,36 +192,3 @@ def cleanup_test_data():
 
     print(f"✅ Cleaned up {count} test tenant(s) and test users")
     print()
-
-
-if __name__ == "__main__":
-    try:
-        print("\n🔍 AI Brand Automator - Multi-Tenancy Configuration Test\n")
-
-        # Run tests
-        tenant = test_tenant_creation()
-        domain = test_domain_creation(tenant)
-        schema_exists = test_schema_creation(tenant)
-
-        if schema_exists:
-            test_tenant_data_isolation(tenant)
-
-        test_tenant_listing()
-
-        # Cleanup
-        cleanup = input("\n⚠️  Delete test data? (y/n): ")
-        if cleanup.lower() == "y":
-            cleanup_test_data()
-
-        print("=" * 80)
-        print("✅ ALL TESTS COMPLETED SUCCESSFULLY")
-        print("=" * 80)
-        print("\nMulti-tenancy is properly configured and working!")
-        print()
-
-    except Exception as e:
-        print(f"\n❌ ERROR: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
