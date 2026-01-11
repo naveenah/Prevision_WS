@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from decouple import config
 from datetime import timedelta
@@ -144,6 +145,9 @@ WSGI_APPLICATION = "brand_automator.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Determine if we're in test mode
+TESTING = "pytest" in sys.modules or "test" in sys.argv
+
 DATABASES = {
     "default": {
         "ENGINE": "django_tenants.postgresql_backend",
@@ -153,8 +157,10 @@ DATABASES = {
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": config("DB_SSLMODE", default="require"),
-            "channel_binding": config("DB_CHANNEL_BINDING", default="require"),
+            "sslmode": config("DB_SSLMODE", default="prefer" if TESTING else "require"),
+            "channel_binding": config(
+                "DB_CHANNEL_BINDING", default="prefer" if TESTING else "require"
+            ),
         },
     }
 }
