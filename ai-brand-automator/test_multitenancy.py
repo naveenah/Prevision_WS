@@ -11,6 +11,7 @@ This tests:
 import os
 import sys
 import django
+import pytest
 
 # Setup Django environment
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "brand_automator.settings")
@@ -21,6 +22,20 @@ from django.db import connection  # noqa: E402
 from django_tenants.utils import schema_context  # noqa: E402
 
 
+@pytest.fixture
+def tenant(db):
+    """Fixture to create a test tenant"""
+    tenant = Tenant.objects.create(
+        name="Test Company Inc",
+        description="A test company for multi-tenancy validation",
+        subscription_status="trial",
+    )
+    yield tenant
+    # Cleanup
+    tenant.delete()
+
+
+@pytest.mark.django_db
 def test_tenant_creation():
     """Test creating a new tenant with auto-generated schema name"""
     print("=" * 80)
@@ -45,6 +60,7 @@ def test_tenant_creation():
     return tenant
 
 
+@pytest.mark.django_db
 def test_domain_creation(tenant):
     """Test creating a domain for the tenant"""
     print("=" * 80)
@@ -67,6 +83,7 @@ def test_domain_creation(tenant):
     return domain
 
 
+@pytest.mark.django_db
 def test_schema_creation(tenant):
     """Test that schema was created in database"""
     print("=" * 80)
@@ -95,6 +112,7 @@ def test_schema_creation(tenant):
     return bool(result)
 
 
+@pytest.mark.django_db
 def test_tenant_data_isolation(tenant):
     """Test that tenant-specific data is isolated"""
     print("=" * 80)
@@ -139,6 +157,7 @@ def test_tenant_data_isolation(tenant):
     print()
 
 
+@pytest.mark.django_db
 def test_tenant_listing():
     """List all existing tenants"""
     print("=" * 80)
