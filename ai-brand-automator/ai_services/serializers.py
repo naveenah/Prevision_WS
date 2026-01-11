@@ -18,7 +18,13 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             "updated_at",
             "last_activity",
         ]
-        read_only_fields = ["id", "tenant", "created_at", "updated_at", "last_activity"]
+        read_only_fields = [
+            "id",
+            "tenant",
+            "created_at",
+            "updated_at",
+            "last_activity",
+        ]
 
     def create(self, validated_data):
         validated_data["tenant"] = self.context["request"].tenant

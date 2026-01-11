@@ -32,7 +32,8 @@ class Migration(migrations.Migration):
                 (
                     "description",
                     models.TextField(
-                        blank=True, help_text="Brief description of the company"
+                        blank=True,
+                        help_text="Brief description of the company",
                     ),
                 ),
                 (
@@ -61,7 +62,10 @@ class Migration(migrations.Migration):
                     "stripe_customer_id",
                     models.CharField(blank=True, max_length=100, null=True),
                 ),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "max_users",

@@ -12,12 +12,20 @@ class ChatSession(models.Model):
         Tenant, on_delete=models.CASCADE, related_name="chat_sessions"
     )
     session_id = models.CharField(
-        max_length=255, unique=True, help_text="Unique session identifier"
+        max_length=255,
+        unique=True,
+        help_text="Unique session identifier",
     )
-    title = models.CharField(max_length=255, blank=True, help_text="Session title")
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Session title",
+    )
 
     # Chat data
-    messages = models.JSONField(default=list, help_text="List of chat messages")
+    messages = models.JSONField(
+        default=list, help_text="List of chat messages"
+    )
     context = models.JSONField(
         default=dict, help_text="Session context (company info, etc.)"
     )
@@ -75,7 +83,9 @@ class AIGeneration(models.Model):
     )
 
     # Metadata
-    model_used = models.CharField(max_length=100, default="gemini-2.0-flash-exp")
+    model_used = models.CharField(
+        max_length=100, default="gemini-2.0-flash-exp"
+    )
     created_at = models.DateTimeField(default=timezone.now)
     processing_time = models.FloatField(
         default=0.0, help_text="Processing time in seconds"

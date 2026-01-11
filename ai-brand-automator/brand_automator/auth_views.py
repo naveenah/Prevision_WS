@@ -1,6 +1,7 @@
 """
 Custom authentication views with enhanced validation
 """
+
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -79,7 +80,9 @@ class UserRegistrationView(APIView):
             errors["last_name"] = "Last name is required"
 
         if errors:
-            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"errors": errors}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Create user with email as username
         username = email.split("@")[0] + "_" + get_random_string(6)
@@ -136,13 +139,13 @@ class UserRegistrationView(APIView):
             subject = "Welcome to AI Brand Automator"
             message = f"""
             Hi {user.first_name},
-            
+
             Welcome to AI Brand Automator! Your account has been created successfully.
-            
+
             Email: {user.email}
-            
+
             You can now log in and start building your brand.
-            
+
             Best regards,
             AI Brand Automator Team
             """
@@ -194,8 +197,11 @@ class PasswordResetRequestView(APIView):
 
         if not email:
             return Response(
-                {"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "Email is required"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # TODO: Implement password reset flow
-        return Response({"message": "Password reset functionality coming soon"})
+        return Response(
+            {"message": "Password reset functionality coming soon"}
+        )

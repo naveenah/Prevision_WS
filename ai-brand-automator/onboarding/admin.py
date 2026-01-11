@@ -57,7 +57,13 @@ class CompanyAdmin(admin.ModelAdmin):
 
 @admin.register(BrandAsset)
 class BrandAssetAdmin(admin.ModelAdmin):
-    list_display = ("file_name", "company", "file_type", "file_size", "uploaded_at")
+    list_display = (
+        "file_name",
+        "company",
+        "file_type",
+        "file_size",
+        "uploaded_at",
+    )
     list_filter = ("file_type", "uploaded_at", "processed")
     search_fields = ("file_name", "company__name", "company__tenant__name")
     readonly_fields = ("uploaded_at",)
@@ -65,7 +71,15 @@ class BrandAssetAdmin(admin.ModelAdmin):
     fieldsets = (
         (
             "File Information",
-            {"fields": ("tenant", "company", "file_name", "file_type", "file_size")},
+            {
+                "fields": (
+                    "tenant",
+                    "company",
+                    "file_name",
+                    "file_type",
+                    "file_size",
+                )
+            },
         ),
         ("Storage", {"fields": ("gcs_path", "gcs_bucket", "processed")}),
         ("Metadata", {"fields": ("uploaded_at",), "classes": ("collapse",)}),

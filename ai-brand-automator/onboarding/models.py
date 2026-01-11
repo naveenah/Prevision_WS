@@ -12,8 +12,12 @@ class Company(models.Model):
         Tenant, on_delete=models.CASCADE, related_name="company"
     )
     name = models.CharField(max_length=255, help_text="Company/Brand name")
-    description = models.TextField(blank=True, help_text="Brief company description")
-    industry = models.CharField(max_length=100, blank=True, help_text="Industry sector")
+    description = models.TextField(
+        blank=True, help_text="Brief company description"
+    )
+    industry = models.CharField(
+        max_length=100, blank=True, help_text="Industry sector"
+    )
     target_audience = models.TextField(
         blank=True, help_text="Description of target customers"
     )
@@ -52,8 +56,12 @@ class Company(models.Model):
     tagline = models.CharField(
         max_length=255, blank=True, help_text="Brand tagline/slogan"
     )
-    value_proposition = models.TextField(blank=True, help_text="Key value proposition")
-    elevator_pitch = models.TextField(blank=True, help_text="30-second elevator pitch")
+    value_proposition = models.TextField(
+        blank=True, help_text="Key value proposition"
+    )
+    elevator_pitch = models.TextField(
+        blank=True, help_text="30-second elevator pitch"
+    )
 
     # Brand identity (AI-generated)
     color_palette_desc = models.TextField(
@@ -90,7 +98,9 @@ class BrandAsset(models.Model):
         Company, on_delete=models.CASCADE, related_name="assets"
     )
 
-    file_name = models.CharField(max_length=255, help_text="Original file name")
+    file_name = models.CharField(
+        max_length=255, help_text="Original file name"
+    )
     file_type = models.CharField(
         max_length=50,
         choices=[
@@ -104,8 +114,12 @@ class BrandAsset(models.Model):
     file_size = models.PositiveIntegerField(help_text="File size in bytes")
 
     # Storage information
-    gcs_path = models.CharField(max_length=500, help_text="Google Cloud Storage path")
-    gcs_bucket = models.CharField(max_length=100, default="brand-automator-assets")
+    gcs_path = models.CharField(
+        max_length=500, help_text="Google Cloud Storage path"
+    )
+    gcs_bucket = models.CharField(
+        max_length=100, default="brand-automator-assets"
+    )
 
     # Metadata
     uploaded_at = models.DateTimeField(default=timezone.now)
@@ -170,8 +184,6 @@ class OnboardingProgress(models.Model):
     @property
     def completion_percentage(self):
         """Calculate completion percentage based on completed steps"""
-        total_steps = (
-            5  # company_info, brand_strategy, brand_identity, assets_upload, review
-        )
+        total_steps = 5  # company_info, brand_strategy, brand_identity, assets_upload, review
         completed_count = len(self.completed_steps)
         return min(100, int((completed_count / total_steps) * 100))

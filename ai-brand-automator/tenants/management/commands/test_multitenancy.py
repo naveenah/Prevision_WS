@@ -1,7 +1,6 @@
 from django.core.management.base import BaseCommand
 from tenants.models import Tenant, Domain
 from django.db import connection
-from django_tenants.utils import schema_context
 
 
 class Command(BaseCommand):
@@ -32,7 +31,9 @@ class Command(BaseCommand):
                 subscription_status="trial",
             )
             self.stdout.write(
-                self.style.SUCCESS(f"✅ Tenant created: {test_tenant.schema_name}")
+                self.style.SUCCESS(
+                    f"✅ Tenant created: {test_tenant.schema_name}"
+                )
             )
 
             # Create domain
@@ -49,8 +50,8 @@ class Command(BaseCommand):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT schema_name 
-                    FROM information_schema.schemata 
+                    SELECT schema_name
+                    FROM information_schema.schemata
                     WHERE schema_name = %s
                 """,
                     [test_tenant.schema_name],
@@ -58,9 +59,11 @@ class Command(BaseCommand):
                 result = cursor.fetchone()
 
             if result:
-                self.stdout.write(self.style.SUCCESS(f"✅ Schema exists in database"))
+                self.stdout.write(
+                    self.style.SUCCESS("✅ Schema exists in database")
+                )
             else:
-                self.stdout.write(self.style.ERROR(f"❌ Schema NOT found"))
+                self.stdout.write(self.style.ERROR("❌ Schema NOT found"))
 
             # Cleanup
             self.stdout.write("\nCleaning up test data...")
@@ -68,7 +71,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("✅ Test data cleaned up"))
 
             self.stdout.write(
-                self.style.SUCCESS("\n✅ Multi-tenancy configuration is WORKING!")
+                self.style.SUCCESS(
+                    "\n✅ Multi-tenancy configuration is WORKING!"
+                )
             )
 
         except Exception as e:

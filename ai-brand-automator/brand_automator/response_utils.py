@@ -1,6 +1,7 @@
 """
 Consistent API response formatting utilities
 """
+
 from rest_framework.response import Response
 from rest_framework import status
 from typing import Any, Dict, Optional, List

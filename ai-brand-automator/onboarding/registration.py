@@ -1,6 +1,7 @@
 """
 User Registration View and Serializer
 """
+
 from rest_framework import serializers, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -19,7 +20,9 @@ class UserRegistrationSerializer(serializers.Serializer):
 
     username = serializers.CharField(max_length=150, required=True)
     email = serializers.EmailField(required=True)
-    password = serializers.CharField(write_only=True, min_length=8, required=True)
+    password = serializers.CharField(
+        write_only=True, min_length=8, required=True
+    )
     password_confirm = serializers.CharField(write_only=True, required=True)
     company_name = serializers.CharField(max_length=100, required=True)
 
@@ -80,7 +83,9 @@ class UserRegistrationSerializer(serializers.Serializer):
             # In development, use subdomain pattern: username.localhost
             # In production, this would be username.yourdomain.com
             domain_name = f"{user.username}.localhost"
-            Domain.objects.create(domain=domain_name, tenant=tenant, is_primary=True)
+            Domain.objects.create(
+                domain=domain_name, tenant=tenant, is_primary=True
+            )
 
             return {"user": user, "tenant": tenant, "domain": domain_name}
 

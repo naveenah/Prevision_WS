@@ -9,7 +9,7 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "brand_automator.settings")
 django.setup()
 
-from tenants.models import Tenant, Domain
+from tenants.models import Tenant, Domain  # noqa: E402
 
 
 def create_public_tenant():

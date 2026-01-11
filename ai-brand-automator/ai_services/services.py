@@ -2,6 +2,7 @@
 AI Services for BrandForge AI
 Integration with Google Gemini AI
 """
+
 import os
 import time
 import logging
@@ -9,7 +10,7 @@ from typing import Dict, List, Any, Optional
 from django.conf import settings
 import google.generativeai as genai
 from .models import AIGeneration
-from brand_automator.validators import sanitize_ai_prompt, sanitize_text_input
+from brand_automator.validators import sanitize_ai_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,9 @@ class GeminiAIService:
             )
             self.model = None
 
-    def generate_brand_strategy(self, company_data: Dict[str, Any]) -> Dict[str, str]:
+    def generate_brand_strategy(
+        self, company_data: Dict[str, Any]
+    ) -> Dict[str, str]:
         """
         Generate brand strategy content using AI
         """
@@ -54,7 +57,9 @@ class GeminiAIService:
                 # Parse the AI response (assuming it returns structured text)
                 # For simplicity, we'll extract key sections
                 vision = self._extract_section(ai_response, "Vision Statement")
-                mission = self._extract_section(ai_response, "Mission Statement")
+                mission = self._extract_section(
+                    ai_response, "Mission Statement"
+                )
                 values = self._extract_list_section(ai_response, "Core Values")
                 positioning = self._extract_section(
                     ai_response, "Positioning Statement"
@@ -62,19 +67,46 @@ class GeminiAIService:
 
                 result = {
                     "vision_statement": vision
-                    or f"Our vision is to revolutionize the {company_data.get('industry', 'industry')} through innovative solutions.",
+                    or (
+                        f"Our vision is to revolutionize the "
+                        f"{company_data.get('industry', 'industry')} "
+                        f"through innovative solutions."
+                    ),
                     "mission_statement": mission
-                    or f"To provide exceptional {company_data.get('industry', 'services')} that solve {company_data.get('core_problem', 'key challenges')} for our customers.",
+                    or (
+                        f"To provide exceptional "
+                        f"{company_data.get('industry', 'services')} that solve "
+                        f"{company_data.get('core_problem', 'key challenges')} "
+                        f"for our customers."
+                    ),
                     "values": values
-                    or ["Innovation", "Customer Focus", "Excellence", "Integrity"],
+                    or [
+                        "Innovation",
+                        "Customer Focus",
+                        "Excellence",
+                        "Integrity",
+                    ],
                     "positioning_statement": positioning
-                    or f"The leading {company_data.get('industry', 'solution')} for businesses seeking to overcome {company_data.get('core_problem', 'challenges')}.",
+                    or (
+                        f"The leading {company_data.get('industry', 'solution')} "
+                        f"for businesses seeking to overcome "
+                        f"{company_data.get('core_problem', 'challenges')}."
+                    ),
                 }
             else:
                 # Fallback to mock response if API not configured
                 result = {
-                    "vision_statement": f"Our vision is to revolutionize the {company_data.get('industry', 'industry')} through innovative solutions that empower businesses.",
-                    "mission_statement": f"To provide exceptional {company_data.get('industry', 'services')} that solve {company_data.get('core_problem', 'key challenges')} for our customers.",
+                    "vision_statement": (
+                        f"Our vision is to revolutionize the "
+                        f"{company_data.get('industry', 'industry')} through "
+                        f"innovative solutions that empower businesses."
+                    ),
+                    "mission_statement": (
+                        f"To provide exceptional "
+                        f"{company_data.get('industry', 'services')} that solve "
+                        f"{company_data.get('core_problem', 'key challenges')} "
+                        f"for our customers."
+                    ),
                     "values": [
                         "Innovation",
                         "Customer Focus",
@@ -82,7 +114,11 @@ class GeminiAIService:
                         "Integrity",
                         "Collaboration",
                     ],
-                    "positioning_statement": f"The leading {company_data.get('industry', 'solution')} for businesses seeking to overcome {company_data.get('core_problem', 'challenges')}.",
+                    "positioning_statement": (
+                        f"The leading {company_data.get('industry', 'solution')} "
+                        f"for businesses seeking to overcome "
+                        f"{company_data.get('core_problem', 'challenges')}."
+                    ),
                 }
 
         except Exception as e:
@@ -93,7 +129,12 @@ class GeminiAIService:
             result = {
                 "vision_statement": f"Our vision is to revolutionize the {company_data.get('industry', 'industry')} through innovative solutions.",
                 "mission_statement": f"To provide exceptional {company_data.get('industry', 'services')} that solve {company_data.get('core_problem', 'key challenges')} for our customers.",
-                "values": ["Innovation", "Customer Focus", "Excellence", "Integrity"],
+                "values": [
+                    "Innovation",
+                    "Customer Focus",
+                    "Excellence",
+                    "Integrity",
+                ],
                 "positioning_statement": f"The leading {company_data.get('industry', 'solution')} for businesses seeking to overcome {company_data.get('core_problem', 'challenges')}.",
             }
 
@@ -111,11 +152,15 @@ class GeminiAIService:
                 processing_time=processing_time,
             )
         except Exception as e:
-            logger.error(f"Failed to log AI generation: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to log AI generation: {str(e)}", exc_info=True
+            )
 
         return result
 
-    def generate_brand_identity(self, company_data: Dict[str, Any]) -> Dict[str, str]:
+    def generate_brand_identity(
+        self, company_data: Dict[str, Any]
+    ) -> Dict[str, str]:
         """
         Generate brand identity elements using AI
         """
@@ -129,7 +174,9 @@ class GeminiAIService:
                 ai_response = response.text
 
                 # Parse the AI response
-                color_palette = self._extract_section(ai_response, "Color Palette")
+                color_palette = self._extract_section(
+                    ai_response, "Color Palette"
+                )
                 fonts = self._extract_section(
                     ai_response, "Typography"
                 ) or self._extract_section(ai_response, "Fonts")
@@ -177,11 +224,15 @@ class GeminiAIService:
                 processing_time=processing_time,
             )
         except Exception as e:
-            logger.error(f"Failed to log AI generation: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to log AI generation: {str(e)}", exc_info=True
+            )
 
         return result
 
-    def chat_with_brand_context(self, message: str, context: Dict[str, Any]) -> str:
+    def chat_with_brand_context(
+        self, message: str, context: Dict[str, Any]
+    ) -> str:
         """
         Chat with AI using brand context
         """
@@ -218,7 +269,9 @@ class GeminiAIService:
                 processing_time=processing_time,
             )
         except Exception as e:
-            logger.error(f"Failed to log chat AI generation: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to log chat AI generation: {str(e)}", exc_info=True
+            )
 
         return response
 
@@ -251,7 +304,9 @@ class GeminiAIService:
 
         return mock_response
 
-    def _build_brand_strategy_prompt(self, company_data: Dict[str, Any]) -> str:
+    def _build_brand_strategy_prompt(
+        self, company_data: Dict[str, Any]
+    ) -> str:
         """Build prompt for brand strategy generation"""
         return f"""
         Generate a comprehensive brand strategy for a company with the following details:
@@ -271,7 +326,9 @@ class GeminiAIService:
         Make it professional, compelling, and tailored to the company details provided.
         """
 
-    def _build_brand_identity_prompt(self, company_data: Dict[str, Any]) -> str:
+    def _build_brand_identity_prompt(
+        self, company_data: Dict[str, Any]
+    ) -> str:
         """Build prompt for brand identity generation"""
         return f"""
         Generate brand identity elements for a company with these characteristics:
@@ -307,7 +364,9 @@ class GeminiAIService:
         Provide helpful, professional advice about brand strategy and building.
         """
 
-    def _build_market_analysis_prompt(self, company_data: Dict[str, Any]) -> str:
+    def _build_market_analysis_prompt(
+        self, company_data: Dict[str, Any]
+    ) -> str:
         """Build prompt for market analysis"""
         return f"""
         Perform a market analysis for a company with these details:
@@ -345,7 +404,11 @@ class GeminiAIService:
             content = match.group(1).strip()
             # Split by common list separators
             items = re.split(r"[,;]|\sand\s|\sor\s", content)
-            return [item.strip().strip("-•*").strip() for item in items if item.strip()]
+            return [
+                item.strip().strip("-•*").strip()
+                for item in items
+                if item.strip()
+            ]
         return None
 
 

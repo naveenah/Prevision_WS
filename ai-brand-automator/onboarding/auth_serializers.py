@@ -1,6 +1,7 @@
 """
 Custom JWT serializers for authentication
 """
+
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
 from django.contrib.auth import get_user_model, authenticate
@@ -54,4 +55,6 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
             return data
         else:
-            raise serializers.ValidationError('Must include "email" and "password".')
+            raise serializers.ValidationError(
+                'Must include "email" and "password".'
+            )

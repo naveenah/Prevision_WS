@@ -7,4 +7,4 @@ class TenantsConfig(AppConfig):
 
     def ready(self):
         # Import signals here to ensure they are loaded
-        import tenants.signals
+        import tenants.signals  # noqa: F401

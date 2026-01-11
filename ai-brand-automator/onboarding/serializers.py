@@ -149,6 +149,8 @@ class BrandAssetUploadSerializer(serializers.Serializer):
             file_type in allowed_types
             and value.content_type not in allowed_types[file_type]
         ):
-            raise serializers.ValidationError(f"Invalid file type for {file_type}")
+            raise serializers.ValidationError(
+                f"Invalid file type for {file_type}"
+            )
 
         return value

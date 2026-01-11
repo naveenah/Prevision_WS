@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
@@ -30,7 +30,9 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         return ChatSession.objects.filter(tenant=self.request.tenant)
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant, session_id=str(uuid.uuid4()))
+        serializer.save(
+            tenant=self.request.tenant, session_id=str(uuid.uuid4())
+        )
 
 
 class AIGenerationViewSet(viewsets.ReadOnlyModelViewSet):

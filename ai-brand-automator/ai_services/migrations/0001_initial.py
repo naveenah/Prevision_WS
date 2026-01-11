@@ -39,7 +39,10 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("prompt", models.TextField(help_text="AI prompt used")),
-                ("response", models.TextField(help_text="AI response generated")),
+                (
+                    "response",
+                    models.TextField(help_text="AI response generated"),
+                ),
                 (
                     "tokens_used",
                     models.PositiveIntegerField(
@@ -48,9 +51,14 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "model_used",
-                    models.CharField(default="gemini-2.0-flash-exp", max_length=100),
+                    models.CharField(
+                        default="gemini-2.0-flash-exp", max_length=100
+                    ),
                 ),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 (
                     "processing_time",
                     models.FloatField(
@@ -100,15 +108,21 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "messages",
-                    models.JSONField(default=list, help_text="List of chat messages"),
+                    models.JSONField(
+                        default=list, help_text="List of chat messages"
+                    ),
                 ),
                 (
                     "context",
                     models.JSONField(
-                        default=dict, help_text="Session context (company info, etc.)"
+                        default=dict,
+                        help_text="Session context (company info, etc.)",
                     ),
                 ),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "created_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "last_activity",

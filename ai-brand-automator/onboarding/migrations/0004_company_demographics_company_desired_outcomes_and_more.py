@@ -13,7 +13,8 @@ class Migration(migrations.Migration):
             model_name="company",
             name="demographics",
             field=models.TextField(
-                blank=True, help_text="Demographic characteristics of target audience"
+                blank=True,
+                help_text="Demographic characteristics of target audience",
             ),
         ),
         migrations.AddField(
@@ -34,7 +35,8 @@ class Migration(migrations.Migration):
             model_name="company",
             name="psychographics",
             field=models.TextField(
-                blank=True, help_text="Psychological characteristics, values, interests"
+                blank=True,
+                help_text="Psychological characteristics, values, interests",
             ),
         ),
     ]

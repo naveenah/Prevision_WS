@@ -9,7 +9,12 @@ from .models import Tenant, Domain
 
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):  # TenantAdminMixin temporarily disabled
-    list_display = ("name", "get_primary_domain", "subscription_status", "created_at")
+    list_display = (
+        "name",
+        "get_primary_domain",
+        "subscription_status",
+        "created_at",
+    )
     list_filter = ("subscription_status", "created_at")
     search_fields = ("name",)
     readonly_fields = ("created_at", "updated_at")
@@ -22,7 +27,10 @@ class TenantAdmin(admin.ModelAdmin):  # TenantAdminMixin temporarily disabled
 
     fieldsets = (
         ("Basic Information", {"fields": ("name", "description", "domain")}),
-        ("Subscription", {"fields": ("subscription_status", "stripe_customer_id")}),
+        (
+            "Subscription",
+            {"fields": ("subscription_status", "stripe_customer_id")},
+        ),
         ("Limits", {"fields": ("max_users", "storage_limit_gb")}),
         (
             "Metadata",
