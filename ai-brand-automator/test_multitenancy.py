@@ -109,11 +109,14 @@ def test_tenant_data_isolation(tenant):
 
     # Switch to tenant schema and create user there
     with schema_context(tenant.schema_name):
-        tenant_user = User.objects.create_user(
-            username="tenant_user", email="tenant@example.com", password="testpass123"
-        )
+        tenant_user = User.objects. create_user(
+            username="tenant_user",
+            email="tenant@example.com",
+            password="testpass123"
+        )   
         print(
-            f"✅ Created user in TENANT schema ({tenant.schema_name}): {tenant_user.username}"
+            f"✅ Created user in TENANT schema "
+            f"({tenant.schema_name}): {tenant_user.username}"
         )
 
         # Count users in tenant schema
@@ -126,9 +129,9 @@ def test_tenant_data_isolation(tenant):
 
     # Verify isolation
     if tenant_users_count == 1 and public_users_count >= 1:
-        print(f"✅ Data isolation working correctly!")
+        print("✅ Data isolation working correctly!")
     else:
-        print(f"❌ Data isolation NOT working!")
+        print("❌ Data isolation NOT working!")
     print()
 
 
