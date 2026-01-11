@@ -103,18 +103,14 @@ def test_tenant_data_isolation(tenant):
 
     # Create user in public schema
     public_user = User.objects.create_user(
-        username="public_user",
-        email="public@example.com",
-        password="testpass123"
+        username="public_user", email="public@example.com", password="testpass123"
     )
     print(f"✅ Created user in PUBLIC schema: {public_user.username}")
 
     # Switch to tenant schema and create user there
     with schema_context(tenant.schema_name):
         tenant_user = User.objects.create_user(
-            username="tenant_user",
-            email="tenant@example.com",
-            password="testpass123"
+            username="tenant_user", email="tenant@example.com", password="testpass123"
         )
         print(
             f"✅ Created user in TENANT schema "
