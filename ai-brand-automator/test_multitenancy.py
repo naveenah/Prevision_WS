@@ -16,8 +16,8 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "brand_automator.settings")
 django.setup()
 
-from tenants.models import Tenant, Domain
-from django.db import connection
+from tenants.models import Tenant, Domain  # noqa: E402
+from django.db import connection  # noqa: E402
 from django_tenants.utils import schema_context  # noqa: E402
 
 
