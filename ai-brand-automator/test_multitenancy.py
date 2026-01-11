@@ -56,7 +56,9 @@ def test_tenant_creation():
     print(f"   - Created At: {tenant.created_at}")
     print()
 
-    return tenant
+    assert tenant.id is not None
+    assert tenant.schema_name.startswith("tenant_")
+    tenant.delete()
 
 
 @pytest.mark.django_db
@@ -79,7 +81,8 @@ def test_domain_creation(tenant):
     print(f"   - Is Primary: {domain.is_primary}")
     print()
 
-    return domain
+    assert domain.domain == f"{tenant.schema_name}.localhost"
+    assert domain.is_primary is True
 
 
 @pytest.mark.django_db
@@ -108,7 +111,7 @@ def test_schema_creation(tenant):
         print(f"   - Expected: {tenant.schema_name}")
     print()
 
-    return bool(result)
+    assert result is not None, f"Schema {tenant.schema_name} not found"
 
 
 @pytest.mark.django_db
