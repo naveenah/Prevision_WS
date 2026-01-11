@@ -87,11 +87,11 @@ SHARED_APPS = [
     "corsheaders",
     # Our shared apps
     "ai_services",  # AI integration (shared for logging)
+    "onboarding",  # Company data (has FK to Tenant)
 ]
 
 TENANT_APPS = [
     # Our apps
-    "onboarding",  # onboarding flow
     "files",  # file management
     "automation",  # automation features
     # Django apps that must be in each tenant
