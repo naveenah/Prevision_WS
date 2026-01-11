@@ -53,10 +53,12 @@ def test_domain_creation(tenant):
 
     # Create a domain for localhost testing
     domain = Domain.objects.create(
-        domain=f\"{tenant.schema_name}.localhost\",\n        tenant=tenant,\n        is_primary=True
+        domain=f"{tenant.schema_name}.localhost",
+        tenant=tenant,
+        is_primary=True
     )
 
-        print("✅ Domain created successfully!")
+    print("✅ Domain created successfully!")
     print(f"   - Domain: {domain.domain}")
     print(f"   - Tenant: {domain.tenant.name}")
     print(f"   - Is Primary: {domain.is_primary}")
