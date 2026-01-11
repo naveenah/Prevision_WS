@@ -10,13 +10,29 @@ interface Activity {
   type: string;
 }
 
-export function RecentActivity() {
+interface ApiGeneration {
+  id: string | number;
+  generation_type?: string;
+  created_at: string;
+}
+
+interface ApiAsset {
+  id: string | number;
+  asset_type?: string;
+  file_name?: string;
+  uploaded_at: string;
+}
+
+interface ApiCompany {
+  id: string | number;
+  name: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export default function RecentActivity() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchActivities();
-  }, []);
 
   const fetchActivities = async () => {
     try {
@@ -37,7 +53,7 @@ export function RecentActivity() {
 
       // Add AI generations
       if (aiGenerations && Array.isArray(aiGenerations)) {
-        aiGenerations.slice(0, 5).forEach((gen: any) => {
+        aiGenerations.slice(0, 5).forEach((gen: ApiGeneration) => {
           allActivities.push({
             id: `ai-${gen.id}`,
             action: `AI generated ${gen.generation_type || 'content'}`,
@@ -49,7 +65,7 @@ export function RecentActivity() {
 
       // Add asset uploads
       if (assets && Array.isArray(assets)) {
-        assets.slice(0, 3).forEach((asset: any) => {
+        assets.slice(0, 3).forEach((asset: ApiAsset) => {
           allActivities.push({
             id: `asset-${asset.id}`,
             action: `Uploaded ${asset.asset_type || 'asset'}: ${asset.file_name || 'file'}`,
@@ -61,7 +77,7 @@ export function RecentActivity() {
 
       // Add company updates
       if (companies && Array.isArray(companies)) {
-        companies.slice(0, 2).forEach((company: any) => {
+        companies.slice(0, 2).forEach((company: ApiCompany) => {
           allActivities.push({
             id: `company-${company.id}`,
             action: `Updated company profile: ${company.name}`,
@@ -83,7 +99,9 @@ export function RecentActivity() {
       setLoading(false);
     }
   };
-
+  useEffect(() => {
+    fetchActivities();
+  }, [fetchActivities]);
   const formatTimestamp = (timestamp: string): string => {
     if (!timestamp) return 'Unknown';
     

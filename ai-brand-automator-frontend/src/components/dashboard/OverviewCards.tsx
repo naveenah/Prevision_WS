@@ -39,10 +39,6 @@ export function OverviewCards() {
   ]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
   const fetchDashboardData = async () => {
     try {
       // Fetch assets count
@@ -97,6 +93,10 @@ export function OverviewCards() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
   if (loading) {
     return (
