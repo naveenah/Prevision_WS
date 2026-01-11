@@ -1,6 +1,5 @@
 from django.db import models
 from django_tenants.models import TenantMixin, DomainMixin
-from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
 
 
@@ -10,14 +9,19 @@ class Tenant(TenantMixin):
     Each tenant represents an enterprise customer.
     """
 
-    name = models.CharField(max_length=100, help_text="Company/Organization name")
+    name = models.CharField(
+        max_length=100, help_text="Company/Organization name"
+    )
     description = models.TextField(
         blank=True, help_text="Brief description of the company"
     )
 
     # Schema name will be auto-generated from name
     schema_name = models.CharField(
-        max_length=63, unique=True, blank=True, help_text="Database schema name"
+        max_length=63,
+        unique=True,
+        blank=True,
+        help_text="Database schema name",
     )
 
     # Subscription information
@@ -32,7 +36,9 @@ class Tenant(TenantMixin):
         ],
         default="trial",
     )
-    stripe_customer_id = models.CharField(max_length=100, blank=True, null=True)
+    stripe_customer_id = models.CharField(
+        max_length=100, blank=True, null=True
+    )
 
     # Metadata
     created_at = models.DateTimeField(default=timezone.now)
@@ -95,11 +101,17 @@ class Domain(DomainMixin):
 #         ('editor', 'Editor'),
 #         ('viewer', 'Viewer'),
 #     ]
-#     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='admin')
+#     role = models.CharField(
+#         max_length=20, choices=ROLE_CHOICES, default='admin'
+#     )
 #
 #     # Profile information
-#     avatar = models.URLField(blank=True, null=True, help_text="Profile picture URL")
-#     phone = models.CharField(max_length=20, blank=True, help_text="Phone number")
+#     avatar = models.URLField(
+#         blank=True, null=True, help_text="Profile picture URL"
+#     )
+#     phone = models.CharField(
+#         max_length=20, blank=True, help_text="Phone number"
+#     )
 #
 #     class Meta:
 #         verbose_name = "User"
