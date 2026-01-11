@@ -48,7 +48,8 @@ class CompanyViewSet(viewsets.ModelViewSet):
         # Get tenant from request (set by TenantMainMiddleware)
         if not hasattr(self.request, "tenant") or not self.request.tenant:
             raise ValueError(
-                "No tenant context available. Ensure TenantMainMiddleware is properly configured."
+                "No tenant context available. Ensure TenantMainMiddleware "
+                "is properly configured."
             )
 
         tenant = self.request.tenant

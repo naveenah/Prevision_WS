@@ -28,14 +28,15 @@ class GeminiAIService:
                 genai.configure(api_key=self.api_key)
                 self.model = genai.GenerativeModel(self.model_name)
                 logger.info(
-                    f"Gemini AI service initialized with model: {self.model_name}"
+                    f"Gemini AI service initialized with model: " f"{self.model_name}"
                 )
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini AI: {str(e)}")
                 self.model = None
         else:
             logger.warning(
-                "GOOGLE_API_KEY not configured. AI service will use fallback responses."
+                "GOOGLE_API_KEY not configured. AI service will use "
+                "fallback responses."
             )
             self.model = None
 
@@ -123,15 +124,28 @@ class GeminiAIService:
                 f"AI brand strategy generation failed: {str(e)}", exc_info=True
             )
             result = {
-                "vision_statement": f"Our vision is to revolutionize the {company_data.get('industry', 'industry')} through innovative solutions.",
-                "mission_statement": f"To provide exceptional {company_data.get('industry', 'services')} that solve {company_data.get('core_problem', 'key challenges')} for our customers.",
+                "vision_statement": (
+                    f"Our vision is to revolutionize the "
+                    f"{company_data.get('industry', 'industry')} through "
+                    f"innovative solutions."
+                ),
+                "mission_statement": (
+                    f"To provide exceptional "
+                    f"{company_data.get('industry', 'services')} that solve "
+                    f"{company_data.get('core_problem', 'key challenges')} "
+                    f"for our customers."
+                ),
                 "values": [
                     "Innovation",
                     "Customer Focus",
                     "Excellence",
                     "Integrity",
                 ],
-                "positioning_statement": f"The leading {company_data.get('industry', 'solution')} for businesses seeking to overcome {company_data.get('core_problem', 'challenges')}.",
+                "positioning_statement": (
+                    f"The leading {company_data.get('industry', 'solution')} "
+                    f"for businesses seeking to overcome "
+                    f"{company_data.get('core_problem', 'challenges')}."
+                ),
             }
 
         processing_time = time.time() - start_time
@@ -176,18 +190,42 @@ class GeminiAIService:
 
                 result = {
                     "color_palette_desc": color_palette
-                    or "Primary: Deep Blue (#1a365d) for trust and professionalism, Secondary: Teal (#319795) for innovation, Accent: Orange (#ed8936) for energy",
+                    or (
+                        "Primary: Deep Blue (#1a365d) for trust and "
+                        "professionalism, Secondary: Teal (#319795) for "
+                        "innovation, Accent: Orange (#ed8936) for energy"
+                    ),
                     "font_recommendations": fonts
-                    or "Primary: Inter (clean, modern sans-serif for body text), Secondary: Playfair Display (elegant serif for headings)",
+                    or (
+                        "Primary: Inter (clean, modern sans-serif for body "
+                        "text), Secondary: Playfair Display (elegant serif "
+                        "for headings)"
+                    ),
                     "messaging_guide": messaging
-                    or f"Professional yet approachable tone. Emphasize {company_data.get('brand_voice', 'innovation')} and customer success. Use clear, jargon-free language.",
+                    or (
+                        f"Professional yet approachable tone. Emphasize "
+                        f"{company_data.get('brand_voice', 'innovation')} and "
+                        f"customer success. Use clear, jargon-free language."
+                    ),
                 }
             else:
                 # Fallback to mock response if API not configured
                 result = {
-                    "color_palette_desc": "Primary: Deep Blue (#1a365d) for trust and professionalism, Secondary: Teal (#319795) for innovation, Accent: Orange (#ed8936) for energy",
-                    "font_recommendations": "Primary: Inter (clean, modern sans-serif for body text), Secondary: Playfair Display (elegant serif for headings)",
-                    "messaging_guide": f"Professional yet approachable tone. Emphasize {company_data.get('brand_voice', 'innovation')} and customer success. Use clear, jargon-free language.",
+                    "color_palette_desc": (
+                        "Primary: Deep Blue (#1a365d) for trust and "
+                        "professionalism, Secondary: Teal (#319795) for "
+                        "innovation, Accent: Orange (#ed8936) for energy"
+                    ),
+                    "font_recommendations": (
+                        "Primary: Inter (clean, modern sans-serif for body "
+                        "text), Secondary: Playfair Display (elegant serif "
+                        "for headings)"
+                    ),
+                    "messaging_guide": (
+                        f"Professional yet approachable tone. Emphasize "
+                        f"{company_data.get('brand_voice', 'innovation')} and "
+                        f"customer success. Use clear, jargon-free language."
+                    ),
                 }
 
         except Exception as e:
@@ -196,9 +234,21 @@ class GeminiAIService:
                 f"AI brand identity generation failed: {str(e)}", exc_info=True
             )
             result = {
-                "color_palette_desc": "Primary: Deep Blue (#1a365d) for trust and professionalism, Secondary: Teal (#319795) for innovation, Accent: Orange (#ed8936) for energy",
-                "font_recommendations": "Primary: Inter (clean, modern sans-serif for body text), Secondary: Playfair Display (elegant serif for headings)",
-                "messaging_guide": f"Professional yet approachable tone. Emphasize {company_data.get('brand_voice', 'innovation')} and customer success. Use clear, jargon-free language.",
+                "color_palette_desc": (
+                    "Primary: Deep Blue (#1a365d) for trust and "
+                    "professionalism, Secondary: Teal (#319795) for "
+                    "innovation, Accent: Orange (#ed8936) for energy"
+                ),
+                "font_recommendations": (
+                    "Primary: Inter (clean, modern sans-serif for body "
+                    "text), Secondary: Playfair Display (elegant serif "
+                    "for headings)"
+                ),
+                "messaging_guide": (
+                    f"Professional yet approachable tone. Emphasize "
+                    f"{company_data.get('brand_voice', 'innovation')} and "
+                    f"customer success. Use clear, jargon-free language."
+                ),
             }
 
         processing_time = time.time() - start_time
@@ -232,15 +282,32 @@ class GeminiAIService:
 
         # Simple mock responses based on message content
         if "vision" in message.lower():
-            response = "Your vision statement should be aspirational and forward-looking. Consider what impact you want to have on your industry in 5-10 years."
+            response = (
+                "Your vision statement should be aspirational and "
+                "forward-looking. Consider what impact you want to have "
+                "on your industry in 5-10 years."
+            )
         elif "mission" in message.lower():
-            response = "Your mission statement should explain how you serve your customers and solve their problems today."
+            response = (
+                "Your mission statement should explain how you serve "
+                "your customers and solve their problems today."
+            )
         elif "values" in message.lower():
-            response = "Core values should guide your company's behavior and decision-making. Choose 3-5 values that truly represent your brand."
+            response = (
+                "Core values should guide your company's behavior and "
+                "decision-making. Choose 3-5 values that truly "
+                "represent your brand."
+            )
         elif "positioning" in message.lower():
-            response = "Positioning is about how you want customers to perceive your brand relative to competitors. Focus on your unique strengths."
+            response = (
+                "Positioning is about how you want customers to perceive your "
+                "brand relative to competitors. Focus on your unique strengths."
+            )
         else:
-            response = "I'm here to help you build a strong brand strategy. What specific aspect would you like to discuss?"
+            response = (
+                "I'm here to help you build a strong brand strategy. "
+                "What specific aspect would you like to discuss?"
+            )
 
         processing_time = time.time() - start_time
 
@@ -269,9 +336,20 @@ class GeminiAIService:
         start_time = time.time()
 
         mock_response = {
-            "competitor_analysis": f"Key competitors in {company_data.get('industry', 'your industry')} include established players focusing on traditional solutions. Your unique advantage lies in addressing {company_data.get('core_problem', 'specific customer needs')}.",
-            "market_opportunities": "Growing demand for digital solutions, underserved customer segments, emerging technology trends.",
-            "recommendations": "Focus on customer education, build thought leadership content, leverage digital marketing channels.",
+            "competitor_analysis": (
+                f"Key competitors in {company_data.get('industry', 'your industry')} "
+                f"include established players focusing on traditional solutions. "
+                f"Your unique advantage lies in addressing "
+                f"{company_data.get('core_problem', 'specific customer needs')}."
+            ),
+            "market_opportunities": (
+                "Growing demand for digital solutions, underserved "
+                "customer segments, emerging technology trends."
+            ),
+            "recommendations": (
+                "Focus on customer education, build thought leadership "
+                "content, leverage digital marketing channels."
+            ),
         }
 
         processing_time = time.time() - start_time
@@ -291,7 +369,8 @@ class GeminiAIService:
     def _build_brand_strategy_prompt(self, company_data: Dict[str, Any]) -> str:
         """Build prompt for brand strategy generation"""
         return f"""
-        Generate a comprehensive brand strategy for a company with the following details:
+        Generate a comprehensive brand strategy for a company with the
+        following details:
 
         Company Name: {company_data.get('name', 'N/A')}
         Industry: {company_data.get('industry', 'N/A')}
@@ -323,7 +402,8 @@ class GeminiAIService:
         2. Typography: Primary and secondary font recommendations
         3. Messaging Guide: Tone, voice, and communication guidelines
 
-        Ensure the recommendations align with the brand voice and appeal to the target audience.
+        Ensure the recommendations align with the brand voice and appeal to
+        the target audience.
         """
 
     def _build_chat_prompt(self, message: str, context: Dict[str, Any]) -> str:

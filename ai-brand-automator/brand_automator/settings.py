@@ -10,8 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 from decouple import config
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -192,15 +194,14 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": ("rest_framework.pagination.PageNumberPagination"),
     "PAGE_SIZE": 20,
-    "DEFAULT_VERSIONING_CLASS": "rest_framework.versioning.NamespaceVersioning",
+    "DEFAULT_VERSIONING_CLASS": ("rest_framework.versioning.NamespaceVersioning"),
     "DEFAULT_VERSION": "v1",
     "ALLOWED_VERSIONS": ["v1"],
 }
 
 # JWT settings
-from datetime import timedelta
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
@@ -222,16 +223,19 @@ SIMPLE_JWT = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "NAME": (
+            "django.contrib.auth.password_validation."
+            "UserAttributeSimilarityValidator"
+        ),
     },
     {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "NAME": ("django.contrib.auth.password_validation." "MinimumLengthValidator"),
     },
     {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+        "NAME": ("django.contrib.auth.password_validation." "CommonPasswordValidator"),
     },
     {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+        "NAME": ("django.contrib.auth.password_validation." "NumericPasswordValidator"),
     },
 ]
 
@@ -381,7 +385,6 @@ LOGGING = {
 }
 
 # Create logs directory if it doesn't exist
-import os
 
 logs_dir = BASE_DIR / "logs"
 if not os.path.exists(logs_dir):

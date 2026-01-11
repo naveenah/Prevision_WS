@@ -180,7 +180,10 @@ class EmailVerificationView(APIView):
         # For now, return placeholder response
         return Response(
             {
-                "message": "Email verification is not yet implemented. All accounts are automatically verified."
+                "message": (
+                    "Email verification is not yet implemented. All accounts "
+                    "are automatically verified."
+                )
             }
         )
 

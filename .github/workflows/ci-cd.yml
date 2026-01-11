@@ -44,7 +44,7 @@ jobs:
       - name: Run linters
         run: |
           cd ai-brand-automator
-          black --check .
+          black --check --line-length 88 .
           flake8 .
           pylint --load-plugins pylint_django --django-settings-module=brand_automator.settings */**.py || true
       
