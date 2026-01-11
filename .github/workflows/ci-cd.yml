@@ -66,7 +66,7 @@ jobs:
           DEBUG: True
         run: |
           cd ai-brand-automator
-          python manage.py migrate --noinput
+          python manage.py migrate_schemas --shared --noinput
           pytest --cov=. --cov-report=xml --cov-report=html
       
       - name: Upload coverage
