@@ -61,7 +61,8 @@ jobs:
           DB_PASSWORD: postgres
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_SSLMODE: prefer
+          DB_SSLMODE: disable
+          DB_CHANNEL_BINDING: disable
           DEBUG: True
         run: |
           cd ai-brand-automator
