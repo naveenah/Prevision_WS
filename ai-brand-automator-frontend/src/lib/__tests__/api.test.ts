@@ -14,20 +14,20 @@ describe('apiClient', () => {
   
   beforeAll(() => {
     // Mock window.location before all tests
-    delete (window as any).location
-    ;(window as any).location = { href: '' }
+    delete (window as Window & { location?: Location }).location
+    ;(window as Window & { location: { href: string } }).location = { href: '' }
   })
   
   afterAll(() => {
     // Restore original location
-    ;(window as any).location = originalLocation
+    ;(window as Window & { location: { href: string } }).location = originalLocation
   })
   
   beforeEach(() => {
     jest.clearAllMocks()
     global.fetch = jest.fn()
     window.localStorage.clear()
-    ;(window as any).location.href = ''
+    ;(window as Window & { location: { href: string } }).location.href = ''
   })
 
   describe('request method', () => {

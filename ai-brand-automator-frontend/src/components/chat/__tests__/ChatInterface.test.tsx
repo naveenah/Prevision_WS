@@ -2,6 +2,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ChatInterface } from '@/components/chat/ChatInterface'
 import { apiClient } from '@/lib/api'
 
+interface MessageBubbleProps {
+  message: {
+    id: string;
+    content: string;
+  };
+}
+
 jest.mock('@/lib/api', () => ({
   apiClient: {
     post: jest.fn(),
@@ -10,7 +17,7 @@ jest.mock('@/lib/api', () => ({
 
 // Mock child components
 jest.mock('@/components/chat/MessageBubble', () => ({
-  MessageBubble: ({ message }: any) => (
+  MessageBubble: ({ message }: MessageBubbleProps) => (
     <div data-testid={`message-${message.id}`}>
       {message.content}
     </div>

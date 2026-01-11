@@ -52,72 +52,73 @@ export default function RecentActivity() {
     return date.toLocaleDateString();
   };
 
-  const fetchActivities = async () => {
-    try {
-      // Fetch AI generations (most recent activity)
-      const aiGenerationsResponse = await apiClient.get('/api/v1/ai/generations/');
-      const aiGenerations = await aiGenerationsResponse.json();
-      
-      // Fetch assets
-      const assetsResponse = await apiClient.get('/api/v1/assets/');
-      const assets = await assetsResponse.json();
-
-      // Fetch companies
-      const companiesResponse = await apiClient.get('/api/v1/companies/');
-      const companies = await companiesResponse.json();
-
-      // Combine and format activities
-      const allActivities: Activity[] = [];
-
-      // Add AI generations
-      if (aiGenerations && Array.isArray(aiGenerations)) {
-        aiGenerations.slice(0, 5).forEach((gen: ApiGeneration) => {
-          allActivities.push({
-            id: `ai-${gen.id}`,
-            action: `AI generated ${gen.generation_type || 'content'}`,
-            timestamp: formatTimestamp(gen.created_at),
-            type: 'ai',
-          });
-        });
-      }
-
-      // Add asset uploads
-      if (assets && Array.isArray(assets)) {
-        assets.slice(0, 3).forEach((asset: ApiAsset) => {
-          allActivities.push({
-            id: `asset-${asset.id}`,
-            action: `Uploaded ${asset.asset_type || 'asset'}: ${asset.file_name || 'file'}`,
-            timestamp: formatTimestamp(asset.uploaded_at),
-            type: 'upload',
-          });
-        });
-      }
-
-      // Add company updates
-      if (companies && Array.isArray(companies)) {
-        companies.slice(0, 2).forEach((company: ApiCompany) => {
-          allActivities.push({
-            id: `company-${company.id}`,
-            action: `Updated company profile: ${company.name}`,
-            timestamp: formatTimestamp(company.updated_at || company.created_at),
-            type: 'update',
-          });
-        });
-      }
-
-      // Sort by timestamp (most recent first) and take top 5
-      allActivities.sort((a, b) => {
-        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-      });
-
-      setActivities(allActivities.slice(0, 5));
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching activities:', error);
-      setLoading(false);
-    }
-  };
   useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        // Fetch AI generations (most recent activity)
+        const aiGenerationsResponse = await apiClient.get('/api/v1/ai/generations/');
+        const aiGenerations = await aiGenerationsResponse.json();
+        
+        // Fetch assets
+        const assetsResponse = await apiClient.get('/api/v1/assets/');
+        const assets = await assetsResponse.json();
+
+        // Fetch companies
+        const companiesResponse = await apiClient.get('/api/v1/companies/');
+        const companies = await companiesResponse.json();
+
+        // Combine and format activities
+        const allActivities: Activity[] = [];
+
+        // Add AI generations
+        if (aiGenerations && Array.isArray(aiGenerations)) {
+          aiGenerations.slice(0, 5).forEach((gen: ApiGeneration) => {
+            allActivities.push({
+              id: `ai-${gen.id}`,
+              action: `AI generated ${gen.generation_type || 'content'}`,
+              timestamp: formatTimestamp(gen.created_at),
+              type: 'ai',
+            });
+          });
+        }
+
+        // Add asset uploads
+        if (assets && Array.isArray(assets)) {
+          assets.slice(0, 3).forEach((asset: ApiAsset) => {
+            allActivities.push({
+              id: `asset-${asset.id}`,
+              action: `Uploaded ${asset.asset_type || 'asset'}: ${asset.file_name || 'file'}`,
+              timestamp: formatTimestamp(asset.uploaded_at),
+              type: 'upload',
+            });
+          });
+        }
+
+        // Add company updates
+        if (companies && Array.isArray(companies)) {
+          companies.slice(0, 2).forEach((company: ApiCompany) => {
+            allActivities.push({
+              id: `company-${company.id}`,
+              action: `Updated company profile: ${company.name}`,
+              timestamp: formatTimestamp(company.updated_at || company.created_at),
+              type: 'update',
+            });
+          });
+        }
+
+        // Sort by timestamp (most recent first) and take top 5
+        allActivities.sort((a, b) => {
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        });
+
+        setActivities(allActivities.slice(0, 5));
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching activities:', error);
+        setLoading(false);
+      }
+    };
+    
     fetchActivities();
   }, []);
 
