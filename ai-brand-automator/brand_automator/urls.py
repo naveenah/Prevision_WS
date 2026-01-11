@@ -31,25 +31,42 @@ from brand_automator.health_views import (
 
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    
+    path("admin/", admin.site.urls),
     # Health check endpoints
-    path('health/', HealthCheckView.as_view(), name='health_check'),
-    path('ready/', ReadinessCheckView.as_view(), name='readiness_check'),
-    path('alive/', LivenessCheckView.as_view(), name='liveness_check'),
-    
-    path('api/v1/', include([
-        # Authentication - now accepts email instead of username
-        path('auth/register/', UserRegistrationView.as_view(), name='user_register'),
-        path('auth/login/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
-        path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-        path('auth/verify-email/', EmailVerificationView.as_view(), name='email_verify'),
-        path('auth/password-reset/', PasswordResetRequestView.as_view(), name='password_reset'),
-
-        # Onboarding
-        path('', include('onboarding.urls')),
-
-        # AI Services
-        path('ai/', include('ai_services.urls')),
-    ])),
+    path("health/", HealthCheckView.as_view(), name="health_check"),
+    path("ready/", ReadinessCheckView.as_view(), name="readiness_check"),
+    path("alive/", LivenessCheckView.as_view(), name="liveness_check"),
+    path(
+        "api/v1/",
+        include(
+            [
+                # Authentication - now accepts email instead of username
+                path(
+                    "auth/register/",
+                    UserRegistrationView.as_view(),
+                    name="user_register",
+                ),
+                path(
+                    "auth/login/",
+                    EmailTokenObtainPairView.as_view(),
+                    name="token_obtain_pair",
+                ),
+                path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+                path(
+                    "auth/verify-email/",
+                    EmailVerificationView.as_view(),
+                    name="email_verify",
+                ),
+                path(
+                    "auth/password-reset/",
+                    PasswordResetRequestView.as_view(),
+                    name="password_reset",
+                ),
+                # Onboarding
+                path("", include("onboarding.urls")),
+                # AI Services
+                path("ai/", include("ai_services.urls")),
+            ]
+        ),
+    ),
 ]

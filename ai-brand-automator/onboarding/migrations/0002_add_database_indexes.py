@@ -11,32 +11,44 @@ class Migration(migrations.Migration):
     operations = [
         # Add indexes for Company model
         migrations.AddIndex(
-            model_name='company',
-            index=models.Index(fields=['created_at'], name='onboarding_company_created_idx'),
+            model_name="company",
+            index=models.Index(
+                fields=["created_at"], name="onboarding_company_created_idx"
+            ),
         ),
         migrations.AddIndex(
-            model_name='company',
-            index=models.Index(fields=['industry'], name='onboarding_company_industry_idx'),
+            model_name="company",
+            index=models.Index(
+                fields=["industry"], name="onboarding_company_industry_idx"
+            ),
         ),
         migrations.AddIndex(
-            model_name='company',
-            index=models.Index(fields=['tenant', 'created_at'], name='onboarding_company_tenant_created_idx'),
+            model_name="company",
+            index=models.Index(
+                fields=["tenant", "created_at"],
+                name="onboarding_company_tenant_created_idx",
+            ),
         ),
-        
         # Add indexes for BrandAsset model
         migrations.AddIndex(
-            model_name='brandasset',
-            index=models.Index(fields=['company', 'file_type'], name='onboarding_asset_company_type_idx'),
+            model_name="brandasset",
+            index=models.Index(
+                fields=["company", "file_type"],
+                name="onboarding_asset_company_type_idx",
+            ),
         ),
         migrations.AddIndex(
-            model_name='brandasset',
-            index=models.Index(fields=['uploaded_at'], name='onboarding_asset_uploaded_idx'),
+            model_name="brandasset",
+            index=models.Index(
+                fields=["uploaded_at"], name="onboarding_asset_uploaded_idx"
+            ),
         ),
-        
         # Add indexes for OnboardingProgress model
         migrations.AddIndex(
-            model_name='onboardingprogress',
-            index=models.Index(fields=['tenant', 'is_completed'], name='onboarding_progress_tenant_completed_idx'),
+            model_name="onboardingprogress",
+            index=models.Index(
+                fields=["tenant", "is_completed"],
+                name="onboarding_progress_tenant_completed_idx",
+            ),
         ),
     ]
-

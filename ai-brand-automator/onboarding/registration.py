@@ -16,6 +16,7 @@ User = get_user_model()
 
 class UserRegistrationSerializer(serializers.Serializer):
     """Serializer for user registration"""
+
     username = serializers.CharField(max_length=150, required=True)
     email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, min_length=8, required=True)
@@ -36,29 +37,31 @@ class UserRegistrationSerializer(serializers.Serializer):
 
     def validate(self, data):
         """Validate that passwords match"""
-        if data['password'] != data['password_confirm']:
-            raise serializers.ValidationError({"password_confirm": "Passwords do not match"})
+        if data["password"] != data["password_confirm"]:
+            raise serializers.ValidationError(
+                {"password_confirm": "Passwords do not match"}
+            )
         return data
 
     def create(self, validated_data):
         """Create user and tenant in a transaction"""
         with transaction.atomic():
             # Remove password_confirm as it's not needed for user creation
-            validated_data.pop('password_confirm')
-            company_name = validated_data.pop('company_name')
+            validated_data.pop("password_confirm")
+            company_name = validated_data.pop("company_name")
 
             # Create user
             user = User.objects.create_user(
-                username=validated_data['username'],
-                email=validated_data['email'],
-                password=validated_data['password']
+                username=validated_data["username"],
+                email=validated_data["email"],
+                password=validated_data["password"],
             )
 
             # Create tenant for this user
             # Generate schema name from username
-            schema_name = re.sub(r'[^a-zA-Z0-9_]', '_', user.username.lower())
+            schema_name = re.sub(r"[^a-zA-Z0-9_]", "_", user.username.lower())
             schema_name = f"tenant_{schema_name}"
-            
+
             # Ensure schema name is unique
             counter = 1
             original_schema = schema_name
@@ -70,30 +73,22 @@ class UserRegistrationSerializer(serializers.Serializer):
             tenant = Tenant.objects.create(
                 schema_name=schema_name,
                 name=company_name,
-                description=f"Tenant for {user.username}"
+                description=f"Tenant for {user.username}",
             )
 
             # Create domain for tenant
             # In development, use subdomain pattern: username.localhost
             # In production, this would be username.yourdomain.com
             domain_name = f"{user.username}.localhost"
-            Domain.objects.create(
-                domain=domain_name,
-                tenant=tenant,
-                is_primary=True
-            )
+            Domain.objects.create(domain=domain_name, tenant=tenant, is_primary=True)
 
-            return {
-                'user': user,
-                'tenant': tenant,
-                'domain': domain_name
-            }
+            return {"user": user, "tenant": tenant, "domain": domain_name}
 
 
 class UserRegistrationView(APIView):
     """
     API endpoint for user registration.
-    
+
     POST /api/v1/auth/register/
     {
         "username": "john_doe",
@@ -102,7 +97,7 @@ class UserRegistrationView(APIView):
         "password_confirm": "SecurePass123!",
         "company_name": "Acme Corp"
     }
-    
+
     Returns:
     {
         "message": "User registered successfully",
@@ -122,37 +117,41 @@ class UserRegistrationView(APIView):
         }
     }
     """
+
     permission_classes = [AllowAny]
     serializer_class = UserRegistrationSerializer
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
-        
+
         if serializer.is_valid():
             result = serializer.save()
-            user = result['user']
-            tenant = result['tenant']
-            domain = result['domain']
+            user = result["user"]
+            tenant = result["tenant"]
+            domain = result["domain"]
 
             # Generate JWT tokens for immediate login
             refresh = RefreshToken.for_user(user)
 
-            return Response({
-                'message': 'User registered successfully',
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
+            return Response(
+                {
+                    "message": "User registered successfully",
+                    "user": {
+                        "id": user.id,
+                        "username": user.username,
+                        "email": user.email,
+                    },
+                    "tenant": {
+                        "name": tenant.name,
+                        "schema_name": tenant.schema_name,
+                        "domain": domain,
+                    },
+                    "tokens": {
+                        "refresh": str(refresh),
+                        "access": str(refresh.access_token),
+                    },
                 },
-                'tenant': {
-                    'name': tenant.name,
-                    'schema_name': tenant.schema_name,
-                    'domain': domain,
-                },
-                'tokens': {
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                }
-            }, status=status.HTTP_201_CREATED)
+                status=status.HTTP_201_CREATED,
+            )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

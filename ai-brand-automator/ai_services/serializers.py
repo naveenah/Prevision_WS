@@ -8,13 +8,20 @@ class ChatSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatSession
         fields = [
-            'id', 'tenant', 'session_id', 'title', 'messages',
-            'context', 'created_at', 'updated_at', 'last_activity'
+            "id",
+            "tenant",
+            "session_id",
+            "title",
+            "messages",
+            "context",
+            "created_at",
+            "updated_at",
+            "last_activity",
         ]
-        read_only_fields = ['id', 'tenant', 'created_at', 'updated_at', 'last_activity']
+        read_only_fields = ["id", "tenant", "created_at", "updated_at", "last_activity"]
 
     def create(self, validated_data):
-        validated_data['tenant'] = self.context['request'].tenant
+        validated_data["tenant"] = self.context["request"].tenant
         return super().create(validated_data)
 
 
@@ -31,10 +38,17 @@ class AIGenerationSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIGeneration
         fields = [
-            'id', 'tenant', 'content_type', 'prompt', 'response',
-            'tokens_used', 'model_used', 'created_at', 'processing_time'
+            "id",
+            "tenant",
+            "content_type",
+            "prompt",
+            "response",
+            "tokens_used",
+            "model_used",
+            "created_at",
+            "processing_time",
         ]
-        read_only_fields = ['id', 'tenant', 'created_at']
+        read_only_fields = ["id", "tenant", "created_at"]
 
 
 class BrandStrategyRequestSerializer(serializers.Serializer):
