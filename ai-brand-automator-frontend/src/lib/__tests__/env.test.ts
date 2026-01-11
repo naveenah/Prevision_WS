@@ -16,9 +16,9 @@ describe('env configuration', () => {
     expect(env.apiUrl).toBe('http://localhost:8000')
   })
 
-  it('uses environment variable for API URL when provided', () => {
+  it('uses environment variable for API URL when provided', async () => {
     process.env.NEXT_PUBLIC_API_URL = 'https://api.example.com'
-    const { env: newEnv } = require('@/lib/env')
+    const { env: newEnv } = await import('@/lib/env')
     expect(newEnv.apiUrl).toBe('https://api.example.com')
   })
 
@@ -37,16 +37,16 @@ describe('env configuration', () => {
     expect(url).toBe('http://localhost:8000/api/v1')
   })
 
-  it('correctly identifies development environment', () => {
+  it('correctly identifies development environment', async () => {
     process.env.NODE_ENV = 'development'
-    const { env: newEnv } = require('@/lib/env')
+    const { env: newEnv } = await import('@/lib/env')
     expect(newEnv.isDevelopment).toBe(true)
     expect(newEnv.isProduction).toBe(false)
   })
 
-  it('correctly identifies production environment', () => {
+  it('correctly identifies production environment', async () => {
     process.env.NODE_ENV = 'production'
-    const { env: newEnv } = require('@/lib/env')
+    const { env: newEnv } = await import('@/lib/env')
     expect(newEnv.isDevelopment).toBe(false)
     expect(newEnv.isProduction).toBe(true)
   })

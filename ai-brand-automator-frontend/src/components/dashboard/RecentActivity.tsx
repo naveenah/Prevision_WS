@@ -34,6 +34,24 @@ export default function RecentActivity() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const formatTimestamp = (timestamp: string): string => {
+    if (!timestamp) return 'Unknown';
+    
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    
+    if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+    if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+    if (days < 7) return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+    
+    return date.toLocaleDateString();
+  };
+
   const fetchActivities = async () => {
     try {
       // Fetch AI generations (most recent activity)
@@ -101,24 +119,8 @@ export default function RecentActivity() {
   };
   useEffect(() => {
     fetchActivities();
-  }, [fetchActivities]);
-  const formatTimestamp = (timestamp: string): string => {
-    if (!timestamp) return 'Unknown';
-    
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    
-    if (minutes < 60) return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
-    if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
-    if (days < 7) return `${days} ${days === 1 ? 'day' : 'days'} ago`;
-    
-    return date.toLocaleDateString();
-  };
+  }, []);
+
 
   if (loading) {
     return (

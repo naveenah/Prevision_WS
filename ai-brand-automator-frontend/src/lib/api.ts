@@ -1,10 +1,9 @@
 import { env } from './env';
-import { toast } from './toast';
 
 let isRefreshing = false;
-let failedQueue: Array<{ resolve: (value: unknown) => void; reject: (reason?: any) => void }> = [];
+let failedQueue: Array<{ resolve: (value: unknown) => void; reject: (reason?: Error) => void }> = [];
 
-const processQueue = (error: any = null, token: string | null = null) => {
+const processQueue = (error: Error | null = null, token: string | null = null) => {
   failedQueue.forEach(prom => {
     if (error) {
       prom.reject(error);
@@ -119,14 +118,14 @@ export const apiClient = {
     return this.request(endpoint);
   },
 
-  async post(endpoint: string, data: any) {
+  async post(endpoint: string, data: unknown) {
     return this.request(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  async put(endpoint: string, data: any) {
+  async put(endpoint: string, data: unknown) {
     return this.request(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),
