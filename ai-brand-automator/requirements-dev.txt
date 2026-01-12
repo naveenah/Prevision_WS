@@ -10,6 +10,7 @@ factory-boy==3.3.0
 faker==22.0.0
 freezegun==1.4.0
 responses==0.24.1
+hypothesis==6.92.0
 
 # Code Quality
 black==23.12.1

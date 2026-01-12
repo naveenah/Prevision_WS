@@ -148,26 +148,24 @@ WSGI_APPLICATION = "brand_automator.wsgi.application"
 # Determine if we're in test mode
 TESTING = "pytest" in sys.modules or "test" in sys.argv
 
+# Use PostgreSQL for all environments (local test DB for pytest, Neon for production)
 DATABASES = {
     "default": {
         "ENGINE": "django_tenants.postgresql_backend",
         "NAME": config("DB_NAME", default="neondb"),
         "USER": config("DB_USER", default="neondb_owner"),
-        "PASSWORD": config("DB_PASSWORD", default=""),  # MUST set in .env
+        "PASSWORD": config("DB_PASSWORD", default=""),
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": config("DB_SSLMODE", default="prefer" if TESTING else "require"),
-            "channel_binding": config(
-                "DB_CHANNEL_BINDING", default="prefer" if TESTING else "require"
-            ),
+            "sslmode": config("DB_SSLMODE", default="require"),
+            "channel_binding": config("DB_CHANNEL_BINDING", default="require"),
         },
     }
 }
 
 # Multi-tenancy settings
 DATABASE_ROUTERS = ("django_tenants.routers.TenantSyncRouter",)
-
 TENANT_MODEL = "tenants.Tenant"
 TENANT_DOMAIN_MODEL = "tenants.Domain"
 
