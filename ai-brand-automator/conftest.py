@@ -11,9 +11,13 @@ from hypothesis import settings
 # Load test environment variables before Django initializes
 test_env_path = Path(__file__).parent / ".env.test"
 if test_env_path.exists():
-    from dotenv import load_dotenv
+    try:
+        from dotenv import load_dotenv
 
-    load_dotenv(test_env_path)
+        load_dotenv(test_env_path)
+    except ImportError:
+        # python-dotenv not installed, skip loading .env.test
+        pass
 
 # Set Django settings module
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "brand_automator.settings")
