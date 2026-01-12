@@ -8,7 +8,7 @@
 - **Database**: PostgreSQL (Neon hosted) - multi-tenancy PARTIALLY DISABLED for MVP
 - **AI**: Google Gemini 1.5 Flash for brand strategy generation
 
-**🚨 CRITICAL STATE**: Multi-tenancy middleware is configured but models allow `tenant=null` for MVP mode. Always use defensive access: `tenant = getattr(request, 'tenant', None)` in views.
+**🚨 CRITICAL STATE**: Multi-tenancy configured with `django-tenants` but in transitional MVP mode. Models have nullable `tenant` FK. Always use defensive access: `tenant = getattr(request, 'tenant', None)` in views.
 
 ## Essential Architecture
 
@@ -22,6 +22,12 @@
 ### Django App Structure (SHARED vs TENANT)
 - **SHARED_APPS**: `tenants`, `ai_services` (available in all schemas)
 - **TENANT_APPS**: `onboarding`, `files`, `automation` (isolated per tenant, but nullable tenant FK for MVP)
+
+### URL Routing Structure
+- **Auth**: `/api/v1/auth/{register,login,refresh}/` - Email-based JWT auth in [brand_automator/urls.py](ai-brand-automator/brand_automator/urls.py)
+- **Onboarding**: `/api/v1/companies/` (ViewSet) - [onboarding/urls.py](ai-brand-automator/onboarding/urls.py)
+- **AI Services**: `/api/v1/ai/` - [ai_services/urls.py](ai-brand-automator/ai_services/urls.py)
+- **Health**: `/health/`, `/ready/`, `/alive/` - Non-auth monitoring endpoints
 
 ## Development Workflows
 
@@ -37,11 +43,40 @@ cd ai-brand-automator-frontend
 npm run dev                    # → http://localhost:3000
 ```
 
+### Testing
+
+**Backend** (pytest + Hypothesis property-based testing):
+```bash
+cd ai-brand-automator
+source ../.venv/bin/activate
+pytest -v                      # All tests
+pytest -m unit                 # Unit tests only
+pytest -m property             # Property-based tests
+pytest --hypothesis-show-statistics  # Hypothesis stats
+```
+
+- **Test fixtures**: [conftest.py](ai-brand-automator/conftest.py) - Public tenant auto-created, schema reset after each test
+- **Property tests**: [onboarding/tests/test_properties.py](ai-brand-automator/onboarding/tests/test_properties.py) - Hypothesis generates random data to test invariants
+- **Key pattern**: `@pytest.fixture` with `SERVER_NAME='localhost'` for django-tenants compatibility
+
+**Frontend** (Jest + React Testing Library):
+```bash
+cd ai-brand-automator-frontend
+npm test                       # Run tests
+npm test -- --coverage         # With coverage (60% threshold)
+```
+
+- Test files: `__tests__/**/*.test.tsx` or `*.test.tsx` anywhere
+- Path aliases: `@/` → `src/` (configured in jest.config.js and tsconfig.json)
+
 ### Database Operations
 ```bash
 # Standard Django (multi-tenancy disabled for migrations)
 python manage.py makemigrations
-python manage.py migrate        
+python manage.py migrate
+
+# ⚠️ Multi-tenancy note: Currently using standard migrations
+# If full multi-tenancy enabled, use: migrate_schemas --shared
 ```
 
 ### Environment Setup
@@ -50,6 +85,11 @@ python manage.py migrate
 SECRET_KEY=<django-secret>
 GOOGLE_API_KEY=<gemini-api-key>
 DEBUG=True
+DB_NAME=<neon-db>
+DB_USER=<neon-user>
+DB_PASSWORD=<neon-pass>
+DB_HOST=<host>.neon.tech
+DB_PORT=5432
 
 # Frontend (.env.local):
 NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -79,6 +119,18 @@ def generate_brand_strategy(self, request, pk=None):
 - Centralized in `src/lib/api.ts` with auto token injection
 - Auto-redirects to `/auth/login` on 401 responses
 - Always use `apiClient.get|post|put()` instead of raw fetch
+- Token refresh mechanism: uses `refresh_token` from localStorage when `access_token` expires
+
+### Frontend Route Protection
+- `useAuth()` hook in [src/hooks/useAuth.ts](ai-brand-automator-frontend/src/hooks/useAuth.ts) checks for `access_token` in localStorage
+- Client-side only (no SSR token validation)
+- Pattern: Call `useAuth()` at top of protected page components
+```tsx
+export default function ProtectedPage() {
+  useAuth(); // Redirects to login if no token
+  // ... component code
+}
+```
 
 ### Multi-Tenancy Defensive Pattern
 ⚠️ **CRITICAL**: Models expect tenant but middleware is partially disabled
