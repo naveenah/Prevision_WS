@@ -12,6 +12,7 @@ from hypothesis import settings
 test_env_path = Path(__file__).parent / ".env.test"
 if test_env_path.exists():
     from dotenv import load_dotenv
+
     load_dotenv(test_env_path)
 
 # Set Django settings module
@@ -28,30 +29,29 @@ settings.load_profile("dev")
 @pytest.fixture(scope="session", autouse=True)
 def setup_public_tenant(django_db_setup, django_db_blocker):
     """Create public tenant with localhost domain for tests
-    
+
     This is required for django-tenants middleware to work in tests.
     """
     from tenants.models import Tenant, Domain
     from django.db import connection
-    
+
     with django_db_blocker.unblock():
         connection.set_schema_to_public()
-        
+
         # Create or get public tenant
         tenant, created = Tenant.objects.get_or_create(
-            schema_name='public',
+            schema_name="public",
             defaults={
-                'name': 'Public Test Tenant',
-                'subscription_status': 'active',
-                'max_users': 100,
-                'storage_limit_gb': 10,
-            }
+                "name": "Public Test Tenant",
+                "subscription_status": "active",
+                "max_users": 100,
+                "storage_limit_gb": 10,
+            },
         )
-        
+
         # Create localhost domain if it doesn't exist
         Domain.objects.get_or_create(
-            domain='localhost',
-            defaults={'tenant': tenant, 'is_primary': True}
+            domain="localhost", defaults={"tenant": tenant, "is_primary": True}
         )
 
 
@@ -60,9 +60,10 @@ def reset_to_public_schema(db):
     """Reset to public schema after each test to prevent tenant isolation issues"""
     yield
     from django.db import connection
+
     try:
         connection.set_schema_to_public()
-    except:
+    except Exception:
         pass  # Ignore if not in tenant context
 
 
@@ -71,7 +72,7 @@ def api_client():
     """DRF API test client with tenant middleware support"""
     client = APIClient()
     # Set SERVER_NAME for tenant middleware (django-tenants requirement)
-    client.defaults['SERVER_NAME'] = 'localhost'
+    client.defaults["SERVER_NAME"] = "localhost"
     return client
 
 
@@ -96,12 +97,12 @@ def admin_user(db):
 @pytest.fixture
 def authenticated_client(api_client, user):
     """API client authenticated with test user
-    
+
     Sets SERVER_NAME='localhost' to bypass tenant middleware for tests
     """
     api_client.force_authenticate(user=user)
     # Set default SERVER_NAME for tenant middleware
-    api_client.defaults['SERVER_NAME'] = 'localhost'
+    api_client.defaults["SERVER_NAME"] = "localhost"
     return api_client
 
 
@@ -116,7 +117,8 @@ def admin_client(api_client, admin_user):
 def public_tenant(db):
     """Get the public tenant for tests (created by setup_public_tenant)"""
     from tenants.models import Tenant
-    return Tenant.objects.get(schema_name='public')
+
+    return Tenant.objects.get(schema_name="public")
 
 
 @pytest.fixture
@@ -127,7 +129,7 @@ def tenant(db):
 
     # Ensure we're in public schema for tenant creation
     connection.set_schema_to_public()
-    
+
     tenant = Tenant.objects.create(
         name="Test Company",
         schema_name="tenant_test",
@@ -140,7 +142,7 @@ def tenant(db):
         domain="test.localhost",
         is_primary=True,
     )
-    
+
     return tenant
 
 
@@ -153,7 +155,7 @@ def shared_tenant(django_db_setup, django_db_blocker):
     with django_db_blocker.unblock():
         # Ensure we're in public schema for tenant creation
         connection.set_schema_to_public()
-        
+
         tenant = Tenant.objects.create(
             name="Shared Test Tenant",
             schema_name="tenant_shared",
@@ -166,9 +168,9 @@ def shared_tenant(django_db_setup, django_db_blocker):
             domain="shared.localhost",
             is_primary=True,
         )
-        
+
         yield tenant
-        
+
         # Cleanup after module
         connection.set_schema_to_public()
         tenant.delete()
@@ -182,7 +184,7 @@ def tenant2(db):
 
     # Ensure we're in public schema for tenant creation
     connection.set_schema_to_public()
-    
+
     tenant = Tenant.objects.create(
         name="Second Company",
         schema_name="tenant_second",
@@ -193,7 +195,7 @@ def tenant2(db):
         domain="second.localhost",
         is_primary=True,
     )
-    
+
     return tenant
     return tenant
 

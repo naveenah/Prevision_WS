@@ -6,9 +6,8 @@ Tests API endpoints for Company, BrandAsset, and OnboardingProgress
 import pytest
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APIClient
 
-from onboarding.models import Company, BrandAsset, OnboardingProgress
+from onboarding.models import Company, BrandAsset
 from .factories import (
     CompanyFactory,
     BrandAssetFactory,
@@ -46,14 +45,17 @@ class TestCompanyViewSet:
         """Test authenticated user can list companies"""
         # Create company in public schema
         CompanyFactory(tenant=public_tenant)
-        
+
         response = authenticated_client.get(url_list)
         assert response.status_code == status.HTTP_200_OK
         assert "results" in response.data
         # At least the created company should be in results
         assert len(response.data["results"]) >= 1
 
-    @pytest.mark.skip(reason="Multi-tenant isolation test requires complex setup with separate tenant schemas")
+    @pytest.mark.skip(
+        reason="Multi-tenant isolation test requires complex setup "
+        "with separate tenant schemas"
+    )
     def test_list_companies_tenant_isolation(
         self, authenticated_client, tenant, tenant2, url_list
     ):
@@ -64,9 +66,7 @@ class TestCompanyViewSet:
         # 3. MVP mode has nullable tenants and partially disabled middleware
         pass
 
-    def test_retrieve_company_authenticated(
-        self, authenticated_client, company
-    ):
+    def test_retrieve_company_authenticated(self, authenticated_client, company):
         """Test retrieving a single company"""
         company.name = "Test Company"
         company.save()
@@ -91,9 +91,7 @@ class TestCompanyViewSet:
         response = api_client.post(url_list, data)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_create_company_authenticated(
-        self, authenticated_client, url_list
-    ):
+    def test_create_company_authenticated(self, authenticated_client, url_list):
         """Test authenticated user can create a company"""
         data = {
             "name": "New Tech Startup",
@@ -125,9 +123,7 @@ class TestCompanyViewSet:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "name" in response.data
 
-    def test_create_company_invalid_brand_voice(
-        self, authenticated_client, url_list
-    ):
+    def test_create_company_invalid_brand_voice(self, authenticated_client, url_list):
         """Test creating company with invalid brand_voice choice"""
         data = {
             "name": "Test Company",
@@ -138,9 +134,7 @@ class TestCompanyViewSet:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "brand_voice" in response.data
 
-    def test_update_company_authenticated(
-        self, authenticated_client, company
-    ):
+    def test_update_company_authenticated(self, authenticated_client, company):
         """Test updating a company"""
         company.description = "Old description"
         company.industry = "Technology"
@@ -178,9 +172,7 @@ class TestCompanyViewSet:
         # Industry should remain unchanged
         assert company.industry == "Technology"
 
-    def test_delete_company_authenticated(
-        self, authenticated_client, company
-    ):
+    def test_delete_company_authenticated(self, authenticated_client, company):
         """Test deleting a company"""
         company_id = company.id
 
@@ -216,7 +208,7 @@ class TestCompanyViewSet:
 
         # Expect 200 OK with generated strategy
         assert response.status_code == status.HTTP_200_OK
-        
+
         # Verify company was updated in database
         company.refresh_from_db()
         assert company.vision_statement is not None
@@ -253,17 +245,11 @@ class TestBrandAssetViewSet:
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) >= 3
 
-    def test_list_assets_ordering(
-        self, authenticated_client, public_tenant, url_list
-    ):
+    def test_list_assets_ordering(self, authenticated_client, public_tenant, url_list):
         """Test that assets are ordered by uploaded_at descending"""
         company = CompanyFactory(tenant=public_tenant)
-        asset1 = BrandAssetFactory(
-            tenant=public_tenant, company=company, file_name="first.jpg"
-        )
-        asset2 = BrandAssetFactory(
-            tenant=public_tenant, company=company, file_name="second.jpg"
-        )
+        BrandAssetFactory(tenant=public_tenant, company=company, file_name="first.jpg")
+        BrandAssetFactory(tenant=public_tenant, company=company, file_name="second.jpg")
 
         response = authenticated_client.get(url_list)
         assert response.status_code == status.HTTP_200_OK
@@ -375,14 +361,16 @@ class TestOnboardingProgressViewSet:
         # Note: OnboardingProgress is created when using Factory
         company = CompanyFactory(tenant=public_tenant)
         OnboardingProgressFactory(tenant=public_tenant, company=company)
-        
+
         # List to verify progress exists
         response = authenticated_client.get(url_list)
         assert response.status_code == status.HTTP_200_OK
         assert len(response.data["results"]) >= 1
-        
+
         # Verify the progress is associated with company
-        progress_items = [p for p in response.data["results"] if p["company"] == company.id]
+        progress_items = [
+            p for p in response.data["results"] if p["company"] == company.id
+        ]
         assert len(progress_items) == 1
         assert progress_items[0]["current_step"] in ["company_info", "brand_strategy"]
 
@@ -401,8 +389,12 @@ class TestOnboardingProgressViewSet:
             "completed_steps": ["company_info"],
         }
 
-        response = authenticated_client.patch(self.url_detail(progress.id), data, format='json')
-        assert response.status_code == status.HTTP_200_OK, f"Got {response.status_code}: {response.data}"
+        response = authenticated_client.patch(
+            self.url_detail(progress.id), data, format="json"
+        )
+        assert (
+            response.status_code == status.HTTP_200_OK
+        ), f"Got {response.status_code}: {response.data}"
         assert response.data["current_step"] == "brand_strategy"
         assert "company_info" in response.data["completed_steps"]
 
@@ -423,9 +415,7 @@ class TestOnboardingProgressViewSet:
         # 2 out of 5 steps = 40%
         assert response.data["completion_percentage"] == 40
 
-    def test_mark_onboarding_complete(
-        self, authenticated_client, public_tenant
-    ):
+    def test_mark_onboarding_complete(self, authenticated_client, public_tenant):
         """Test marking onboarding as completed"""
         company = CompanyFactory(tenant=public_tenant)
         progress = OnboardingProgressFactory(
@@ -453,8 +443,12 @@ class TestOnboardingProgressViewSet:
             "is_completed": True,
         }
 
-        response = authenticated_client.patch(self.url_detail(progress.id), data, format='json')
-        assert response.status_code == status.HTTP_200_OK, f"Got {response.status_code}: {response.data}"
+        response = authenticated_client.patch(
+            self.url_detail(progress.id), data, format="json"
+        )
+        assert (
+            response.status_code == status.HTTP_200_OK
+        ), f"Got {response.status_code}: {response.data}"
         assert response.data["is_completed"] is True
         assert response.data["completion_percentage"] == 100
 
@@ -469,13 +463,11 @@ class TestOnboardingProgressViewSet:
 class TestViewSetPagination:
     """Test pagination for viewsets"""
 
-    def test_company_list_pagination(
-        self, authenticated_client, public_tenant
-    ):
+    def test_company_list_pagination(self, authenticated_client, public_tenant):
         """Test that company list is paginated"""
         # Note: Can only create 1 company per tenant due to OneToOne constraint
         # Just test that pagination structure exists
-        company = CompanyFactory(tenant=public_tenant)
+        company = CompanyFactory(tenant=public_tenant)  # noqa: F841
 
         url = reverse("company-list")
         response = authenticated_client.get(url)
@@ -490,7 +482,7 @@ class TestViewSetPagination:
     def test_pagination_page_size(self, authenticated_client, public_tenant):
         """Test custom page size parameter"""
         # Create one company (OneToOne constraint)
-        company = CompanyFactory(tenant=public_tenant)
+        company = CompanyFactory(tenant=public_tenant)  # noqa: F841
 
         url = reverse("company-list")
         response = authenticated_client.get(url, {"page_size": 5})
@@ -505,18 +497,18 @@ class TestViewSetPagination:
 class TestViewSetFiltering:
     """Test filtering capabilities"""
 
-    @pytest.mark.skip(reason="Can't create multiple companies per tenant (OneToOne constraint)")
-    def test_filter_companies_by_industry(
-        self, authenticated_client, tenant
-    ):
+    @pytest.mark.skip(
+        reason="Can't create multiple companies per tenant (OneToOne constraint)"
+    )
+    def test_filter_companies_by_industry(self, authenticated_client, tenant):
         """Test filtering companies by industry"""
         # Skipped: OneToOne constraint prevents multiple companies per tenant
         pass
 
-    @pytest.mark.skip(reason="Can't create multiple companies per tenant (OneToOne constraint)")
-    def test_search_companies_by_name(
-        self, authenticated_client, tenant
-    ):
+    @pytest.mark.skip(
+        reason="Can't create multiple companies per tenant (OneToOne constraint)"
+    )
+    def test_search_companies_by_name(self, authenticated_client, tenant):
         """Test searching companies by name"""
         # Skipped: OneToOne constraint prevents multiple companies per tenant
         pass

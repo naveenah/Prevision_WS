@@ -20,7 +20,7 @@ class Company(models.Model):
     core_problem = models.TextField(
         blank=True, help_text="Main problem the company solves"
     )
-    
+
     # Target audience details (added in 0004 migration)
     demographics = models.TextField(
         blank=True, help_text="Demographic characteristics of target audience"
@@ -34,7 +34,7 @@ class Company(models.Model):
     desired_outcomes = models.TextField(
         blank=True, help_text="What customers want to achieve"
     )
-    
+
     brand_voice = models.CharField(
         max_length=50,
         choices=[

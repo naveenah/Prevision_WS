@@ -4,7 +4,6 @@ Unit tests for onboarding models
 import pytest
 from django.db import IntegrityError
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 from freezegun import freeze_time
 
 from onboarding.models import Company, BrandAsset, OnboardingProgress
@@ -30,7 +29,9 @@ class TestCompanyModel:
         assert company.name == "Acme Corporation"
         assert company.tenant == tenant
 
-    @pytest.mark.skip(reason="Tenant field is nullable after migration 0003 for MVP mode")
+    @pytest.mark.skip(
+        reason="Tenant field is nullable after migration 0003 for MVP mode"
+    )
     def test_company_requires_tenant(self):
         """Test company creation fails without tenant"""
         with pytest.raises(IntegrityError):
@@ -89,7 +90,9 @@ class TestCompanyModel:
 
         # Test each choice by creating and saving company
         for choice in valid_choices:
-            company = CompanyFactory(tenant=tenant, name=f"Test {choice}", brand_voice=choice)
+            company = CompanyFactory(
+                tenant=tenant, name=f"Test {choice}", brand_voice=choice
+            )
             assert company.brand_voice == choice
             company.delete()  # Clean up for next iteration
 
@@ -159,9 +162,7 @@ class TestBrandAssetModel:
     def test_create_brand_asset_with_required_fields(self, tenant):
         """Test creating brand asset with all required fields"""
         company = CompanyFactory(tenant=tenant)
-        asset = BrandAssetFactory(
-            tenant=tenant, company=company, file_name="logo.jpg"
-        )
+        asset = BrandAssetFactory(tenant=tenant, company=company, file_name="logo.jpg")
 
         assert asset.pk is not None
         assert asset.file_name == "logo.jpg"
@@ -176,9 +177,7 @@ class TestBrandAssetModel:
     def test_brand_asset_str_representation(self, tenant):
         """Test __str__ method"""
         company = CompanyFactory(tenant=tenant, name="Test Co")
-        asset = BrandAssetFactory(
-            tenant=tenant, company=company, file_name="logo.png"
-        )
+        asset = BrandAssetFactory(tenant=tenant, company=company, file_name="logo.png")
 
         expected = "logo.png (Test Co)"
         assert str(asset) == expected
@@ -315,9 +314,7 @@ class TestOnboardingProgressModel:
 
         for step in valid_steps:
             progress = OnboardingProgress(
-                tenant=tenant, 
-                company=company, 
-                current_step=step
+                tenant=tenant, company=company, current_step=step
             )
             progress.save()  # Save instead of full_clean to test model works
             assert progress.current_step == step

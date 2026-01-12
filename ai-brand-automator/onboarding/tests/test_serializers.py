@@ -2,13 +2,12 @@
 Serializer tests for onboarding app
 """
 import pytest
-from django.core.exceptions import ValidationError
 from onboarding.serializers import (
     CompanySerializer,
     BrandAssetSerializer,
     OnboardingProgressSerializer,
 )
-from onboarding.models import Company, BrandAsset, OnboardingProgress
+from onboarding.models import BrandAsset
 from .factories import CompanyFactory, BrandAssetFactory, OnboardingProgressFactory
 
 
@@ -66,7 +65,9 @@ class TestCompanySerializer:
         for voice in valid_voices:
             data = {"name": "Test", "brand_voice": voice}
             serializer = CompanySerializer(data=data)
-            assert serializer.is_valid(), f"{voice} should be valid: {serializer.errors}"
+            assert (
+                serializer.is_valid()
+            ), f"{voice} should be valid: {serializer.errors}"
 
     def test_brand_voice_invalid_choice(self, shared_tenant):
         """Test brand_voice rejects invalid choices"""
@@ -186,7 +187,9 @@ class TestBrandAssetSerializer:
                 "gcs_path": f"companies/test/{file_type}/test.file",
             }
             serializer = BrandAssetSerializer(data=data)
-            assert serializer.is_valid(), f"{file_type} should be valid: {serializer.errors}"
+            assert (
+                serializer.is_valid()
+            ), f"{file_type} should be valid: {serializer.errors}"
 
     def test_file_type_invalid_choice(self, shared_tenant):
         """Test file_type rejects invalid choices"""
@@ -212,7 +215,7 @@ class TestBrandAssetSerializer:
     def test_ordering_by_uploaded_at(self, shared_tenant):
         """Test assets are ordered by uploaded_at descending"""
         company = CompanyFactory(tenant=shared_tenant)
-        asset1 = BrandAssetFactory(tenant=shared_tenant, company=company)
+        asset1 = BrandAssetFactory(tenant=shared_tenant, company=company)  # noqa: F841
         asset2 = BrandAssetFactory(tenant=shared_tenant, company=company)
 
         assets = BrandAsset.objects.filter(company=company)
