@@ -52,7 +52,13 @@ class CompanyViewSet(viewsets.ModelViewSet):
             # MVP mode: If no tenant context, use public tenant
             from tenants.models import Tenant
 
-            tenant = Tenant.objects.get(schema_name="public")
+            try:
+                tenant = Tenant.objects.get(schema_name="public")
+            except Tenant.DoesNotExist:
+                raise ValueError(
+                    "Public tenant not found. Ensure migrations have been run "
+                    "and public tenant exists."
+                )
 
         # Check if tenant already has a company (OneToOneField constraint)
         if Company.objects.filter(tenant=tenant).exists():
@@ -181,7 +187,13 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
             # MVP mode: If no tenant context, use public tenant
             from tenants.models import Tenant
 
-            tenant = Tenant.objects.get(schema_name="public")
+            try:
+                tenant = Tenant.objects.get(schema_name="public")
+            except Tenant.DoesNotExist:
+                raise ValueError(
+                    "Public tenant not found. Ensure migrations have been run "
+                    "and public tenant exists."
+                )
 
         # Get company for the tenant
         company = get_object_or_404(Company, tenant=tenant)
