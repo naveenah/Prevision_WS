@@ -27,10 +27,23 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ChatSession.objects.filter(tenant=self.request.tenant)
+        tenant = getattr(self.request, "tenant", None)
+        if tenant:
+            return ChatSession.objects.filter(tenant=tenant)
+        return ChatSession.objects.none()
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant, session_id=str(uuid.uuid4()))
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            from tenants.models import Tenant
+
+            try:
+                tenant = Tenant.objects.get(schema_name="public")
+            except Tenant.DoesNotExist:
+                raise ValueError(
+                    "Public tenant not found. Ensure migrations have been run."
+                )
+        serializer.save(tenant=tenant, session_id=str(uuid.uuid4()))
 
 
 class AIGenerationViewSet(viewsets.ReadOnlyModelViewSet):
@@ -41,7 +54,10 @@ class AIGenerationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return AIGeneration.objects.filter(tenant=self.request.tenant)
+        tenant = getattr(self.request, "tenant", None)
+        if tenant:
+            return AIGeneration.objects.filter(tenant=tenant)
+        return AIGeneration.objects.none()
 
 
 @api_view(["POST"])
