@@ -108,7 +108,7 @@ export function OnboardingReview() {
       );
 
       if (response.ok) {
-        const data = await response.json();
+        await response.json();
         alert('Brand identity generated successfully!');
         // Optionally fetch updated company data
         fetchCompanyData();

@@ -57,7 +57,6 @@ export function CompanyForm() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('access_token');
       // Convert camelCase to snake_case for backend
       const apiData = {
         name: formData.name,

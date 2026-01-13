@@ -2,18 +2,22 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export function Navigation() {
   const router = useRouter();
   const pathname = usePathname();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  useEffect(() => {
-    // Check if user is logged in
+  const checkLoginStatus = useCallback(() => {
     const token = localStorage.getItem('access_token');
     setIsLoggedIn(!!token);
-  }, [pathname]);
+  }, []);
+
+  useEffect(() => {
+    // Check if user is logged in on mount and pathname change
+    checkLoginStatus();
+  }, [pathname, checkLoginStatus]);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');

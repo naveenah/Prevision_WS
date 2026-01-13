@@ -67,7 +67,6 @@ export function BrandForm() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('access_token');
       const companyId = localStorage.getItem('company_id');
       
       if (!companyId) {

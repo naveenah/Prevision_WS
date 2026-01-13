@@ -39,7 +39,6 @@ export function ChatInterface() {
     setIsLoading(true);
 
     try {
-      const token = localStorage.getItem('access_token');
       const response = await apiClient.post('/ai/chat/', { message: input });
 
       if (response.ok) {
