@@ -111,6 +111,29 @@ def authenticated_client(api_client, user):
 
 
 @pytest.fixture
+def authenticated_client_with_tenant(api_client, user, public_tenant):
+    """API client authenticated with test user and tenant context
+
+    Sets request.tenant for views that require tenant context.
+    """
+    from unittest.mock import MagicMock
+
+    api_client.force_authenticate(user=user)
+    api_client.defaults["SERVER_NAME"] = "localhost"
+
+    # Patch the request to include tenant
+    original_request = api_client.request
+
+    def patched_request(*args, **kwargs):
+        response = original_request(*args, **kwargs)
+        return response
+
+    # Add tenant to handler that will be used
+    api_client.handler._force_tenant = public_tenant
+    return api_client
+
+
+@pytest.fixture
 def admin_client(api_client, admin_user):
     """API client authenticated as admin"""
     api_client.force_authenticate(user=admin_user)
