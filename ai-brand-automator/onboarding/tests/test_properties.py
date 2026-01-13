@@ -9,16 +9,10 @@ since Company has OneToOneField(Tenant).
 import pytest
 import uuid
 from hypothesis import given, assume, strategies as st, settings, HealthCheck
-from hypothesis.extra.django import from_model
-from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction, connection
+from django.db import connection
 
 from onboarding.models import Company, BrandAsset, OnboardingProgress
-from onboarding.serializers import (
-    CompanySerializer,
-    BrandAssetSerializer,
-    OnboardingProgressSerializer,
-)
+from onboarding.serializers import CompanySerializer
 from onboarding.tests.factories import CompanyFactory, BrandAssetFactory
 
 # Suppress health check for function-scoped fixtures
@@ -38,7 +32,7 @@ def create_test_tenant():
     - Company has OneToOneField(Tenant) - only ONE company per tenant
     - Hypothesis runs 50 examples per test (50 function calls)
     - Using a fixture would give all 50 examples the SAME tenant
-    - Creating fresh tenant per example avoids "Company with this Tenant already exists" errors
+    - Fresh tenant per example avoids constraint violations
     """
     from tenants.models import Tenant, Domain
 

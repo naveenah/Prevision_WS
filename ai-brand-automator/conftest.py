@@ -129,7 +129,9 @@ def public_tenant(db):
 def unique_tenant(db):
     """
     Create a unique tenant for each test invocation.
-    Essential for property tests using Hypothesis to avoid OneToOne constraint violations.
+
+    Essential for property tests using Hypothesis to avoid
+    OneToOne constraint violations.
     """
     from tenants.models import Tenant, Domain
     from django.db import connection

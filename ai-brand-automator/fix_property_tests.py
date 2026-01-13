@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to fix property tests by replacing unique_tenant fixture with create_test_tenant() calls"""
+"""Script to fix property tests by replacing unique_tenant fixture."""
 
 import re
 
