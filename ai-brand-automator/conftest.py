@@ -126,6 +126,41 @@ def public_tenant(db):
 
 
 @pytest.fixture
+def unique_tenant(db):
+    """
+    Create a unique tenant for each test invocation.
+
+    Essential for property tests using Hypothesis to avoid
+    OneToOne constraint violations.
+    """
+    from tenants.models import Tenant, Domain
+    from django.db import connection
+    import uuid
+
+    # Ensure we're in public schema for tenant creation
+    connection.set_schema_to_public()
+
+    # Generate unique schema name
+    unique_id = uuid.uuid4().hex[:10]
+    schema_name = f"test_{unique_id}"
+
+    tenant = Tenant.objects.create(
+        name=f"Test Tenant {unique_id}",
+        schema_name=schema_name,
+        subscription_status="active",
+        max_users=10,
+        storage_limit_gb=5,
+    )
+    Domain.objects.create(
+        tenant=tenant,
+        domain=f"{schema_name}.localhost",
+        is_primary=True,
+    )
+
+    return tenant
+
+
+@pytest.fixture
 def tenant(db):
     """Create test tenant with domain (function-scoped for tests that modify tenant)"""
     from tenants.models import Tenant, Domain
@@ -210,7 +245,7 @@ def mock_gemini_api(mocker):
     mock_response = {
         "vision_statement": "To revolutionize the industry through innovation",
         "mission_statement": "We deliver exceptional value to our customers",
-        "values": ["Innovation", "Excellence", "Integrity"],
+        "values": "Innovation, Excellence, Integrity",
         "positioning_statement": "The leader in innovative solutions",
     }
     return mocker.patch(

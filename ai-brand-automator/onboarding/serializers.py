@@ -14,6 +14,10 @@ class CompanySerializer(serializers.ModelSerializer):
             "description",
             "industry",
             "target_audience",
+            "demographics",
+            "psychographics",
+            "pain_points",
+            "desired_outcomes",
             "core_problem",
             "brand_voice",
             "vision_statement",
@@ -96,9 +100,14 @@ class CompanyUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = [
+            "name",
             "description",
             "industry",
             "target_audience",
+            "demographics",
+            "psychographics",
+            "pain_points",
+            "desired_outcomes",
             "core_problem",
             "brand_voice",
             "vision_statement",

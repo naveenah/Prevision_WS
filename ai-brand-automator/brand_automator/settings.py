@@ -261,6 +261,10 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# Media files (user uploads)
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 # Google Cloud Storage settings
 GS_BUCKET_NAME = config("GS_BUCKET_NAME", default="brand-automator-assets")
 GS_PROJECT_ID = config("GS_PROJECT_ID", default="")

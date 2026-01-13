@@ -129,7 +129,7 @@ def generate_brand_strategy(request):
     # Update company with generated content
     company.vision_statement = result.get("vision_statement", "")
     company.mission_statement = result.get("mission_statement", "")
-    company.values = result.get("values", [])
+    company.values = result.get("values", "")
     company.positioning_statement = result.get("positioning_statement", "")
     company.save()
 

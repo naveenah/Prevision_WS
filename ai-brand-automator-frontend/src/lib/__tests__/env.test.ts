@@ -57,7 +57,6 @@ describe('env configuration', () => {
   })
 
   it('correctly identifies production environment', async () => {
-    const originalEnv = process.env.NODE_ENV
     Object.defineProperty(process.env, 'NODE_ENV', {
       value: 'production',
       writable: true,

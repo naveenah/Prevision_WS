@@ -2,7 +2,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { RegisterForm } from '@/components/auth/RegisterForm'
 import { CompanyForm } from '@/components/onboarding/CompanyForm'
-import { BrandForm } from '@/components/onboarding/BrandForm'
 import { ChatInterface } from '@/components/chat/ChatInterface'
 import { apiClient } from '@/lib/api'
 

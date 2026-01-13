@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { apiClient } from '@/lib/api';
 
 export function RegisterForm() {
   const [formData, setFormData] = useState({
@@ -27,8 +28,27 @@ export function RegisterForm() {
       return;
     }
     setIsLoading(true);
-    // Note: Register endpoint not implemented in backend yet
-    alert('Registration is not implemented yet. Please contact admin to create an account.');
+    
+    try {
+      const response = await apiClient.post('/auth/register/', {
+        email: formData.email,
+        password: formData.password,
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+      });
+
+      if (response.ok) {
+        alert('Registration successful! You can now login.');
+        window.location.href = '/auth/login';
+      } else {
+        const error = await response.json();
+        alert(error.errors ? JSON.stringify(error.errors) : 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      alert('Registration failed. Please try again.');
+    }
+    
     setIsLoading(false);
   };
 

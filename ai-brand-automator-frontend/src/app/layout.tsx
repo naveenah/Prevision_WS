@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ToastContainer } from "@/components/common/ToastContainer";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { Navigation } from "@/components/common/Navigation";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,6 +31,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ErrorBoundary>
+          <Navigation />
           {children}
           <ToastContainer />
         </ErrorBoundary>

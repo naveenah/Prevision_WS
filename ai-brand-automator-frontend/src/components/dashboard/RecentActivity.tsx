@@ -56,15 +56,15 @@ export default function RecentActivity() {
     const fetchActivities = async () => {
       try {
         // Fetch AI generations (most recent activity)
-        const aiGenerationsResponse = await apiClient.get('/api/v1/ai/generations/');
+        const aiGenerationsResponse = await apiClient.get('/ai/generations/');
         const aiGenerations = await aiGenerationsResponse.json();
         
         // Fetch assets
-        const assetsResponse = await apiClient.get('/api/v1/assets/');
+        const assetsResponse = await apiClient.get('/assets/');
         const assets = await assetsResponse.json();
 
         // Fetch companies
-        const companiesResponse = await apiClient.get('/api/v1/companies/');
+        const companiesResponse = await apiClient.get('/companies/');
         const companies = await companiesResponse.json();
 
         // Combine and format activities

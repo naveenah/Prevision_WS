@@ -76,13 +76,9 @@ class GeminiAIService:
                         f"{company_data.get('core_problem', 'key challenges')} "
                         f"for our customers."
                     ),
-                    "values": values
-                    or [
-                        "Innovation",
-                        "Customer Focus",
-                        "Excellence",
-                        "Integrity",
-                    ],
+                    "values": ", ".join(values)
+                    if values
+                    else "Innovation, Customer Focus, Excellence, Integrity",
                     "positioning_statement": positioning
                     or (
                         f"The leading {company_data.get('industry', 'solution')} "
@@ -104,13 +100,10 @@ class GeminiAIService:
                         f"{company_data.get('core_problem', 'key challenges')} "
                         f"for our customers."
                     ),
-                    "values": [
-                        "Innovation",
-                        "Customer Focus",
-                        "Excellence",
-                        "Integrity",
-                        "Collaboration",
-                    ],
+                    "values": (
+                        "Innovation, Customer Focus, Excellence, "
+                        "Integrity, Collaboration"
+                    ),
                     "positioning_statement": (
                         f"The leading {company_data.get('industry', 'solution')} "
                         f"for businesses seeking to overcome "
@@ -135,12 +128,7 @@ class GeminiAIService:
                     f"{company_data.get('core_problem', 'key challenges')} "
                     f"for our customers."
                 ),
-                "values": [
-                    "Innovation",
-                    "Customer Focus",
-                    "Excellence",
-                    "Integrity",
-                ],
+                "values": "Innovation, Customer Focus, Excellence, Integrity",
                 "positioning_statement": (
                     f"The leading {company_data.get('industry', 'solution')} "
                     f"for businesses seeking to overcome "

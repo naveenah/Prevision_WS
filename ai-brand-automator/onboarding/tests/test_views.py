@@ -141,6 +141,7 @@ class TestCompanyViewSet:
         company.save()
 
         data = {
+            "name": company.name,  # Required field for PUT
             "description": "Updated description about the company",
             "industry": "Healthcare",
             "target_audience": "Healthcare professionals",

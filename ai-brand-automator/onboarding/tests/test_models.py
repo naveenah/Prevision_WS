@@ -63,17 +63,17 @@ class TestCompanyModel:
         with pytest.raises(ValidationError):
             company.full_clean()
 
-    def test_values_field_defaults_to_empty_list(self, tenant):
-        """Test JSONField default value is empty list"""
+    def test_values_field_defaults_to_empty_string(self, tenant):
+        """Test TextField default value is empty string"""
         company = Company.objects.create(tenant=tenant, name="Test")
-        assert isinstance(company.values, list)
+        assert isinstance(company.values, str)
         assert len(company.values) == 0
 
-    def test_values_field_accepts_list_of_strings(self, tenant):
-        """Test values field can store list of strings"""
-        values_list = ["Innovation", "Excellence", "Integrity"]
-        company = CompanyFactory(tenant=tenant, values=values_list)
-        assert company.values == values_list
+    def test_values_field_accepts_comma_separated_string(self, tenant):
+        """Test values field can store comma-separated strings"""
+        values_str = "Innovation, Excellence, Integrity"
+        company = CompanyFactory(tenant=tenant, values=values_str)
+        assert company.values == values_str
 
     def test_brand_voice_valid_choices(self, tenant):
         """Test brand_voice field accepts valid choices"""

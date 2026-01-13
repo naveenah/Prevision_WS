@@ -13,7 +13,7 @@ export function LoginForm() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const response = await apiClient.post('/api/v1/auth/login/', { email, password });
+      const response = await apiClient.post('/auth/login/', { email, password });
 
       if (response.ok) {
         const data = await response.json();

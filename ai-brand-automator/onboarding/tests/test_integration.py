@@ -192,6 +192,7 @@ class TestCompanyLifecycle:
 
         # Update company
         update_data = {
+            "name": company.name,  # Required field for PUT
             "description": "Updated integration test description",
             "industry": "Healthcare",
             "target_audience": "Healthcare professionals",

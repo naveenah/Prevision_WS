@@ -58,7 +58,9 @@ class Company(models.Model):
     mission_statement = models.TextField(
         blank=True, help_text="AI-generated mission statement"
     )
-    values = models.JSONField(default=list, help_text="List of core values")
+    values = models.TextField(
+        blank=True, default="", help_text="Comma-separated list of core values"
+    )
     positioning_statement = models.TextField(
         blank=True, help_text="Market positioning statement"
     )

@@ -13,8 +13,11 @@ interface CompanyData {
   brand_voice: string;
   vision_statement: string;
   mission_statement: string;
-  values: string[];
+  values: string; // Backend stores this as a text field, not array
   positioning_statement: string;
+  color_palette_desc?: string;
+  font_recommendations?: string;
+  messaging_guide?: string;
 }
 
 export function OnboardingReview() {
@@ -37,7 +40,7 @@ export function OnboardingReview() {
         return;
       }
 
-      const response = await apiClient.get(`/api/v1/companies/${companyId}/`);
+      const response = await apiClient.get(`/companies/${companyId}/`);
       if (response.ok) {
         const data = await response.json();
         setCompany(data);
@@ -65,7 +68,7 @@ export function OnboardingReview() {
       }
 
       const response = await apiClient.post(
-        `/api/v1/companies/${companyId}/generate_brand_strategy/`,
+        `/companies/${companyId}/generate_brand_strategy/`,
         {}
       );
 
@@ -100,12 +103,12 @@ export function OnboardingReview() {
       }
 
       const response = await apiClient.post(
-        `/api/v1/companies/${companyId}/generate_brand_identity/`,
+        `/companies/${companyId}/generate_brand_identity/`,
         {}
       );
 
       if (response.ok) {
-        const data = await response.json();
+        await response.json();
         alert('Brand identity generated successfully!');
         // Optionally fetch updated company data
         fetchCompanyData();
@@ -214,8 +217,8 @@ export function OnboardingReview() {
                 <dt className="text-sm font-medium text-indigo-700">Core Values</dt>
                 <dd className="mt-1">
                   <ul className="list-disc list-inside text-sm text-gray-900">
-                    {company.values.map((value, idx) => (
-                      <li key={idx}>{value}</li>
+                    {company.values.split(',').map((value, idx) => (
+                      <li key={idx}>{value.trim()}</li>
                     ))}
                   </ul>
                 </dd>
@@ -225,6 +228,37 @@ export function OnboardingReview() {
               <div>
                 <dt className="text-sm font-medium text-indigo-700">Positioning Statement</dt>
                 <dd className="mt-1 text-sm text-gray-900">{company.positioning_statement}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
+
+      {/* Brand Identity Visualization */}
+      {(company.color_palette_desc || company.font_recommendations || company.messaging_guide) && (
+        <div className="bg-purple-50 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">🎨 Brand Identity</h2>
+          <dl className="grid grid-cols-1 gap-4">
+            {company.color_palette_desc && (
+              <div>
+                <dt className="text-sm font-medium text-purple-700">Color Palette</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  <ColorPaletteDisplay desc={company.color_palette_desc} />
+                </dd>
+              </div>
+            )}
+            {company.font_recommendations && (
+              <div>
+                <dt className="text-sm font-medium text-purple-700">Font Recommendations</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  <FontRecommendationsDisplay desc={company.font_recommendations} />
+                </dd>
+              </div>
+            )}
+            {company.messaging_guide && (
+              <div>
+                <dt className="text-sm font-medium text-purple-700">Messaging Guide</dt>
+                <dd className="mt-1 text-sm text-gray-900 whitespace-pre-line">{company.messaging_guide}</dd>
               </div>
             )}
           </dl>
@@ -270,6 +304,53 @@ export function OnboardingReview() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// --- Visualization helpers ---
+// Extract hex codes and color names from a string like "Primary: #0066CC, Secondary: #FF6600"
+function ColorPaletteDisplay({ desc }: { desc: string }) {
+  // Regex to find hex codes and their labels
+  const colorRegex = /(\w+):\s*#([0-9a-fA-F]{6})/g;
+  const matches = Array.from(desc.matchAll(colorRegex));
+  if (matches.length === 0) {
+    // fallback: just show the string
+    return <span>{desc}</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-4 items-center">
+      {matches.map((m, i) => (
+        <div key={i} className="flex flex-col items-center">
+          <div
+            className="w-10 h-10 rounded-full border border-gray-300 mb-1"
+            style={{ backgroundColor: `#${m[2]}` }}
+            title={m[1]}
+          />
+          <span className="text-xs text-gray-700">{m[1]}</span>
+          <span className="text-xs text-gray-500">#{m[2]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Display font recommendations, e.g. "Headings: Montserrat Bold, Body: Open Sans"
+function FontRecommendationsDisplay({ desc }: { desc: string }) {
+  // Try to extract font names and show a sample
+  const fontRegex = /(\w+):\s*([\w\s]+(?:,\s*[\w\s]+)*)/g;
+  const matches = Array.from(desc.matchAll(fontRegex));
+  if (matches.length === 0) {
+    return <span>{desc}</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-6 items-center">
+      {matches.map((m, i) => (
+        <div key={i} className="flex flex-col items-start">
+          <span className="text-xs text-gray-700 font-semibold">{m[1]}</span>
+          <span className="text-base text-gray-900" style={{ fontFamily: m[2].split(',')[0] }}>{m[2]}</span>
+        </div>
+      ))}
     </div>
   );
 }
