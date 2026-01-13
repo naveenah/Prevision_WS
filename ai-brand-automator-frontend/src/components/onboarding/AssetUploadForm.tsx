@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 
 interface UploadedFile {
   id: string;
   file_name: string;
-  asset_type: string;
+  file_type: string; // Changed from asset_type to match backend
   file_size: number;
 }
 
@@ -16,6 +16,24 @@ export function AssetUploadForm() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+
+  // Load existing uploaded files on mount
+  useEffect(() => {
+    const loadExistingFiles = async () => {
+      try {
+        const response = await apiClient.get('/assets/');
+        if (response.ok) {
+          const data = await response.json();
+          const assets = data.results || [];
+          setUploadedFiles(assets);
+        }
+      } catch (error) {
+        console.error('Failed to load existing files:', error);
+      }
+    };
+
+    loadExistingFiles();
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -36,9 +54,7 @@ export function AssetUploadForm() {
       for (const file of Array.from(files)) {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('company_id', companyId);
-        formData.append('asset_type', getAssetType(file.type));
-        formData.append('file_name', file.name);
+        formData.append('file_type', getFileType(file.type));
 
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/assets/upload/`, {
           method: 'POST',
@@ -64,9 +80,9 @@ export function AssetUploadForm() {
     }
   };
 
-  const getAssetType = (mimeType: string): string => {
-    if (mimeType.startsWith('image/')) return 'logo';
-    if (mimeType === 'application/pdf') return 'document';
+  const getFileType = (mimeType: string): string => {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType === 'application/pdf' || mimeType.includes('document')) return 'document';
     if (mimeType.startsWith('video/')) return 'video';
     return 'other';
   };
@@ -158,7 +174,7 @@ export function AssetUploadForm() {
                   </span>
                 </div>
                 <span className="text-xs bg-gray-100 px-2 py-1 rounded">
-                  {file.asset_type}
+                  {file.file_type}
                 </span>
               </li>
             ))}

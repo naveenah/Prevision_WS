@@ -3,6 +3,12 @@ import Link from 'next/link';
 export function QuickActions() {
   const actions = [
     {
+      title: 'Company Onboarding',
+      description: 'Set up your company profile and brand strategy',
+      href: '/onboarding',
+      icon: '🚀',
+    },
+    {
       title: 'Chat with AI',
       description: 'Get brand insights and generate content',
       href: '/chat',

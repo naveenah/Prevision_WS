@@ -43,16 +43,15 @@ class CompanyViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """
         Create company with proper tenant context.
-        Each user's tenant gets exactly one company (OneToOneField).
+        Each tenant gets exactly one company (OneToOneField).
         """
         # Get tenant from request (set by TenantMainMiddleware)
-        if not hasattr(self.request, "tenant") or not self.request.tenant:
-            raise ValueError(
-                "No tenant context available. Ensure TenantMainMiddleware "
-                "is properly configured."
-            )
-
-        tenant = self.request.tenant
+        tenant = getattr(self.request, 'tenant', None)
+        
+        if not tenant:
+            # MVP mode: If no tenant context, use public tenant
+            from tenants.models import Tenant
+            tenant = Tenant.objects.get(schema_name='public')
 
         # Check if tenant already has a company (OneToOneField constraint)
         if Company.objects.filter(tenant=tenant).exists():
@@ -175,20 +174,31 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         # Sanitize filename
         safe_filename = sanitize_filename(file.name)
 
-        # Get or create company for the tenant
-        # TODO: Get actual tenant from request in multi-tenant setup
-        tenant = request.tenant  # This will be set by middleware in multi-tenant setup
+        # Get tenant from request (defensive access for MVP mode)
+        tenant = getattr(request, 'tenant', None)
+        if not tenant:
+            # MVP mode: If no tenant context, use public tenant
+            from tenants.models import Tenant
+            tenant = Tenant.objects.get(schema_name='public')
+        
+        # Get company for the tenant
         company = get_object_or_404(Company, tenant=tenant)
 
-        # Upload to Google Cloud Storage
+        # Save file locally first (MVP mode - local storage fallback)
+        from django.core.files.storage import default_storage
+        local_path = f"assets/{tenant.id}/{safe_filename}"
+        saved_path = default_storage.save(local_path, file)
+        
+        # Try to upload to Google Cloud Storage (optional for MVP)
         gcs_path = f"assets/{tenant.id}/{safe_filename}"
+        gcs_uploaded = False
         try:
-            gcs_service.upload_file(file, gcs_path, file.content_type)
+            if gcs_service.client and gcs_service.bucket:
+                gcs_service.upload_file(file, gcs_path, file.content_type)
+                gcs_uploaded = True
         except Exception as e:
-            return Response(
-                {"error": f"File upload failed: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            # GCS upload failed, but we have local copy - log and continue
+            print(f"GCS upload failed (using local storage): {str(e)}")
 
         # Create asset record
         asset = BrandAsset.objects.create(
@@ -197,7 +207,7 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
             file_name=safe_filename,
             file_type=file_type,
             file_size=file.size,
-            gcs_path=gcs_path,
+            gcs_path=gcs_path if gcs_uploaded else saved_path,
             processed=True,
         )
 

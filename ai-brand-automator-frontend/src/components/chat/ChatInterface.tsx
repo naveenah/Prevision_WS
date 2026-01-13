@@ -40,7 +40,7 @@ export function ChatInterface() {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await apiClient.post('/api/v1/ai/chat/', { message: input });
+      const response = await apiClient.post('/ai/chat/', { message: input });
 
       if (response.ok) {
         const data = await response.json();
@@ -116,7 +116,7 @@ export function ChatInterface() {
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Ask me about your brand strategy..."
-              className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+              className="flex-1 bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
               rows={1}
             />
             <button

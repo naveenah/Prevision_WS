@@ -1,12 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 
 export function BrandForm() {
   const router = useRouter();
   const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    industry: '',
+    targetAudience: '',
+    coreProblem: '',
     brandVoice: '',
     visionStatement: '',
     missionStatement: '',
@@ -14,6 +19,42 @@ export function BrandForm() {
     positioningStatement: '',
   });
   const [isLoading, setIsLoading] = useState(false);
+
+  // Load existing company data on mount
+  useEffect(() => {
+    const loadCompanyData = async () => {
+      try {
+        const response = await apiClient.get('/companies/');
+        if (response.ok) {
+          const data = await response.json();
+          const companies = data.results || [];
+          if (companies.length > 0) {
+            const company = companies[0];
+            // Store company ID in localStorage for form submission
+            localStorage.setItem('company_id', company.id.toString());
+            
+            // Populate form with existing data (convert snake_case to camelCase)
+            setFormData({
+              name: company.name || '',
+              description: company.description || '',
+              industry: company.industry || '',
+              targetAudience: company.target_audience || '',
+              coreProblem: company.core_problem || '',
+              brandVoice: company.brand_voice || '',
+              visionStatement: company.vision_statement || '',
+              missionStatement: company.mission_statement || '',
+              values: company.values || '',
+              positioningStatement: company.positioning_statement || '',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load company data:', error);
+      }
+    };
+
+    loadCompanyData();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({
@@ -37,6 +78,11 @@ export function BrandForm() {
 
       // Convert camelCase to snake_case for backend
       const apiData = {
+        name: formData.name,
+        description: formData.description,
+        industry: formData.industry,
+        target_audience: formData.targetAudience,
+        core_problem: formData.coreProblem,
         brand_voice: formData.brandVoice,
         vision_statement: formData.visionStatement,
         mission_statement: formData.missionStatement,
@@ -44,7 +90,7 @@ export function BrandForm() {
         positioning_statement: formData.positioningStatement,
       };
 
-      const response = await apiClient.put(`/api/v1/companies/${companyId}/`, apiData);
+      const response = await apiClient.put(`/companies/${companyId}/`, apiData);
 
       if (response.ok) {
         const data = await response.json();
@@ -52,7 +98,13 @@ export function BrandForm() {
         router.push('/onboarding/step-3');
       } else {
         const error = await response.json();
-        alert(error.detail || 'Failed to save brand data');
+        console.error('Validation error:', error);
+        // Show detailed error message
+        const errorMessage = error.detail || 
+          (error.brand_voice && error.brand_voice[0]) ||
+          JSON.stringify(error) || 
+          'Failed to save brand data';
+        alert(errorMessage);
       }
     } catch (error) {
       console.error('Brand update error:', error);
@@ -73,14 +125,17 @@ export function BrandForm() {
           required
           value={formData.brandVoice}
           onChange={handleChange}
-          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
         >
           <option value="">Select brand voice</option>
           <option value="professional">Professional</option>
           <option value="friendly">Friendly</option>
+          <option value="bold">Bold</option>
           <option value="authoritative">Authoritative</option>
+          <option value="playful">Playful</option>
           <option value="innovative">Innovative</option>
-          <option value="casual">Casual</option>
+          <option value="warm">Warm</option>
+          <option value="technical">Technical</option>
         </select>
       </div>
 
@@ -94,7 +149,7 @@ export function BrandForm() {
           rows={3}
           value={formData.visionStatement}
           onChange={handleChange}
-          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
           placeholder="What is your long-term vision?"
         />
       </div>
@@ -109,7 +164,7 @@ export function BrandForm() {
           rows={3}
           value={formData.missionStatement}
           onChange={handleChange}
-          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
           placeholder="What is your mission?"
         />
       </div>
@@ -124,7 +179,7 @@ export function BrandForm() {
           rows={3}
           value={formData.values}
           onChange={handleChange}
-          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
           placeholder="List your core values (comma-separated)"
         />
       </div>
@@ -139,7 +194,7 @@ export function BrandForm() {
           rows={3}
           value={formData.positioningStatement}
           onChange={handleChange}
-          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
           placeholder="How do you position your brand?"
         />
       </div>

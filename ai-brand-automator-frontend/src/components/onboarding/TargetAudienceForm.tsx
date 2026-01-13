@@ -1,13 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 
 export function TargetAudienceForm() {
   const router = useRouter();
   const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    industry: '',
     targetAudience: '',
+    coreProblem: '',
     demographics: '',
     psychographics: '',
     painPoints: '',
@@ -15,6 +19,41 @@ export function TargetAudienceForm() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Load existing company data on mount
+  useEffect(() => {
+    const loadCompanyData = async () => {
+      try {
+        const response = await apiClient.get('/companies/');
+        if (response.ok) {
+          const data = await response.json();
+          const companies = data.results || [];
+          if (companies.length > 0) {
+            const company = companies[0];
+            // Store company ID in localStorage
+            localStorage.setItem('company_id', company.id.toString());
+            
+            // Populate form with existing data (convert snake_case to camelCase)
+            setFormData({
+              name: company.name || '',
+              description: company.description || '',
+              industry: company.industry || '',
+              targetAudience: company.target_audience || '',
+              coreProblem: company.core_problem || '',
+              demographics: company.demographics || '',
+              psychographics: company.psychographics || '',
+              painPoints: company.pain_points || '',
+              desiredOutcomes: company.desired_outcomes || '',
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load company data:', error);
+      }
+    };
+
+    loadCompanyData();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,9 +68,13 @@ export function TargetAudienceForm() {
         return;
       }
 
-      // Update company with target audience data
+      // Update company with all required fields
       const apiData = {
+        name: formData.name,
+        description: formData.description,
+        industry: formData.industry,
         target_audience: formData.targetAudience,
+        core_problem: formData.coreProblem,
         demographics: formData.demographics,
         psychographics: formData.psychographics,
         pain_points: formData.painPoints,
@@ -39,7 +82,7 @@ export function TargetAudienceForm() {
       };
 
       const response = await apiClient.put(
-        `/api/v1/companies/${companyId}/`,
+        `/companies/${companyId}/`,
         apiData
       );
 
@@ -73,7 +116,7 @@ export function TargetAudienceForm() {
         <textarea
           id="targetAudience"
           rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           value={formData.targetAudience}
           onChange={(e) => setFormData({ ...formData, targetAudience: e.target.value })}
           placeholder="e.g., Small business owners aged 30-50 who struggle with marketing automation"
@@ -91,7 +134,7 @@ export function TargetAudienceForm() {
         <textarea
           id="demographics"
           rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           value={formData.demographics}
           onChange={(e) => setFormData({ ...formData, demographics: e.target.value })}
           placeholder="e.g., Age range, gender, location, income level, education, occupation"
@@ -108,7 +151,7 @@ export function TargetAudienceForm() {
         <textarea
           id="psychographics"
           rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           value={formData.psychographics}
           onChange={(e) => setFormData({ ...formData, psychographics: e.target.value })}
           placeholder="e.g., Values, interests, lifestyle, personality traits, attitudes"
@@ -125,7 +168,7 @@ export function TargetAudienceForm() {
         <textarea
           id="painPoints"
           rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           value={formData.painPoints}
           onChange={(e) => setFormData({ ...formData, painPoints: e.target.value })}
           placeholder="e.g., Wasting time on manual tasks, struggling to reach customers, limited marketing budget"
@@ -143,7 +186,7 @@ export function TargetAudienceForm() {
         <textarea
           id="desiredOutcomes"
           rows={3}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
           value={formData.desiredOutcomes}
           onChange={(e) => setFormData({ ...formData, desiredOutcomes: e.target.value })}
           placeholder="e.g., Save time, grow revenue, reach more customers, streamline operations"
