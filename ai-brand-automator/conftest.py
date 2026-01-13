@@ -116,8 +116,6 @@ def authenticated_client_with_tenant(api_client, user, public_tenant):
 
     Sets request.tenant for views that require tenant context.
     """
-    from unittest.mock import MagicMock
-
     api_client.force_authenticate(user=user)
     api_client.defaults["SERVER_NAME"] = "localhost"
 
