@@ -59,7 +59,7 @@ class Company(models.Model):
         blank=True, help_text="AI-generated mission statement"
     )
     values = models.TextField(
-        blank=True, help_text="Comma-separated list of core values"
+        blank=True, default="", help_text="Comma-separated list of core values"
     )
     positioning_statement = models.TextField(
         blank=True, help_text="Market positioning statement"
