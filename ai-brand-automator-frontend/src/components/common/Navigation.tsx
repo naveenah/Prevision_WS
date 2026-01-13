@@ -2,28 +2,37 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+
+// External store for localStorage token
+function subscribeToToken(callback: () => void) {
+  window.addEventListener('storage', callback);
+  return () => window.removeEventListener('storage', callback);
+}
+
+function getTokenSnapshot() {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('access_token');
+}
+
+function getServerSnapshot() {
+  return null;
+}
 
 export function Navigation() {
   const router = useRouter();
   const pathname = usePathname();
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-
-  const checkLoginStatus = useCallback(() => {
-    const token = localStorage.getItem('access_token');
-    setIsLoggedIn(!!token);
-  }, []);
-
-  useEffect(() => {
-    // Check if user is logged in on mount and pathname change
-    checkLoginStatus();
-  }, [pathname, checkLoginStatus]);
+  const token = useSyncExternalStore(subscribeToToken, getTokenSnapshot, getServerSnapshot);
+  const [, forceUpdate] = useState(0);
+  
+  // Derive login state from token
+  const isLoggedIn = !!token;
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('company_id');
-    setIsLoggedIn(false);
+    forceUpdate(n => n + 1); // Trigger re-render after logout
     router.push('/auth/login');
   };
 
