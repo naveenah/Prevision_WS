@@ -27,35 +27,34 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         # Get email and password from request
         email = attrs.get("email")
         password = attrs.get("password")
-        
+
         if not email or not password:
             raise serializers.ValidationError("Email and password are required")
-        
+
         try:
             # Look up user by email
             user = User.objects.get(email=email)
-            
+
             # Replace email with username in attrs and change field name to 'username'
             # This allows parent class to authenticate properly
-            attrs_with_username = {
-                'username': user.username,
-                'password': password
-            }
-            
+            attrs_with_username = {"username": user.username, "password": password}
+
             # Temporarily change username_field to 'username' for parent validation
             original_username_field = self.username_field
-            self.username_field = 'username'
-            
+            self.username_field = "username"
+
             try:
                 result = super().validate(attrs_with_username)
             finally:
                 # Restore original username_field
                 self.username_field = original_username_field
-            
+
             return result
-            
+
         except User.DoesNotExist:
-            raise serializers.ValidationError("No active account found with the given credentials")
+            raise serializers.ValidationError(
+                "No active account found with the given credentials"
+            )
 
 
 class EmailTokenObtainPairView(TokenObtainPairView):

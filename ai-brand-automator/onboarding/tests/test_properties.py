@@ -33,7 +33,7 @@ property_settings = settings(
 def create_test_tenant():
     """
     Create a unique tenant for each Hypothesis example.
-    
+
     This is critical for property tests because:
     - Company has OneToOneField(Tenant) - only ONE company per tenant
     - Hypothesis runs 50 examples per test (50 function calls)
@@ -86,9 +86,7 @@ class TestCompanyProperties:
             ["professional", "friendly", "bold", "authoritative", "playful"]
         ),
     )
-    def test_company_name_always_valid_length(
-        self, name, industry, brand_voice
-    ):
+    def test_company_name_always_valid_length(self, name, industry, brand_voice):
         """Property: Company names within max_length are always accepted"""
         tenant = create_test_tenant()
         assume(len(name.strip()) > 0)  # Non-empty after stripping
@@ -112,9 +110,7 @@ class TestCompanyProperties:
         description=st.text(min_size=0, max_size=1000),
         target_audience=st.text(min_size=0, max_size=500),
     )
-    def test_company_text_fields_handle_all_unicode(
-        self, description, target_audience
-    ):
+    def test_company_text_fields_handle_all_unicode(self, description, target_audience):
         """Property: Text fields accept any unicode content"""
         tenant = create_test_tenant()
         company = CompanyFactory(
@@ -160,7 +156,7 @@ class TestBrandAssetProperties:
         """Property: Positive file sizes are always accepted"""
         tenant = create_test_tenant()
         company = CompanyFactory(tenant=tenant)
-        
+
         asset = BrandAssetFactory(
             tenant=tenant,
             company=company,
@@ -183,23 +179,25 @@ class TestOnboardingProgressProperties:
     @property_settings
     @given(
         completed_steps=st.lists(
-            st.sampled_from([
-                "company_info",
-                "brand_strategy", 
-                "brand_identity",
-                "assets_upload",
-                "review"
-            ]),
+            st.sampled_from(
+                [
+                    "company_info",
+                    "brand_strategy",
+                    "brand_identity",
+                    "assets_upload",
+                    "review",
+                ]
+            ),
             min_size=0,
             max_size=5,
-            unique=True
+            unique=True,
         )
     )
     def test_progress_completed_steps_is_unique_list(self, completed_steps):
         """Property: Completed steps list contains unique values"""
         tenant = create_test_tenant()
         company = CompanyFactory(tenant=tenant)
-        
+
         progress = OnboardingProgress.objects.create(
             tenant=tenant,
             company=company,
@@ -224,7 +222,7 @@ class TestSerializerRoundtripProperties:
         """Property: Serializer round-trip preserves data"""
         assume(len(name.strip()) > 0)
         tenant = create_test_tenant()
-        
+
         company = CompanyFactory(
             tenant=tenant,
             name=name[:255],
@@ -236,8 +234,8 @@ class TestSerializerRoundtripProperties:
         data = serializer.data
 
         # Verify key fields preserved
-        assert data['name'] == company.name
-        assert data['industry'] == company.industry
+        assert data["name"] == company.name
+        assert data["industry"] == company.industry
 
 
 @pytest.mark.django_db
@@ -253,7 +251,7 @@ class TestModelInvariants:
     def test_company_strategy_fields_accept_long_text(self, vision, mission):
         """Property: Vision and mission statements accept long text"""
         tenant = create_test_tenant()
-        
+
         company = CompanyFactory(
             tenant=tenant,
             vision_statement=vision,
@@ -293,7 +291,7 @@ class TestBusinessLogicInvariants:
         """Property: Company can be created with just name and tenant"""
         assume(len(name.strip()) > 0)
         tenant = create_test_tenant()
-        
+
         company = CompanyFactory(
             tenant=tenant,
             name=name[:255],
@@ -308,7 +306,7 @@ class TestBusinessLogicInvariants:
 
 
 @pytest.mark.django_db
-@pytest.mark.property  
+@pytest.mark.property
 class TestDataIntegrityProperties:
     """Property-based tests for data integrity constraints"""
 
@@ -318,18 +316,18 @@ class TestDataIntegrityProperties:
         """Property: Deleting company cascades to all assets"""
         tenant = create_test_tenant()
         company = CompanyFactory(tenant=tenant)
-        
+
         # Create multiple assets
         assets = [
             BrandAssetFactory(tenant=tenant, company=company)
             for _ in range(asset_count)
         ]
-        
+
         asset_ids = [asset.id for asset in assets]
-        
+
         # Delete company
         company.delete()
-        
+
         # All assets should be deleted
         assert BrandAsset.objects.filter(id__in=asset_ids).count() == 0
 
@@ -358,7 +356,7 @@ class TestTenantCreationPerformance:
         tenant = create_test_tenant()
         assert tenant.pk is not None
         assert tenant.schema_name.startswith("test_")
-        
+
         # Verify we can create a company with this tenant
         company = CompanyFactory(tenant=tenant, name="Test Company")
         assert company.pk is not None

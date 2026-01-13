@@ -46,12 +46,13 @@ class CompanyViewSet(viewsets.ModelViewSet):
         Each tenant gets exactly one company (OneToOneField).
         """
         # Get tenant from request (set by TenantMainMiddleware)
-        tenant = getattr(self.request, 'tenant', None)
-        
+        tenant = getattr(self.request, "tenant", None)
+
         if not tenant:
             # MVP mode: If no tenant context, use public tenant
             from tenants.models import Tenant
-            tenant = Tenant.objects.get(schema_name='public')
+
+            tenant = Tenant.objects.get(schema_name="public")
 
         # Check if tenant already has a company (OneToOneField constraint)
         if Company.objects.filter(tenant=tenant).exists():
@@ -175,20 +176,22 @@ class BrandAssetViewSet(viewsets.ModelViewSet):
         safe_filename = sanitize_filename(file.name)
 
         # Get tenant from request (defensive access for MVP mode)
-        tenant = getattr(request, 'tenant', None)
+        tenant = getattr(request, "tenant", None)
         if not tenant:
             # MVP mode: If no tenant context, use public tenant
             from tenants.models import Tenant
-            tenant = Tenant.objects.get(schema_name='public')
-        
+
+            tenant = Tenant.objects.get(schema_name="public")
+
         # Get company for the tenant
         company = get_object_or_404(Company, tenant=tenant)
 
         # Save file locally first (MVP mode - local storage fallback)
         from django.core.files.storage import default_storage
+
         local_path = f"assets/{tenant.id}/{safe_filename}"
         saved_path = default_storage.save(local_path, file)
-        
+
         # Try to upload to Google Cloud Storage (optional for MVP)
         gcs_path = f"assets/{tenant.id}/{safe_filename}"
         gcs_uploaded = False
