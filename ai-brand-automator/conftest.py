@@ -245,7 +245,7 @@ def mock_gemini_api(mocker):
     mock_response = {
         "vision_statement": "To revolutionize the industry through innovation",
         "mission_statement": "We deliver exceptional value to our customers",
-        "values": ["Innovation", "Excellence", "Integrity"],
+        "values": "Innovation, Excellence, Integrity",
         "positioning_statement": "The leader in innovative solutions",
     }
     return mocker.patch(

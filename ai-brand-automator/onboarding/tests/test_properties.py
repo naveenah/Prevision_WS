@@ -90,7 +90,7 @@ class TestCompanyProperties:
             name=name[:255],  # Truncate to max_length
             industry=industry,
             brand_voice=brand_voice,
-            values=["integrity", "innovation"],  # Required field
+            values="integrity, innovation",  # Required field
         )
 
         # Should not raise validation error for length

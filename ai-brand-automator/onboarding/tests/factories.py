@@ -50,7 +50,7 @@ class CompanyFactory(DjangoModelFactory):
     vision_statement = factory.Faker("sentence", nb_words=12)
     mission_statement = factory.Faker("sentence", nb_words=15)
     values = factory.LazyFunction(
-        lambda: ["Innovation", "Excellence", "Integrity", "Customer Focus"]
+        lambda: "Innovation, Excellence, Integrity, Customer Focus"
     )
     positioning_statement = factory.Faker("paragraph", nb_sentences=2)
 

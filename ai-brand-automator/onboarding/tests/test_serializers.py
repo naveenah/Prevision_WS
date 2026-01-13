@@ -77,12 +77,12 @@ class TestCompanySerializer:
         assert "brand_voice" in serializer.errors
 
     def test_values_field_serialization(self, shared_tenant):
-        """Test JSONField serialization"""
+        """Test TextField serialization for values"""
         company = CompanyFactory(
-            tenant=shared_tenant, values=["Innovation", "Excellence", "Integrity"]
+            tenant=shared_tenant, values="Innovation, Excellence, Integrity"
         )
         serializer = CompanySerializer(company)
-        assert serializer.data["values"] == ["Innovation", "Excellence", "Integrity"]
+        assert serializer.data["values"] == "Innovation, Excellence, Integrity"
 
     def test_blank_fields_allowed(self, shared_tenant):
         """Test that optional fields can be blank"""
