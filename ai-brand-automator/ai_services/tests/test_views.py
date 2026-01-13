@@ -37,7 +37,9 @@ class TestChatSessionViewSet:
         response = authenticated_client.get(self.url_list())
         assert response.status_code == status.HTTP_200_OK
 
-    def test_create_session_authenticated(self, authenticated_client, public_tenant):
+    def test_create_session_authenticated(
+        self, authenticated_client_with_tenant, public_tenant
+    ):
         """Test creating a chat session"""
         data = {
             "session_id": str(uuid.uuid4()),
@@ -46,30 +48,27 @@ class TestChatSessionViewSet:
             "context": {"test": "data"},
         }
 
-        response = authenticated_client.post(self.url_list(), data, format="json")
-        # May return 201 or need tenant context
-        assert response.status_code in [
-            status.HTTP_201_CREATED,
-            status.HTTP_400_BAD_REQUEST,
-        ]
+        response = authenticated_client_with_tenant.post(
+            self.url_list(), data, format="json"
+        )
+        # Authenticated users with proper tenant context should be able to create
+        assert response.status_code == status.HTTP_201_CREATED
 
-    def test_retrieve_session(self, authenticated_client, public_tenant):
+    def test_retrieve_session(self, authenticated_client_with_tenant, public_tenant):
         """Test retrieving a single chat session"""
         session = ChatSessionFactory(tenant=public_tenant)
 
-        response = authenticated_client.get(self.url_detail(session.id))
-        # May need tenant context to retrieve
-        assert response.status_code in [status.HTTP_200_OK, status.HTTP_404_NOT_FOUND]
+        response = authenticated_client_with_tenant.get(self.url_detail(session.id))
+        # Session exists for this tenant, so it should be retrievable
+        assert response.status_code == status.HTTP_200_OK
 
-    def test_delete_session(self, authenticated_client, public_tenant):
+    def test_delete_session(self, authenticated_client_with_tenant, public_tenant):
         """Test deleting a chat session"""
         session = ChatSessionFactory(tenant=public_tenant)
 
-        response = authenticated_client.delete(self.url_detail(session.id))
-        assert response.status_code in [
-            status.HTTP_204_NO_CONTENT,
-            status.HTTP_404_NOT_FOUND,
-        ]
+        response = authenticated_client_with_tenant.delete(self.url_detail(session.id))
+        # Deleting an existing session should succeed
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
 
 @pytest.mark.django_db
@@ -96,12 +95,12 @@ class TestAIGenerationViewSet:
         response = authenticated_client.get(self.url_list())
         assert response.status_code == status.HTTP_200_OK
 
-    def test_retrieve_generation(self, authenticated_client, public_tenant):
+    def test_retrieve_generation(self, authenticated_client_with_tenant, public_tenant):
         """Test retrieving a single AI generation"""
         generation = AIGenerationFactory(tenant=public_tenant)
 
-        response = authenticated_client.get(self.url_detail(generation.id))
-        assert response.status_code in [status.HTTP_200_OK, status.HTTP_404_NOT_FOUND]
+        response = authenticated_client_with_tenant.get(self.url_detail(generation.id))
+        assert response.status_code == status.HTTP_200_OK
 
     def test_cannot_create_generation_directly(self, authenticated_client):
         """Test that generations cannot be created via API (read-only)"""
@@ -115,16 +114,17 @@ class TestAIGenerationViewSet:
         # ReadOnlyModelViewSet doesn't allow POST
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_cannot_delete_generation(self, authenticated_client, public_tenant):
+    def test_cannot_delete_generation(
+        self, authenticated_client_with_tenant, public_tenant
+    ):
         """Test that generations cannot be deleted via API (read-only)"""
         generation = AIGenerationFactory(tenant=public_tenant)
 
-        response = authenticated_client.delete(self.url_detail(generation.id))
+        response = authenticated_client_with_tenant.delete(
+            self.url_detail(generation.id)
+        )
         # ReadOnlyModelViewSet doesn't allow DELETE
-        assert response.status_code in [
-            status.HTTP_405_METHOD_NOT_ALLOWED,
-            status.HTTP_404_NOT_FOUND,
-        ]
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
 
 @pytest.mark.django_db
@@ -161,11 +161,9 @@ class TestChatWithAIEndpoint:
             self.url(), {"message": "Hello, AI!"}, format="json"
         )
 
-        # May need proper tenant context
-        assert response.status_code in [
-            status.HTTP_200_OK,
-            status.HTTP_500_INTERNAL_SERVER_ERROR,
-        ]
+        assert response.status_code == status.HTTP_200_OK
+        # Ensure the AI service was invoked
+        assert mock_ai_service.chat_with_brand_context.called
 
 
 @pytest.mark.django_db

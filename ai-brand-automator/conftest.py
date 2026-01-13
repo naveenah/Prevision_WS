@@ -112,21 +112,15 @@ def authenticated_client(api_client, user):
 
 @pytest.fixture
 def authenticated_client_with_tenant(api_client, user, public_tenant):
-    """API client authenticated with test user and tenant context
+    """API client authenticated with test user and tenant context.
 
-    Sets request.tenant for views that require tenant context.
+    Relies on the test handler's `_force_tenant` attribute to ensure
+    request.tenant is available in views that use defensive tenant access.
     """
     api_client.force_authenticate(user=user)
     api_client.defaults["SERVER_NAME"] = "localhost"
 
-    # Patch the request to include tenant
-    original_request = api_client.request
-
-    def patched_request(*args, **kwargs):
-        response = original_request(*args, **kwargs)
-        return response
-
-    # Add tenant to handler that will be used
+    # Add tenant to handler so middleware/handler logic can set request.tenant
     api_client.handler._force_tenant = public_tenant
     return api_client
 

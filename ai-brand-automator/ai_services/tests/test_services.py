@@ -45,30 +45,34 @@ class TestGeminiAIServiceInit:
 class TestGenerateBrandStrategy:
     """Tests for generate_brand_strategy method"""
 
-    def test_fallback_response_without_model(self, public_tenant):
+    def test_fallback_response_without_model(self):
         """Test fallback response when model is not configured"""
-        with patch.object(GeminiAIService, "__init__", lambda self: None):
-            service = GeminiAIService()
-            service.model = None
-            service.api_key = None
+        # Simulate missing API key so service initializes in fallback mode
+        with patch.dict("os.environ", {"GOOGLE_API_KEY": ""}, clear=False):
+            with patch("ai_services.services.settings") as mock_settings:
+                mock_settings.GOOGLE_API_KEY = None
 
-            company_data = {
-                "tenant": public_tenant,
-                "name": "Test Company",
-                "industry": "Technology",
-                "target_audience": "Developers",
-                "core_problem": "Complex deployments",
-                "brand_voice": "professional",
-            }
+                service = GeminiAIService()
 
-            result = service.generate_brand_strategy(company_data)
+                # Sanity-check that we're in fallback mode
+                assert service.model is None
 
-            assert "vision_statement" in result
-            assert "mission_statement" in result
-            assert "values" in result
-            assert "positioning_statement" in result
-            # Fallback should include industry in response
-            assert "Technology" in result["vision_statement"]
+                company_data = {
+                    "name": "Test Company",
+                    "industry": "Technology",
+                    "target_audience": "Developers",
+                    "core_problem": "Complex deployments",
+                    "brand_voice": "professional",
+                }
+
+                result = service.generate_brand_strategy(company_data)
+
+                assert "vision_statement" in result
+                assert "mission_statement" in result
+                assert "values" in result
+                assert "positioning_statement" in result
+                # Fallback should include industry in response
+                assert "Technology" in result["vision_statement"]
 
     @patch("ai_services.services.genai")
     def test_successful_api_response(self, mock_genai, public_tenant):
