@@ -124,16 +124,18 @@ class TestCompanyProperties:
     @property_settings
     @given(values_list=st.lists(st.text(min_size=1, max_size=50), min_size=1))
     def test_company_values_array_always_serializable(self, values_list):
-        """Property: Any list of strings is valid for values field"""
+        """Property: Any list of strings can be converted to comma-separated values"""
         tenant = create_test_tenant()
-        company = CompanyFactory(tenant=tenant, values=values_list)
+        # Convert list to comma-separated string (new values format)
+        values_string = ", ".join(values_list)
+        company = CompanyFactory(tenant=tenant, values=values_string)
 
         company.full_clean()
         company.save()
 
         company.refresh_from_db()
-        assert company.values == values_list
-        assert isinstance(company.values, list)
+        assert company.values == values_string
+        assert isinstance(company.values, str)
 
 
 @pytest.mark.django_db
