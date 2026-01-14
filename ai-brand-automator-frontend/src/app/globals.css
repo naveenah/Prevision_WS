@@ -1,65 +1,304 @@
 @import "tailwindcss";
 
+/* ===== "Digital Twilight" Design System ===== */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand Colors */
+  --brand-midnight: #0A0B10;
+  --brand-electric: #00F5FF;
+  --brand-ghost: #8A2BE2;
+  --brand-silver: #E1E1E6;
+  --brand-mint: #39FF14;
+  
+  /* Legacy variables for compatibility */
+  --background: var(--brand-midnight);
+  --foreground: var(--brand-silver);
 }
 
 @theme inline {
+  /* Color Tokens */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  
+  /* Brand Colors */
+  --color-brand-midnight: var(--brand-midnight);
+  --color-brand-electric: var(--brand-electric);
+  --color-brand-ghost: var(--brand-ghost);
+  --color-brand-silver: var(--brand-silver);
+  --color-brand-mint: var(--brand-mint);
+  
+  /* Fonts */
+  --font-sans: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), var(--font-geist-mono), monospace;
+  --font-heading: var(--font-space-grotesk), var(--font-geist-sans), system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: var(--brand-midnight);
+    --foreground: var(--brand-silver);
   }
 }
 
-/* Base responsive styles */
-html {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-  scroll-behavior: smooth;
+/* ===== Base Layer ===== */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--brand-midnight);
+    color: var(--brand-silver);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: white;
+  }
+
+  /* Responsive images and media */
+  img, video, svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Better touch targets for mobile */
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+  }
+
+  /* Prevent horizontal scroll on mobile */
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-  min-height: 100vh;
-  min-height: 100dvh;
-  overflow-x: hidden;
+/* ===== Component Layer ===== */
+@layer components {
+  /* Glass morphism card */
+  .glass-card {
+    background: linear-gradient(110deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 1rem;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Primary button with electric glow */
+  .btn-primary {
+    background-color: var(--brand-electric);
+    color: var(--brand-midnight);
+    font-weight: 700;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    transition: all 0.3s ease;
+  }
+
+  .btn-primary:hover {
+    box-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
+    transform: translateY(-1px);
+  }
+
+  /* Secondary button with ghost styling */
+  .btn-secondary {
+    background-color: transparent;
+    color: var(--brand-electric);
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--brand-ghost);
+    transition: all 0.3s ease;
+  }
+
+  .btn-secondary:hover {
+    background-color: rgba(138, 43, 226, 0.1);
+    border-color: var(--brand-electric);
+  }
+
+  /* AI processing pulse effect */
+  .ai-pulse {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ai-pulse::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(138, 43, 226, 0.1);
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    pointer-events: none;
+  }
+
+  /* Aura glow background effect */
+  .aura-glow {
+    background: radial-gradient(circle at center, rgba(138,43,226,0.15) 0%, transparent 70%);
+  }
+
+  /* Success/active state indicator */
+  .status-active {
+    color: var(--brand-mint);
+  }
+
+  .status-active::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: var(--brand-mint);
+    border-radius: 50%;
+    margin-right: 8px;
+    animation: pulse 2s infinite;
+  }
+
+  /* Form inputs with dark theme */
+  .input-dark {
+    appearance: none;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    color: white;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+  }
+
+  .input-dark::placeholder {
+    color: rgba(225, 225, 230, 0.5);
+  }
+
+  .input-dark:focus {
+    outline: none;
+    border-color: var(--brand-electric);
+    box-shadow: 0 0 0 2px rgba(0, 245, 255, 0.2);
+  }
+
+  /* Select dropdown for dark theme */
+  .select-dark {
+    appearance: none;
+    width: 100%;
+    padding: 0.75rem 2.5rem 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    color: white;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23E1E1E6' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1.25rem;
+  }
+
+  .select-dark:focus {
+    outline: none;
+    border-color: var(--brand-electric);
+    box-shadow: 0 0 0 2px rgba(0, 245, 255, 0.2);
+  }
+
+  .select-dark option {
+    background: var(--brand-midnight);
+    color: white;
+  }
+
+  /* Form label for dark theme */
+  .label-dark {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: rgba(225, 225, 230, 0.7);
+    margin-bottom: 0.25rem;
+  }
+
+  /* Navigation bar */
+  .nav-dark {
+    background: rgba(10, 11, 16, 0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Dashboard card */
+  .dashboard-card {
+    background: linear-gradient(110deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+  }
+
+  /* Responsive tables wrapper */
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    display: table;
+    width: 100%;
+  }
 }
 
-/* Responsive images and media */
-img, video, svg {
-  max-width: 100%;
-  height: auto;
-}
+/* ===== Utility Layer ===== */
+@layer utilities {
+  .text-brand-electric {
+    color: var(--brand-electric);
+  }
 
-/* Responsive tables - use wrapper div for overflow */
-.table-wrapper {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
+  .text-brand-ghost {
+    color: var(--brand-ghost);
+  }
 
-table {
-  display: table;
-  width: 100%;
-}
+  .text-brand-silver {
+    color: var(--brand-silver);
+  }
 
-/* Better touch targets for mobile */
-button, a, input, select, textarea {
-  touch-action: manipulation;
-}
+  .text-brand-mint {
+    color: var(--brand-mint);
+  }
 
-/* Prevent horizontal scroll on mobile */
-*, *::before, *::after {
-  box-sizing: border-box;
+  .bg-brand-midnight {
+    background-color: var(--brand-midnight);
+  }
+
+  .bg-brand-electric {
+    background-color: var(--brand-electric);
+  }
+
+  .bg-brand-ghost {
+    background-color: var(--brand-ghost);
+  }
+
+  .border-brand-electric {
+    border-color: var(--brand-electric);
+  }
+
+  .border-brand-ghost {
+    border-color: var(--brand-ghost);
+  }
+
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+
+  .font-body {
+    font-family: var(--font-sans);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
 }
 
 /* Toast animations */

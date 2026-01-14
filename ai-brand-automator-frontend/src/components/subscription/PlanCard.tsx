@@ -25,15 +25,15 @@ export function PlanCard({ plan, isCurrentPlan, onSelect, isLoading }: PlanCardP
 
   return (
     <div
-      className={`relative rounded-2xl border-2 p-8 shadow-sm transition-all hover:shadow-lg ${
+      className={`relative glass-card p-8 transition-all hover:scale-[1.02] ${
         isPro
-          ? 'border-indigo-600 bg-white ring-2 ring-indigo-600'
-          : 'border-gray-200 bg-white'
-      } ${isCurrentPlan ? 'ring-2 ring-green-500' : ''}`}
+          ? 'border-brand-electric ring-2 ring-brand-electric/50'
+          : ''
+      } ${isCurrentPlan ? 'ring-2 ring-brand-mint/50' : ''}`}
     >
       {isPro && (
         <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-          <span className="inline-flex items-center rounded-full bg-indigo-600 px-4 py-1 text-sm font-semibold text-white">
+          <span className="inline-flex items-center rounded-full bg-brand-electric px-4 py-1 text-sm font-semibold text-brand-midnight">
             Most Popular
           </span>
         </div>
@@ -41,19 +41,19 @@ export function PlanCard({ plan, isCurrentPlan, onSelect, isLoading }: PlanCardP
 
       {isCurrentPlan && (
         <div className="absolute -top-4 right-4">
-          <span className="inline-flex items-center rounded-full bg-green-500 px-4 py-1 text-sm font-semibold text-white">
+          <span className="inline-flex items-center rounded-full bg-brand-mint px-4 py-1 text-sm font-semibold text-brand-midnight">
             Current Plan
           </span>
         </div>
       )}
 
       <div className="text-center">
-        <h3 className="text-xl font-semibold text-gray-900">{plan.display_name}</h3>
+        <h3 className="text-xl font-heading font-semibold text-white">{plan.display_name}</h3>
         <div className="mt-4 flex items-baseline justify-center gap-x-2">
-          <span className="text-5xl font-bold tracking-tight text-gray-900">
+          <span className="text-5xl font-heading font-bold tracking-tight text-white">
             ${parseFloat(plan.price).toFixed(0)}
           </span>
-          <span className="text-sm font-semibold leading-6 tracking-wide text-gray-600">
+          <span className="text-sm font-semibold leading-6 tracking-wide text-brand-silver/70">
             /month
           </span>
         </div>
@@ -63,7 +63,7 @@ export function PlanCard({ plan, isCurrentPlan, onSelect, isLoading }: PlanCardP
         {featureList.map((feature, index) => (
           <li key={index} className="flex items-start gap-3">
             <svg
-              className="h-6 w-6 flex-shrink-0 text-indigo-600"
+              className="h-6 w-6 flex-shrink-0 text-brand-electric"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth={2}
@@ -75,29 +75,29 @@ export function PlanCard({ plan, isCurrentPlan, onSelect, isLoading }: PlanCardP
                 d="M4.5 12.75l6 6 9-13.5"
               />
             </svg>
-            <span className="text-sm text-gray-700">{feature}</span>
+            <span className="text-sm text-brand-silver/80 font-body">{feature}</span>
           </li>
         ))}
       </ul>
 
       <div className="mt-8 space-y-2">
-        <div className="flex justify-between text-sm text-gray-600">
+        <div className="flex justify-between text-sm text-brand-silver/70">
           <span>Brands:</span>
-          <span className="font-medium">
+          <span className="font-medium text-white">
             {plan.max_brands === -1 ? 'Unlimited' : plan.max_brands}
           </span>
         </div>
-        <div className="flex justify-between text-sm text-gray-600">
+        <div className="flex justify-between text-sm text-brand-silver/70">
           <span>AI Generations:</span>
-          <span className="font-medium">
+          <span className="font-medium text-white">
             {plan.ai_generations_per_month === -1
               ? 'Unlimited'
               : `${plan.ai_generations_per_month}/month`}
           </span>
         </div>
-        <div className="flex justify-between text-sm text-gray-600">
+        <div className="flex justify-between text-sm text-brand-silver/70">
           <span>Team Members:</span>
-          <span className="font-medium">
+          <span className="font-medium text-white">
             {plan.max_team_members === -1 ? 'Unlimited' : plan.max_team_members}
           </span>
         </div>
@@ -106,14 +106,14 @@ export function PlanCard({ plan, isCurrentPlan, onSelect, isLoading }: PlanCardP
       <button
         onClick={() => onSelect(plan)}
         disabled={isLoading || isCurrentPlan}
-        className={`mt-8 w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
+        className={`mt-8 w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-all ${
           isCurrentPlan
-            ? 'cursor-not-allowed bg-gray-100 text-gray-500'
+            ? 'cursor-not-allowed bg-white/10 text-brand-silver/50'
             : isPro
-            ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+            ? 'btn-primary'
             : isEnterprise
-            ? 'bg-gray-900 text-white hover:bg-gray-800'
-            : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+            ? 'bg-brand-ghost text-white hover:bg-brand-ghost/80'
+            : 'btn-secondary'
         } ${isLoading ? 'cursor-wait opacity-75' : ''}`}
       >
         {isLoading ? (

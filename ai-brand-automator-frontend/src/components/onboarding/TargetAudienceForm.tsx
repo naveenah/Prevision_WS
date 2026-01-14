@@ -104,95 +104,95 @@ export function TargetAudienceForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-900/30 border border-red-500/50 text-red-300 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
 
       <div>
-        <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="targetAudience" className="label-dark">
           Primary Target Audience *
         </label>
         <textarea
           id="targetAudience"
           rows={3}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="input-dark mt-1"
           value={formData.targetAudience}
           onChange={(e) => setFormData({ ...formData, targetAudience: e.target.value })}
           placeholder="e.g., Small business owners aged 30-50 who struggle with marketing automation"
           required
         />
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-brand-silver/60">
           Describe who your ideal customers are
         </p>
       </div>
 
       <div>
-        <label htmlFor="demographics" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="demographics" className="label-dark">
           Demographics
         </label>
         <textarea
           id="demographics"
           rows={3}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="input-dark mt-1"
           value={formData.demographics}
           onChange={(e) => setFormData({ ...formData, demographics: e.target.value })}
           placeholder="e.g., Age range, gender, location, income level, education, occupation"
         />
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-brand-silver/60">
           Statistical characteristics of your audience
         </p>
       </div>
 
       <div>
-        <label htmlFor="psychographics" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="psychographics" className="label-dark">
           Psychographics
         </label>
         <textarea
           id="psychographics"
           rows={3}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="input-dark mt-1"
           value={formData.psychographics}
           onChange={(e) => setFormData({ ...formData, psychographics: e.target.value })}
           placeholder="e.g., Values, interests, lifestyle, personality traits, attitudes"
         />
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-brand-silver/60">
           Psychological characteristics and lifestyle
         </p>
       </div>
 
       <div>
-        <label htmlFor="painPoints" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="painPoints" className="label-dark">
           Key Pain Points *
         </label>
         <textarea
           id="painPoints"
           rows={3}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="input-dark mt-1"
           value={formData.painPoints}
           onChange={(e) => setFormData({ ...formData, painPoints: e.target.value })}
           placeholder="e.g., Wasting time on manual tasks, struggling to reach customers, limited marketing budget"
           required
         />
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-brand-silver/60">
           What problems does your audience face?
         </p>
       </div>
 
       <div>
-        <label htmlFor="desiredOutcomes" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="desiredOutcomes" className="label-dark">
           Desired Outcomes *
         </label>
         <textarea
           id="desiredOutcomes"
           rows={3}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+          className="input-dark mt-1"
           value={formData.desiredOutcomes}
           onChange={(e) => setFormData({ ...formData, desiredOutcomes: e.target.value })}
           placeholder="e.g., Save time, grow revenue, reach more customers, streamline operations"
           required
         />
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-brand-silver/60">
           What do they want to achieve?
         </p>
       </div>
@@ -201,14 +201,14 @@ export function TargetAudienceForm() {
         <button
           type="button"
           onClick={() => router.push('/onboarding/step-2')}
-          className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          className="btn-secondary"
         >
           Back
         </button>
         <button
           type="submit"
           disabled={loading}
-          className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? 'Saving...' : 'Next Step'}
         </button>

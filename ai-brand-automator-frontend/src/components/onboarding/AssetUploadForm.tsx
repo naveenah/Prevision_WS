@@ -102,16 +102,16 @@ export function AssetUploadForm() {
   return (
     <div className="space-y-6">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-900/30 border border-red-500/50 text-red-300 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
 
-      <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+      <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center bg-white/5 hover:bg-white/10 hover:border-brand-electric/50 transition-colors">
         <div className="space-y-4">
-          <div className="text-gray-500">
+          <div className="text-brand-silver/60">
             <svg
-              className="mx-auto h-12 w-12 text-gray-400"
+              className="mx-auto h-12 w-12 text-brand-electric/60"
               stroke="currentColor"
               fill="none"
               viewBox="0 0 48 48"
@@ -128,7 +128,7 @@ export function AssetUploadForm() {
           <div>
             <label
               htmlFor="file-upload"
-              className="relative cursor-pointer rounded-md font-medium text-indigo-600 hover:text-indigo-500"
+              className="relative cursor-pointer rounded-md font-medium text-brand-electric hover:text-brand-electric/80"
             >
               <span>Upload files</span>
               <input
@@ -142,11 +142,11 @@ export function AssetUploadForm() {
                 disabled={uploading}
               />
             </label>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-brand-silver/60 mt-1">
               or drag and drop
             </p>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-brand-silver/50">
             PNG, JPG, PDF up to 10MB each
           </p>
         </div>
@@ -154,26 +154,26 @@ export function AssetUploadForm() {
 
       {uploading && (
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-          <p className="mt-2 text-sm text-gray-600">Uploading files...</p>
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-electric"></div>
+          <p className="mt-2 text-sm text-brand-silver/60">Uploading files...</p>
         </div>
       )}
 
       {uploadedFiles.length > 0 && (
         <div className="space-y-2">
-          <h3 className="font-medium text-gray-900">Uploaded Files</h3>
-          <ul className="divide-y divide-gray-200 border border-gray-200 rounded-lg">
+          <h3 className="font-medium text-white">Uploaded Files</h3>
+          <ul className="divide-y divide-white/10 border border-white/10 rounded-lg bg-white/5">
             {uploadedFiles.map((file) => (
               <li key={file.id} className="px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="text-sm font-medium text-gray-900">
+                  <span className="text-sm font-medium text-white">
                     {file.file_name}
                   </span>
-                  <span className="ml-2 text-xs text-gray-500">
+                  <span className="ml-2 text-xs text-brand-silver/60">
                     ({(file.file_size / 1024).toFixed(1)} KB)
                   </span>
                 </div>
-                <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                <span className="text-xs bg-brand-electric/20 text-brand-electric px-2 py-1 rounded">
                   {file.file_type}
                 </span>
               </li>
@@ -186,7 +186,7 @@ export function AssetUploadForm() {
         <button
           type="button"
           onClick={() => router.push('/onboarding/step-3')}
-          className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          className="btn-secondary"
         >
           Back
         </button>
@@ -194,7 +194,7 @@ export function AssetUploadForm() {
           <button
             type="button"
             onClick={handleSkip}
-            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            className="btn-secondary"
           >
             Skip
           </button>
@@ -202,7 +202,7 @@ export function AssetUploadForm() {
             type="button"
             onClick={handleNext}
             disabled={uploading}
-            className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next Step
           </button>

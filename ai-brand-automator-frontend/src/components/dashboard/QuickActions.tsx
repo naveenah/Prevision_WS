@@ -41,22 +41,22 @@ export function QuickActions() {
   ];
 
   return (
-    <div className="bg-white rounded-lg shadow">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Quick Actions</h3>
+    <div className="dashboard-card">
+      <div className="mb-4">
+        <h3 className="text-lg font-heading font-medium text-white">Quick Actions</h3>
       </div>
-      <div className="p-6 space-y-4">
+      <div className="space-y-3">
         {actions.map((action, index) => (
           <Link
             key={index}
             href={action.href}
-            className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="block p-4 rounded-lg border border-white/10 hover:bg-white/5 hover:border-brand-electric/30 transition-all"
           >
             <div className="flex items-center">
               <span className="text-2xl mr-3">{action.icon}</span>
               <div>
-                <h4 className="text-sm font-medium text-gray-900">{action.title}</h4>
-                <p className="text-sm text-gray-500">{action.description}</p>
+                <h4 className="text-sm font-medium text-white">{action.title}</h4>
+                <p className="text-sm text-brand-silver/60">{action.description}</p>
               </div>
             </div>
           </Link>

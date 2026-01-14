@@ -94,7 +94,7 @@ export function CompanyForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="name" className="label-dark">
           Company Name *
         </label>
         <input
@@ -104,12 +104,12 @@ export function CompanyForm() {
           required
           value={formData.name}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-gray-900 placeholder-gray-400 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
         />
       </div>
 
       <div>
-        <label htmlFor="industry" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="industry" className="label-dark">
           Industry *
         </label>
         <select
@@ -118,7 +118,7 @@ export function CompanyForm() {
           required
           value={formData.industry}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-gray-900 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="select-dark mt-1"
         >
           <option value="">Select an industry</option>
           <option value="technology">Technology</option>
@@ -131,7 +131,7 @@ export function CompanyForm() {
       </div>
 
       <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="description" className="label-dark">
           Company Description *
         </label>
         <textarea
@@ -141,13 +141,13 @@ export function CompanyForm() {
           required
           value={formData.description}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-gray-900 placeholder-gray-400 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="Describe your company and what it does..."
         />
       </div>
 
       <div>
-        <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="targetAudience" className="label-dark">
           Target Audience
         </label>
         <textarea
@@ -156,13 +156,13 @@ export function CompanyForm() {
           rows={3}
           value={formData.targetAudience}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-gray-900 placeholder-gray-400 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="Who is your ideal customer?"
         />
       </div>
 
       <div>
-        <label htmlFor="coreProblem" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="coreProblem" className="label-dark">
           Core Problem You Solve
         </label>
         <textarea
@@ -171,7 +171,7 @@ export function CompanyForm() {
           rows={3}
           value={formData.coreProblem}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-gray-900 placeholder-gray-400 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="What problem does your company solve for customers?"
         />
       </div>
@@ -180,7 +180,7 @@ export function CompanyForm() {
         <button
           type="submit"
           disabled={isLoading}
-          className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? 'Saving...' : existingCompanyId ? 'Update & Continue' : 'Next Step'}
         </button>

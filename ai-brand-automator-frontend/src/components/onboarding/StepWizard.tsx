@@ -35,10 +35,10 @@ export function StepWizard({ currentStep, totalSteps }: StepWizardProps) {
               href={stepRoutes[step - 1]}
               className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium cursor-pointer transition-transform hover:scale-110 ${
                 step < currentStep
-                  ? 'bg-green-500 text-white hover:bg-green-600'
+                  ? 'bg-brand-mint text-brand-midnight hover:bg-brand-mint/80'
                   : step === currentStep
-                  ? 'bg-indigo-500 text-white'
-                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  ? 'bg-brand-electric text-brand-midnight'
+                  : 'bg-white/10 text-brand-silver/60 hover:bg-white/20'
               }`}
               title={`Go to ${stepLabels[step - 1]}`}
             >
@@ -47,7 +47,7 @@ export function StepWizard({ currentStep, totalSteps }: StepWizardProps) {
             {step < totalSteps && (
               <div
                 className={`flex-1 h-1 mx-4 ${
-                  step < currentStep ? 'bg-green-500' : 'bg-gray-200'
+                  step < currentStep ? 'bg-brand-mint' : 'bg-white/10'
                 }`}
               />
             )}
@@ -59,8 +59,8 @@ export function StepWizard({ currentStep, totalSteps }: StepWizardProps) {
           <Link
             key={label}
             href={stepRoutes[idx]}
-            className={`hover:text-indigo-600 hover:underline cursor-pointer ${
-              idx + 1 === currentStep ? 'text-indigo-600 font-medium' : 'text-gray-600'
+            className={`hover:text-brand-electric hover:underline cursor-pointer ${
+              idx + 1 === currentStep ? 'text-brand-electric font-medium' : 'text-brand-silver/60'
             }`}
           >
             {label}

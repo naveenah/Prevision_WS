@@ -125,15 +125,15 @@ export default function RecentActivity() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
+      <div className="dashboard-card">
+        <div className="mb-4">
+          <h3 className="text-lg font-heading font-medium text-white">Recent Activity</h3>
         </div>
-        <div className="divide-y divide-gray-200">
+        <div className="space-y-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="px-6 py-4 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-              <div className="h-3 bg-gray-200 rounded w-1/4"></div>
+            <div key={i} className="animate-pulse">
+              <div className="h-4 bg-white/10 rounded w-3/4 mb-2"></div>
+              <div className="h-3 bg-white/10 rounded w-1/4"></div>
             </div>
           ))}
         </div>
@@ -143,28 +143,28 @@ export default function RecentActivity() {
 
   if (activities.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
+      <div className="dashboard-card">
+        <div className="mb-4">
+          <h3 className="text-lg font-heading font-medium text-white">Recent Activity</h3>
         </div>
-        <div className="px-6 py-8 text-center">
-          <p className="text-gray-500">No recent activity yet. Start by creating a company or uploading assets!</p>
+        <div className="py-8 text-center">
+          <p className="text-brand-silver/60">No recent activity yet. Start by creating a company or uploading assets!</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Recent Activity</h3>
+    <div className="dashboard-card">
+      <div className="mb-4">
+        <h3 className="text-lg font-heading font-medium text-white">Recent Activity</h3>
       </div>
-      <div className="divide-y divide-gray-200">
+      <div className="space-y-3">
         {activities.map((activity) => (
-          <div key={activity.id} className="px-6 py-4">
+          <div key={activity.id} className="py-3 border-b border-white/10 last:border-0">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-900">{activity.action}</p>
-              <p className="text-sm text-gray-500">{activity.timestamp}</p>
+              <p className="text-sm text-white">{activity.action}</p>
+              <p className="text-sm text-brand-silver/50">{activity.timestamp}</p>
             </div>
           </div>
         ))}

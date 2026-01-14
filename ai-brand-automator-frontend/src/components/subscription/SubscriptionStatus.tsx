@@ -17,10 +17,10 @@ export function SubscriptionStatus({
 }: SubscriptionStatusProps) {
   if (!subscription) {
     return (
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className="glass-card p-6">
         <div className="text-center">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-brand-silver/50"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={1.5}
@@ -32,10 +32,10 @@ export function SubscriptionStatus({
               d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"
             />
           </svg>
-          <h3 className="mt-4 text-lg font-medium text-gray-900">
+          <h3 className="mt-4 text-lg font-heading font-medium text-white">
             No Active Subscription
           </h3>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-brand-silver/70 font-body">
             Choose a plan below to get started with AI Brand Automator.
           </p>
         </div>
@@ -44,11 +44,11 @@ export function SubscriptionStatus({
   }
 
   const statusColors: Record<string, string> = {
-    active: 'bg-green-100 text-green-800',
-    trialing: 'bg-blue-100 text-blue-800',
-    past_due: 'bg-yellow-100 text-yellow-800',
-    canceled: 'bg-red-100 text-red-800',
-    incomplete: 'bg-gray-100 text-gray-800',
+    active: 'bg-brand-mint/20 text-brand-mint',
+    trialing: 'bg-brand-electric/20 text-brand-electric',
+    past_due: 'bg-yellow-500/20 text-yellow-400',
+    canceled: 'bg-red-500/20 text-red-400',
+    incomplete: 'bg-white/10 text-brand-silver',
   };
 
   const formatDate = (dateString: string) => {
@@ -60,15 +60,15 @@ export function SubscriptionStatus({
   };
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-6">
+    <div className="glass-card p-6">
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-lg font-heading font-semibold text-white">
             {subscription.plan?.display_name || subscription.plan?.name || 'Unknown'} Plan
           </h3>
           <span
             className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              statusColors[subscription.status] || 'bg-gray-100 text-gray-800'
+              statusColors[subscription.status] || 'bg-white/10 text-brand-silver'
             }`}
           >
             {subscription.status?.charAt(0).toUpperCase() +
@@ -76,26 +76,26 @@ export function SubscriptionStatus({
           </span>
         </div>
         <div className="text-right">
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-2xl font-heading font-bold text-white">
             ${parseFloat(subscription.plan?.price || '0').toFixed(2)}
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-brand-silver/70 font-body">
             per month
           </p>
         </div>
       </div>
 
-      <div className="mt-6 border-t border-gray-100 pt-4">
+      <div className="mt-6 border-t border-white/10 pt-4">
         <dl className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <dt className="text-gray-500">Current Period Started</dt>
-            <dd className="font-medium text-gray-900">
+            <dt className="text-brand-silver/70 font-body">Current Period Started</dt>
+            <dd className="font-medium text-white">
               {formatDate(subscription.current_period_start)}
             </dd>
           </div>
           <div>
-            <dt className="text-gray-500">Current Period Ends</dt>
-            <dd className="font-medium text-gray-900">
+            <dt className="text-brand-silver/70 font-body">Current Period Ends</dt>
+            <dd className="font-medium text-white">
               {formatDate(subscription.current_period_end)}
             </dd>
           </div>
@@ -103,7 +103,7 @@ export function SubscriptionStatus({
       </div>
 
       {subscription.cancel_at_period_end && (
-        <div className="mt-4 rounded-md bg-yellow-50 p-4">
+        <div className="mt-4 rounded-md bg-yellow-500/10 border border-yellow-500/30 p-4">
           <div className="flex">
             <svg
               className="h-5 w-5 text-yellow-400"
@@ -116,7 +116,7 @@ export function SubscriptionStatus({
                 clipRule="evenodd"
               />
             </svg>
-            <p className="ml-3 text-sm text-yellow-700">
+            <p className="ml-3 text-sm text-yellow-400">
               Your subscription will be canceled at the end of the current
               billing period.
             </p>
@@ -128,7 +128,7 @@ export function SubscriptionStatus({
         <button
           onClick={onManageBilling}
           disabled={isLoading}
-          className="flex-1 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-75"
+          className="btn-primary flex-1 disabled:cursor-wait disabled:opacity-75"
         >
           Manage Billing
         </button>
@@ -138,7 +138,7 @@ export function SubscriptionStatus({
             <button
               onClick={onCancelSubscription}
               disabled={isLoading}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-75"
+              className="btn-secondary disabled:cursor-wait disabled:opacity-75"
             >
               Cancel
             </button>

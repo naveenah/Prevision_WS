@@ -127,8 +127,8 @@ export function OnboardingReview() {
   if (loading) {
     return (
       <div className="text-center py-12">
-        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-        <p className="mt-4 text-gray-600">Loading your company data...</p>
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-brand-electric"></div>
+        <p className="mt-4 text-brand-silver/60">Loading your company data...</p>
       </div>
     );
   }
@@ -136,10 +136,10 @@ export function OnboardingReview() {
   if (!company) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600">{error || 'Company data not found'}</p>
+        <p className="text-red-400">{error || 'Company data not found'}</p>
         <button
           onClick={() => router.push('/onboarding/step-1')}
-          className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+          className="mt-4 btn-primary"
         >
           Start Over
         </button>
@@ -150,38 +150,38 @@ export function OnboardingReview() {
   return (
     <div className="space-y-8">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-900/30 border border-red-500/50 text-red-300 px-4 py-3 rounded-lg">
           {error}
         </div>
       )}
 
       {/* Company Information */}
-      <div className="bg-gray-50 rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Company Information</h2>
+      <div className="bg-white/5 border border-white/10 rounded-lg p-6">
+        <h2 className="text-xl font-semibold text-white mb-4">Company Information</h2>
         <dl className="grid grid-cols-1 gap-4">
           <div>
-            <dt className="text-sm font-medium text-gray-500">Company Name</dt>
-            <dd className="mt-1 text-sm text-gray-900">{company.name}</dd>
+            <dt className="text-sm font-medium text-brand-silver/60">Company Name</dt>
+            <dd className="mt-1 text-sm text-white">{company.name}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-gray-500">Industry</dt>
-            <dd className="mt-1 text-sm text-gray-900">{company.industry}</dd>
+            <dt className="text-sm font-medium text-brand-silver/60">Industry</dt>
+            <dd className="mt-1 text-sm text-white">{company.industry}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-gray-500">Description</dt>
-            <dd className="mt-1 text-sm text-gray-900">{company.description}</dd>
+            <dt className="text-sm font-medium text-brand-silver/60">Description</dt>
+            <dd className="mt-1 text-sm text-white">{company.description}</dd>
           </div>
         </dl>
       </div>
 
       {/* Brand Details */}
       {company.brand_voice && (
-        <div className="bg-gray-50 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Brand Details</h2>
+        <div className="bg-white/5 border border-white/10 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">Brand Details</h2>
           <dl className="grid grid-cols-1 gap-4">
             <div>
-              <dt className="text-sm font-medium text-gray-500">Brand Voice</dt>
-              <dd className="mt-1 text-sm text-gray-900">{company.brand_voice}</dd>
+              <dt className="text-sm font-medium text-brand-silver/60">Brand Voice</dt>
+              <dd className="mt-1 text-sm text-white">{company.brand_voice}</dd>
             </div>
           </dl>
         </div>
@@ -189,34 +189,34 @@ export function OnboardingReview() {
 
       {/* Target Audience */}
       {company.target_audience && (
-        <div className="bg-gray-50 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Target Audience</h2>
-          <p className="text-sm text-gray-900">{company.target_audience}</p>
+        <div className="bg-white/5 border border-white/10 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">Target Audience</h2>
+          <p className="text-sm text-white">{company.target_audience}</p>
         </div>
       )}
 
       {/* AI-Generated Brand Strategy */}
       {company.vision_statement && (
-        <div className="bg-indigo-50 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+        <div className="bg-brand-electric/10 border border-brand-electric/30 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">
             🎯 AI-Generated Brand Strategy
           </h2>
           <dl className="grid grid-cols-1 gap-4">
             <div>
-              <dt className="text-sm font-medium text-indigo-700">Vision Statement</dt>
-              <dd className="mt-1 text-sm text-gray-900">{company.vision_statement}</dd>
+              <dt className="text-sm font-medium text-brand-electric">Vision Statement</dt>
+              <dd className="mt-1 text-sm text-white">{company.vision_statement}</dd>
             </div>
             {company.mission_statement && (
               <div>
-                <dt className="text-sm font-medium text-indigo-700">Mission Statement</dt>
-                <dd className="mt-1 text-sm text-gray-900">{company.mission_statement}</dd>
+                <dt className="text-sm font-medium text-brand-electric">Mission Statement</dt>
+                <dd className="mt-1 text-sm text-white">{company.mission_statement}</dd>
               </div>
             )}
             {company.values && company.values.length > 0 && (
               <div>
-                <dt className="text-sm font-medium text-indigo-700">Core Values</dt>
+                <dt className="text-sm font-medium text-brand-electric">Core Values</dt>
                 <dd className="mt-1">
-                  <ul className="list-disc list-inside text-sm text-gray-900">
+                  <ul className="list-disc list-inside text-sm text-white">
                     {company.values.split(',').map((value, idx) => (
                       <li key={idx}>{value.trim()}</li>
                     ))}
@@ -226,8 +226,8 @@ export function OnboardingReview() {
             )}
             {company.positioning_statement && (
               <div>
-                <dt className="text-sm font-medium text-indigo-700">Positioning Statement</dt>
-                <dd className="mt-1 text-sm text-gray-900">{company.positioning_statement}</dd>
+                <dt className="text-sm font-medium text-brand-electric">Positioning Statement</dt>
+                <dd className="mt-1 text-sm text-white">{company.positioning_statement}</dd>
               </div>
             )}
           </dl>
@@ -236,29 +236,29 @@ export function OnboardingReview() {
 
       {/* Brand Identity Visualization */}
       {(company.color_palette_desc || company.font_recommendations || company.messaging_guide) && (
-        <div className="bg-purple-50 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">🎨 Brand Identity</h2>
+        <div className="bg-brand-ghost/10 border border-brand-ghost/30 rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">🎨 Brand Identity</h2>
           <dl className="grid grid-cols-1 gap-4">
             {company.color_palette_desc && (
               <div>
-                <dt className="text-sm font-medium text-purple-700">Color Palette</dt>
-                <dd className="mt-1 text-sm text-gray-900">
+                <dt className="text-sm font-medium text-brand-ghost">Color Palette</dt>
+                <dd className="mt-1 text-sm text-white">
                   <ColorPaletteDisplay desc={company.color_palette_desc} />
                 </dd>
               </div>
             )}
             {company.font_recommendations && (
               <div>
-                <dt className="text-sm font-medium text-purple-700">Font Recommendations</dt>
-                <dd className="mt-1 text-sm text-gray-900">
+                <dt className="text-sm font-medium text-brand-ghost">Font Recommendations</dt>
+                <dd className="mt-1 text-sm text-white">
                   <FontRecommendationsDisplay desc={company.font_recommendations} />
                 </dd>
               </div>
             )}
             {company.messaging_guide && (
               <div>
-                <dt className="text-sm font-medium text-purple-700">Messaging Guide</dt>
-                <dd className="mt-1 text-sm text-gray-900 whitespace-pre-line">{company.messaging_guide}</dd>
+                <dt className="text-sm font-medium text-brand-ghost">Messaging Guide</dt>
+                <dd className="mt-1 text-sm text-white whitespace-pre-line">{company.messaging_guide}</dd>
               </div>
             )}
           </dl>
@@ -271,7 +271,7 @@ export function OnboardingReview() {
           <button
             onClick={handleGenerateBrandStrategy}
             disabled={generating}
-            className="w-full px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 font-medium"
+            className="w-full px-6 py-3 bg-brand-electric text-brand-midnight rounded-lg hover:bg-brand-electric/80 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
           >
             {generating ? 'Generating Brand Strategy...' : '✨ Generate Brand Strategy with AI'}
           </button>
@@ -281,7 +281,7 @@ export function OnboardingReview() {
           <button
             onClick={handleGenerateBrandIdentity}
             disabled={generating}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 font-medium"
+            className="w-full px-6 py-3 bg-brand-ghost text-white rounded-lg hover:bg-brand-ghost/80 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
           >
             {generating ? 'Generating Brand Identity...' : '🎨 Generate Brand Identity (Colors, Fonts)'}
           </button>
@@ -291,14 +291,14 @@ export function OnboardingReview() {
           <button
             type="button"
             onClick={() => router.push('/onboarding/step-4')}
-            className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            className="btn-secondary"
           >
             Back
           </button>
           <button
             type="button"
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            className="px-6 py-2 bg-brand-mint text-brand-midnight rounded-lg hover:bg-brand-mint/80 font-medium transition-colors"
           >
             Complete & Go to Dashboard
           </button>
@@ -323,12 +323,12 @@ function ColorPaletteDisplay({ desc }: { desc: string }) {
       {matches.map((m, i) => (
         <div key={i} className="flex flex-col items-center">
           <div
-            className="w-10 h-10 rounded-full border border-gray-300 mb-1"
+            className="w-10 h-10 rounded-full border border-white/20 mb-1 shadow-lg"
             style={{ backgroundColor: `#${m[2]}` }}
             title={m[1]}
           />
-          <span className="text-xs text-gray-700">{m[1]}</span>
-          <span className="text-xs text-gray-500">#{m[2]}</span>
+          <span className="text-xs text-brand-silver">{m[1]}</span>
+          <span className="text-xs text-brand-silver/60">#{m[2]}</span>
         </div>
       ))}
     </div>
@@ -347,8 +347,8 @@ function FontRecommendationsDisplay({ desc }: { desc: string }) {
     <div className="flex flex-wrap gap-6 items-center">
       {matches.map((m, i) => (
         <div key={i} className="flex flex-col items-start">
-          <span className="text-xs text-gray-700 font-semibold">{m[1]}</span>
-          <span className="text-base text-gray-900" style={{ fontFamily: m[2].split(',')[0] }}>{m[2]}</span>
+          <span className="text-xs text-brand-silver/60 font-semibold">{m[1]}</span>
+          <span className="text-base text-white" style={{ fontFamily: m[2].split(',')[0] }}>{m[2]}</span>
         </div>
       ))}
     </div>

@@ -102,9 +102,9 @@ export function OverviewCards() {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="bg-white rounded-lg shadow p-6 animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-1/2 mb-4"></div>
-            <div className="h-8 bg-gray-200 rounded w-3/4"></div>
+          <div key={i} className="dashboard-card animate-pulse">
+            <div className="h-4 bg-white/10 rounded w-1/2 mb-4"></div>
+            <div className="h-8 bg-white/10 rounded w-3/4"></div>
           </div>
         ))}
       </div>
@@ -114,15 +114,15 @@ export function OverviewCards() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {cards.map((card, index) => (
-        <div key={index} className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-sm font-medium text-gray-500">{card.title}</h3>
+        <div key={index} className="dashboard-card">
+          <h3 className="text-sm font-medium text-brand-silver/70">{card.title}</h3>
           <div className="mt-2 flex items-baseline">
-            <p className="text-2xl font-semibold text-gray-900">{card.value}</p>
+            <p className="text-2xl font-heading font-semibold text-white">{card.value}</p>
             <p
               className={`ml-2 text-sm ${
                 card.changeType === 'positive'
-                  ? 'text-green-600'
-                  : 'text-gray-600'
+                  ? 'text-brand-mint'
+                  : 'text-brand-silver/60'
               }`}
             >
               {card.change}

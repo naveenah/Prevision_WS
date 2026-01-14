@@ -40,9 +40,9 @@ export function LoginForm() {
 
   return (
     <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-      <div className="rounded-md shadow-sm -space-y-px">
+      <div className="space-y-4">
         <div>
-          <label htmlFor="email" className="sr-only">
+          <label htmlFor="email" className="block text-sm font-medium text-brand-silver/70 mb-1">
             Email address
           </label>
           <input
@@ -51,14 +51,14 @@ export function LoginForm() {
             type="email"
             autoComplete="email"
             required
-            className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-            placeholder="Email address"
+            className="appearance-none relative block w-full px-4 py-3 bg-white/5 border border-white/10 placeholder-brand-silver/50 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-electric/50 focus:border-brand-electric transition-colors sm:text-sm font-body"
+            placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
         <div>
-          <label htmlFor="password" className="sr-only">
+          <label htmlFor="password" className="block text-sm font-medium text-brand-silver/70 mb-1">
             Password
           </label>
           <input
@@ -67,8 +67,8 @@ export function LoginForm() {
             type="password"
             autoComplete="current-password"
             required
-            className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-            placeholder="Password"
+            className="appearance-none relative block w-full px-4 py-3 bg-white/5 border border-white/10 placeholder-brand-silver/50 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-electric/50 focus:border-brand-electric transition-colors sm:text-sm font-body"
+            placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -81,15 +81,15 @@ export function LoginForm() {
             id="remember-me"
             name="remember-me"
             type="checkbox"
-            className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+            className="h-4 w-4 bg-white/5 border-white/20 text-brand-electric focus:ring-brand-electric/50 rounded"
           />
-          <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
+          <label htmlFor="remember-me" className="ml-2 block text-sm text-brand-silver/70">
             Remember me
           </label>
         </div>
 
         <div className="text-sm">
-          <a href="#" className="font-medium text-indigo-600 hover:text-indigo-500">
+          <a href="#" className="font-medium text-brand-electric hover:text-brand-electric/80 transition-colors">
             Forgot your password?
           </a>
         </div>
@@ -99,14 +99,14 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={isLoading}
-          className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? 'Signing in...' : 'Sign in'}
         </button>
       </div>
 
       <div className="text-center">
-        <Link href="/auth/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+        <Link href="/auth/register" className="font-medium text-brand-electric hover:text-brand-electric/80 transition-colors">
           Don&apos;t have an account? Sign up
         </Link>
       </div>

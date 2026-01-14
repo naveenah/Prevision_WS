@@ -36,11 +36,12 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full">
+        <div className="min-h-screen flex items-center justify-center bg-brand-midnight px-4">
+          <div className="fixed inset-0 aura-glow pointer-events-none opacity-30" />
+          <div className="relative z-10 max-w-md w-full glass-card p-8">
+            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-500/20 rounded-full">
               <svg
-                className="w-6 h-6 text-red-600"
+                className="w-6 h-6 text-red-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -53,16 +54,16 @@ export class ErrorBoundary extends Component<Props, State> {
                 />
               </svg>
             </div>
-            <h2 className="mt-4 text-xl font-semibold text-gray-900 text-center">
+            <h2 className="mt-4 text-xl font-heading font-semibold text-white text-center">
               Something went wrong
             </h2>
-            <p className="mt-2 text-sm text-gray-600 text-center">
+            <p className="mt-2 text-sm text-brand-silver/70 font-body text-center">
               We&apos;re sorry, but something unexpected happened. Please try refreshing the page.
             </p>
             {process.env.NODE_ENV === 'development' && this.state.error && (
-              <details className="mt-4 text-xs text-gray-700 bg-gray-50 p-3 rounded">
+              <details className="mt-4 text-xs text-brand-silver bg-white/5 p-3 rounded-lg border border-white/10">
                 <summary className="cursor-pointer font-medium">Error details</summary>
-                <pre className="mt-2 whitespace-pre-wrap">
+                <pre className="mt-2 whitespace-pre-wrap text-red-300">
                   {this.state.error.toString()}
                 </pre>
               </details>
@@ -70,13 +71,13 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => window.location.reload()}
-                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors"
+                className="flex-1 btn-primary"
               >
                 Refresh Page
               </button>
               <button
                 onClick={() => (window.location.href = '/dashboard')}
-                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300 transition-colors"
+                className="flex-1 btn-secondary"
               >
                 Go to Dashboard
               </button>
