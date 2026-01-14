@@ -6,7 +6,7 @@ from decimal import Decimal
 from rest_framework import status
 from unittest.mock import patch, MagicMock
 
-from subscriptions.models import SubscriptionPlan, Subscription, PaymentHistory
+from subscriptions.models import SubscriptionPlan
 from subscriptions.services import StripeService
 
 
