@@ -89,12 +89,12 @@ SHARED_APPS = [
     "ai_services",  # AI integration (shared for logging)
     "onboarding",  # Company data (has FK to Tenant)
     "subscriptions",  # Stripe payment integration
+    "automation",  # Social media automation (shared - models reference User)
 ]
 
 TENANT_APPS = [
     # Our apps
     "files",  # file management
-    "automation",  # automation features
     # Django apps that must be in each tenant
     "django.contrib.contenttypes",
     "django.contrib.auth",
@@ -415,3 +415,14 @@ STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
 STRIPE_PRICE_BASIC = config("STRIPE_PRICE_BASIC", default="")
 STRIPE_PRICE_PRO = config("STRIPE_PRICE_PRO", default="")
 STRIPE_PRICE_ENTERPRISE = config("STRIPE_PRICE_ENTERPRISE", default="")
+
+# LinkedIn OAuth Configuration
+LINKEDIN_CLIENT_ID = config("LINKEDIN_CLIENT_ID", default="")
+LINKEDIN_CLIENT_SECRET = config("LINKEDIN_CLIENT_SECRET", default="")
+LINKEDIN_REDIRECT_URI = config(
+    "LINKEDIN_REDIRECT_URI",
+    default="http://localhost:8000/api/v1/automation/linkedin/callback/"
+)
+
+# Frontend URL for OAuth redirects
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
