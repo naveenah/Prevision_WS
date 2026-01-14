@@ -4,9 +4,10 @@
 
 **Multi-tenant SaaS platform** for AI-powered brand building with Django + Next.js:
 - **Backend**: Django 4.2 + DRF at `ai-brand-automator/` (port 8000)
-- **Frontend**: Next.js 16 + React 19 + TypeScript at `ai-brand-automator-frontend/` (port 3000) 
+- **Frontend**: Next.js 15 + React 19 + TypeScript at `ai-brand-automator-frontend/` (port 3000) 
 - **Database**: PostgreSQL (Neon hosted) - multi-tenancy PARTIALLY DISABLED for MVP
-- **AI**: Google Gemini 1.5 Flash for brand strategy generation
+- **AI**: Google Gemini 2.0 Flash for brand strategy generation
+- **Payments**: Stripe for subscription management
 
 **🚨 CRITICAL STATE**: Multi-tenancy configured with `django-tenants` but in transitional MVP mode. Models have nullable `tenant` FK. Always use defensive access: `tenant = getattr(request, 'tenant', None)` in views.
 
@@ -27,6 +28,7 @@
 - **Auth**: `/api/v1/auth/{register,login,refresh}/` - Email-based JWT auth in [brand_automator/urls.py](ai-brand-automator/brand_automator/urls.py)
 - **Onboarding**: `/api/v1/companies/` (ViewSet) - [onboarding/urls.py](ai-brand-automator/onboarding/urls.py)
 - **AI Services**: `/api/v1/ai/` - [ai_services/urls.py](ai-brand-automator/ai_services/urls.py)
+- **Subscriptions**: `/api/v1/subscriptions/` - [subscriptions/urls.py](ai-brand-automator/subscriptions/urls.py)
 - **Health**: `/health/`, `/ready/`, `/alive/` - Non-auth monitoring endpoints
 
 ## Development Workflows
@@ -38,10 +40,23 @@ cd ai-brand-automator
 source ../.venv/bin/activate  # ⚠️ .venv is in workspace root
 python manage.py runserver     # → http://localhost:8000
 
+# For network/mobile testing (accessible from other devices):
+python manage.py runserver 0.0.0.0:8000  # → http://<your-ip>:8000
+
 # Frontend - Separate terminal
 cd ai-brand-automator-frontend  
 npm run dev                    # → http://localhost:3000
+
+# For network/mobile testing:
+npm run dev -- -H 0.0.0.0      # → http://<your-ip>:3000
 ```
+
+### Mobile/Network Testing Setup
+When testing from mobile devices or other machines on the network:
+1. Get your IP: `ipconfig getifaddr en0` (macOS)
+2. Add IP to tenant domains in database (see Common Issues section)
+3. Update frontend `.env.local`: `NEXT_PUBLIC_API_URL=http://<your-ip>:8000`
+4. Run servers with `0.0.0.0` binding
 
 ### Testing
 
@@ -111,9 +126,11 @@ def generate_brand_strategy(self, request, pk=None):
 
 ### AI Service Integration
 - `ai_services/services.py` exports singleton `ai_service = GeminiAIService()`
+- Uses **Gemini 2.0 Flash** model (updated from deprecated 1.5)
 - Always logs generations to `AIGeneration` model with tokens/processing time
 - Fallback responses if `GOOGLE_API_KEY` not configured (returns mock data)
 - Response parsing extracts sections like "Vision Statement", "Mission Statement" from AI text
+- Color palette format expected: `Primary: #HEXCODE, Secondary: #HEXCODE, Accent: #HEXCODE`
 
 ### Frontend API Client
 - Centralized in `src/lib/api.ts` with auto token injection
@@ -164,6 +181,17 @@ result = {'vision_statement': "Based on technology industry..."}
 ### CORS Issues
 Frontend must run on **localhost:3000** (NOT 127.0.0.1) to match `CORS_ALLOWED_ORIGINS`.
 
+**⚠️ CRITICAL**: `CorsMiddleware` MUST be first in MIDDLEWARE list (before `TenantMainMiddleware`) to handle OPTIONS preflight requests properly.
+
+### Network/Mobile Access Issues
+When accessing from network IP (mobile testing), you must add the IP to tenant domains:
+```python
+# Run in Django shell or script:
+from tenants.models import Tenant, Domain
+tenant = Tenant.objects.get(schema_name='public')
+Domain.objects.get_or_create(domain='<your-ip>', defaults={'tenant': tenant, 'is_primary': False})
+```
+
 ### Authentication Flow
 - Registration: `POST /api/v1/auth/register/` (email/username/password)
 - Login: `POST /api/v1/auth/login/` (email/password → JWT tokens)
@@ -178,51 +206,59 @@ Frontend must run on **localhost:3000** (NOT 127.0.0.1) to match `CORS_ALLOWED_O
 
 ## Current Status & Issues
 
-**Status**: Phase 3 complete, Phase 4 in progress
+**Status**: Phase 4 complete - Stripe integration working
 
 **Completed Phases**:
 - ✅ Phase 1: Foundation (Django multi-tenancy, PostgreSQL, auth)
 - ✅ Phase 2: Core Backend (Onboarding APIs, GCS integration, AI services)
 - ✅ Phase 3: Frontend Development (Next.js, auth UI, onboarding flow, chat)
+- ✅ Phase 4: Stripe Integration (subscriptions, checkout, sync)
 
 **Major Resolved Issues**:
 - ✅ Email-based login working
 - ✅ Company creation with nullable tenant field  
 - ✅ Defensive tenant access in views
 - ✅ Comprehensive test suite (pytest + Hypothesis property tests)
+- ✅ CORS middleware order fixed (must be before TenantMainMiddleware)
+- ✅ Network/mobile testing with tenant domain registration
+- ✅ Gemini 2.0 Flash model integration (1.5 deprecated)
+- ✅ Subscription sync after Stripe checkout
 
 ---
 
-## Phase 4: Integrations - Implementation Plan
+## Phase 4: Integrations - COMPLETED
 
-### 4.1 Stripe Payment Integration (Priority: HIGH)
+### 4.1 Stripe Payment Integration ✅
 
-**Backend Tasks:**
-1. **Create `subscriptions` Django app**
-   - Models: `Subscription`, `SubscriptionPlan`, `PaymentHistory`
-   - Add `stripe_customer_id` to Tenant model
-   
-2. **API Endpoints:**
-   - `GET /api/v1/subscriptions/plans` - List available plans
-   - `POST /api/v1/subscriptions/create-checkout-session` - Create Stripe checkout
-   - `GET /api/v1/subscriptions/status` - Current subscription status
-   - `POST /api/v1/subscriptions/webhook` - Handle Stripe webhooks
-   - `POST /api/v1/subscriptions/create-portal-session` - Customer billing portal
+**Implemented:**
+- `subscriptions` Django app with models: `Subscription`, `SubscriptionPlan`, `PaymentHistory`
+- `stripe_customer_id` and `subscription_status` fields on Tenant model
+- Stripe checkout session creation and redirect
+- Subscription sync endpoint for post-checkout updates
+- Webhook handler for Stripe events
 
-3. **Subscription Tiers:**
+**API Endpoints:**
+- `GET /api/v1/subscriptions/plans/` - List available plans
+- `GET /api/v1/subscriptions/status/` - Current subscription status
+- `POST /api/v1/subscriptions/create-checkout-session/` - Create Stripe checkout
+- `POST /api/v1/subscriptions/sync/` - Sync subscription from Stripe
+- `POST /api/v1/subscriptions/webhook/` - Handle Stripe webhooks
+- `POST /api/v1/subscriptions/create-portal-session/` - Customer billing portal
+- `POST /api/v1/subscriptions/cancel/` - Cancel subscription
+
+**Subscription Tiers:**
    | Plan | Price | Features |
    |------|-------|----------|
    | Basic | $29/mo | Core features, 1 brand |
    | Pro | $79/mo | Advanced AI, 5 brands, automation |
    | Enterprise | $199/mo | Unlimited, team features |
 
-**Frontend Tasks:**
-1. Create `/subscription` page with plan cards
-2. Create `/billing` page for subscription management
-3. Add subscription status to dashboard
-4. Implement checkout redirect flow
+**Frontend Implementation:**
+- `/subscription` page with plan cards and checkout flow
+- `SubscriptionStatus` component shows current plan
+- Post-checkout sync using `window.history.replaceState()` to avoid race conditions
 
-**Environment Variables Required:**
+**Environment Variables:**
 ```bash
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_PUBLISHABLE_KEY=pk_test_...
@@ -316,6 +352,36 @@ ai-brand-automator-frontend/src/
 | 4.2.1 | Create automation models | 2 hours | MEDIUM |
 | 4.2.2 | OAuth connection endpoints (stub) | 2 hours | MEDIUM |
 | 4.2.3 | Frontend automation page | 2 hours | MEDIUM |
+
+---
+
+## Key Technical Decisions
+
+### Middleware Order (Critical)
+```python
+MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # MUST BE FIRST for OPTIONS
+    "django_tenants.middleware.main.TenantMainMiddleware",
+    # ... other middleware
+]
+```
+
+### Subscription Sync Pattern
+After Stripe checkout, use `window.history.replaceState()` instead of `router.replace()` to avoid race conditions:
+```tsx
+// In subscription/page.tsx
+if (success === 'true') {
+  await subscriptionApi.syncSubscription();
+  window.history.replaceState({}, '', '/subscription');  // Don't use router.replace()
+}
+// Then fetch fresh data
+```
+
+### AI Model Configuration
+```python
+# In ai_services/services.py
+self.model_name = "gemini-2.0-flash"  # Updated from deprecated gemini-1.5-flash
+```
 
 ---
 

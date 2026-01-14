@@ -7,23 +7,26 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 ## Features
 
 - 🔐 **Multi-tenant Architecture** - Schema-based data isolation with django-tenants
-- 🤖 **AI Brand Strategy Generation** - Powered by Google Gemini 1.5 Flash
+- 🤖 **AI Brand Strategy Generation** - Powered by Google Gemini 2.0 Flash
 - 📝 **5-Step Onboarding** - Guided company setup with asset uploads
 - 💬 **AI Chatbot** - Interactive brand guidance and file search
 - 📊 **Dynamic Dashboard** - Real-time metrics and activity tracking
 - 🔄 **Auto Token Refresh** - Seamless 7-day authentication
 - 📁 **File Upload** - Multi-file drag-and-drop with GCS integration
+- 💳 **Stripe Integration** - Subscription plans with checkout and billing portal
+- 📱 **Mobile Ready** - Responsive design with network testing support
 
 ## Tech Stack
 
 ### Backend
 - **Django 4.2** + Django REST Framework
 - **PostgreSQL** (Neon hosted) with multi-tenancy
-- **Google Gemini AI** for content generation
+- **Google Gemini 2.0 Flash** for AI content generation
+- **Stripe** for subscription management
 - **JWT Authentication** with token refresh
 
 ### Frontend
-- **Next.js 16** + React 19
+- **Next.js 15** + React 19
 - **TypeScript** for type safety
 - **Tailwind CSS** for styling
 - **Automatic API client** with token management
@@ -37,6 +40,7 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 │   ├── automation/              # Background tasks (future)
 │   ├── files/                   # File upload service
 │   ├── onboarding/              # Company onboarding
+│   ├── subscriptions/           # Stripe subscription management
 │   ├── tenants/                 # Multi-tenancy models
 │   └── brand_automator/         # Django settings
 │
@@ -110,10 +114,18 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
    python manage.py migrate
    ```
 
-5. **Start development server**:
+5. **Seed subscription plans**:
+   ```bash
+   python manage.py seed_subscription_plans
+   ```
+
+6. **Start development server**:
    ```bash
    python manage.py runserver
    # Server runs at http://localhost:8000
+   
+   # For mobile/network testing:
+   python manage.py runserver 0.0.0.0:8000
    ```
 
 ### Frontend Setup
@@ -166,6 +178,15 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 - `POST /api/v1/ai/chat/` - AI chatbot interaction
 - `GET /api/v1/ai/chat-sessions/` - Chat history
 - `GET /api/v1/ai/generations/` - AI generation logs
+
+### Subscriptions
+- `GET /api/v1/subscriptions/plans/` - List subscription plans
+- `GET /api/v1/subscriptions/status/` - Current subscription status
+- `POST /api/v1/subscriptions/create-checkout-session/` - Create Stripe checkout
+- `POST /api/v1/subscriptions/sync/` - Sync subscription from Stripe
+- `POST /api/v1/subscriptions/webhook/` - Handle Stripe webhooks
+- `POST /api/v1/subscriptions/create-portal-session/` - Customer billing portal
+- `POST /api/v1/subscriptions/cancel/` - Cancel subscription
 
 ## User Flow
 
@@ -252,6 +273,12 @@ tenant = Tenant.objects.create(
 | `GS_BUCKET_NAME` | ⚠️ Optional | GCS bucket | `my-bucket` |
 | `GS_PROJECT_ID` | ⚠️ Optional | GCP project | `my-project-123` |
 | `CORS_ALLOWED_ORIGINS` | ⚠️ Optional | Frontend URLs | `http://localhost:3000` |
+| `STRIPE_SECRET_KEY` | ✅ Yes | Stripe secret key | `sk_test_...` |
+| `STRIPE_PUBLISHABLE_KEY` | ✅ Yes | Stripe public key | `pk_test_...` |
+| `STRIPE_WEBHOOK_SECRET` | ⚠️ Optional | Webhook signing secret | `whsec_...` |
+| `STRIPE_PRICE_BASIC` | ✅ Yes | Basic plan price ID | `price_...` |
+| `STRIPE_PRICE_PRO` | ✅ Yes | Pro plan price ID | `price_...` |
+| `STRIPE_PRICE_ENTERPRISE` | ✅ Yes | Enterprise price ID | `price_...` |
 
 ### Frontend (.env.local)
 
@@ -270,8 +297,9 @@ tenant = Tenant.objects.create(
 
 **AI generation returns fallback text**:
 - Check `GOOGLE_API_KEY` is set in `.env`
-- Verify API key is valid in Google Cloud Console
+- Verify API key is valid in Google AI Studio
 - Check rate limits haven't been exceeded
+- Ensure using `gemini-2.0-flash` model (1.5 is deprecated)
 
 **Token authentication fails**:
 - Clear localStorage in browser
@@ -284,6 +312,15 @@ tenant = Tenant.objects.create(
 - Verify backend `CORS_ALLOWED_ORIGINS` includes `http://localhost:3000`
 - Check frontend uses correct API URL
 - Ensure both servers are running
+- **Critical**: `CorsMiddleware` must be FIRST in MIDDLEWARE list (before TenantMainMiddleware)
+
+**Mobile/Network testing 404 errors**:
+- Add your network IP to tenant domains in database:
+  ```python
+  from tenants.models import Tenant, Domain
+  tenant = Tenant.objects.get(schema_name='public')
+  Domain.objects.get_or_create(domain='<your-ip>', defaults={'tenant': tenant, 'is_primary': False})
+  ```
 
 **Build fails**:
 - Run `npm run build` to see TypeScript errors
@@ -314,23 +351,26 @@ See [LICENSE.md](LICENSE.md)
 
 ## Status
 
-**Current Version**: MVP 1.0  
-**Status**: ✅ Ready for End-to-End Testing  
-**Last Updated**: January 10, 2026
+**Current Version**: MVP 1.1  
+**Status**: ✅ Production Ready  
+**Last Updated**: January 14, 2026
 
 ### Completed Features
 - ✅ Multi-tenant authentication
 - ✅ User registration with tenant creation
 - ✅ 5-step onboarding flow
-- ✅ AI brand strategy generation
+- ✅ AI brand strategy generation (Gemini 2.0 Flash)
+- ✅ AI brand identity with color palettes
 - ✅ Dynamic dashboard
 - ✅ Token refresh
 - ✅ File upload UI
 - ✅ Chat interface
+- ✅ Stripe subscription management
+- ✅ Checkout flow with plan sync
+- ✅ Mobile/network testing support
 
 ### Pending Features (Post-MVP)
 - ⏳ Social media automation
-- ⏳ Stripe payment integration
 - ⏳ Content scheduling
 - ⏳ Advanced analytics
 - ⏳ Team member invites
