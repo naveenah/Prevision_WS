@@ -122,7 +122,7 @@ export function OverviewCards() {
               className={`ml-2 text-sm ${
                 card.changeType === 'positive'
                   ? 'text-brand-mint'
-                  : 'text-brand-silver/60'
+                  : 'text-brand-silver/70'
               }`}
             >
               {card.change}

@@ -148,7 +148,7 @@ export default function RecentActivity() {
           <h3 className="text-lg font-heading font-medium text-white">Recent Activity</h3>
         </div>
         <div className="py-8 text-center">
-          <p className="text-brand-silver/60">No recent activity yet. Start by creating a company or uploading assets!</p>
+          <p className="text-brand-silver/70">No recent activity yet. Start by creating a company or uploading assets!</p>
         </div>
       </div>
     );

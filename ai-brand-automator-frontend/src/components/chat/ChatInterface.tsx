@@ -85,20 +85,21 @@ export function ChatInterface() {
       {/* Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="bg-brand-midnight/80 backdrop-blur border-b border-white/10 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-heading font-semibold text-white">AI Brand Assistant</h1>
-              <p className="text-sm text-brand-silver/70">Get insights and generate content for your brand</p>
+        <div className="bg-brand-midnight/80 backdrop-blur border-b border-white/10 px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-heading font-semibold text-white truncate">AI Brand Assistant</h1>
+              <p className="text-xs sm:text-sm text-brand-silver/70 hidden sm:block">Get insights and generate content for your brand</p>
             </div>
             <Link 
               href="/dashboard" 
-              className="flex items-center gap-2 text-brand-silver hover:text-brand-electric transition-colors text-sm"
+              className="flex items-center gap-1 sm:gap-2 text-brand-silver hover:text-brand-electric transition-colors text-xs sm:text-sm flex-shrink-0"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              <span>Back to Dashboard</span>
+              <span className="hidden sm:inline">Back to Dashboard</span>
+              <span className="sm:hidden">Back</span>
             </Link>
           </div>
         </div>

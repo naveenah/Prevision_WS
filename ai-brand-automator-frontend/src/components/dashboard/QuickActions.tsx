@@ -56,7 +56,7 @@ export function QuickActions() {
               <span className="text-2xl mr-3">{action.icon}</span>
               <div>
                 <h4 className="text-sm font-medium text-white">{action.title}</h4>
-                <p className="text-sm text-brand-silver/60">{action.description}</p>
+                <p className="text-sm text-brand-silver/70">{action.description}</p>
               </div>
             </div>
           </Link>

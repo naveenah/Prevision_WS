@@ -53,16 +53,6 @@ export function Navigation() {
             {isLoggedIn && (
               <div className="hidden sm:ml-10 sm:flex sm:space-x-8">
                 <Link
-                  href="/"
-                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors ${
-                    pathname === '/'
-                      ? 'border-brand-electric text-white'
-                      : 'border-transparent text-brand-silver/70 hover:border-brand-ghost hover:text-white'
-                  }`}
-                >
-                  Home
-                </Link>
-                <Link
                   href="/dashboard"
                   className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors ${
                     pathname === '/dashboard'
@@ -120,7 +110,7 @@ export function Navigation() {
             {isLoggedIn ? (
               <button
                 onClick={handleLogout}
-                className="btn-secondary text-sm"
+                className="text-sm text-brand-silver/70 hover:text-brand-electric transition-colors px-3 py-1.5 rounded-md hover:bg-white/5"
               >
                 Logout
               </button>

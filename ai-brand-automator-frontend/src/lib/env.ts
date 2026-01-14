@@ -4,19 +4,24 @@
  */
 
 // Dynamic API URL that works from any hostname (localhost, network IP, etc.)
-const getBaseApiUrl = () => {
-  // Check for explicit env var first
+const getBaseApiUrl = (): string => {
+  // Check for explicit env var first (works in both SSR and client)
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
   
-  // In browser, use the same hostname as the current page but port 8000
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:8000`;
+  // In browser only - use the same hostname as the current page but port 8000
+  // This is wrapped in try-catch for safety during SSR/static generation
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      const { protocol, hostname } = window.location;
+      return `${protocol}//${hostname}:8000`;
+    }
+  } catch {
+    // Silently fall through to default during SSR
   }
   
-  // Default for SSR
+  // Default for SSR/static generation
   return 'http://localhost:8000';
 };
 

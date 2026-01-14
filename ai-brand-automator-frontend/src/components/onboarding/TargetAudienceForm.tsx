@@ -122,7 +122,7 @@ export function TargetAudienceForm() {
           placeholder="e.g., Small business owners aged 30-50 who struggle with marketing automation"
           required
         />
-        <p className="mt-1 text-sm text-brand-silver/60">
+        <p className="mt-1 text-sm text-brand-silver/70">
           Describe who your ideal customers are
         </p>
       </div>
@@ -139,7 +139,7 @@ export function TargetAudienceForm() {
           onChange={(e) => setFormData({ ...formData, demographics: e.target.value })}
           placeholder="e.g., Age range, gender, location, income level, education, occupation"
         />
-        <p className="mt-1 text-sm text-brand-silver/60">
+        <p className="mt-1 text-sm text-brand-silver/70">
           Statistical characteristics of your audience
         </p>
       </div>
@@ -156,7 +156,7 @@ export function TargetAudienceForm() {
           onChange={(e) => setFormData({ ...formData, psychographics: e.target.value })}
           placeholder="e.g., Values, interests, lifestyle, personality traits, attitudes"
         />
-        <p className="mt-1 text-sm text-brand-silver/60">
+        <p className="mt-1 text-sm text-brand-silver/70">
           Psychological characteristics and lifestyle
         </p>
       </div>
@@ -174,7 +174,7 @@ export function TargetAudienceForm() {
           placeholder="e.g., Wasting time on manual tasks, struggling to reach customers, limited marketing budget"
           required
         />
-        <p className="mt-1 text-sm text-brand-silver/60">
+        <p className="mt-1 text-sm text-brand-silver/70">
           What problems does your audience face?
         </p>
       </div>
@@ -192,7 +192,7 @@ export function TargetAudienceForm() {
           placeholder="e.g., Save time, grow revenue, reach more customers, streamline operations"
           required
         />
-        <p className="mt-1 text-sm text-brand-silver/60">
+        <p className="mt-1 text-sm text-brand-silver/70">
           What do they want to achieve?
         </p>
       </div>

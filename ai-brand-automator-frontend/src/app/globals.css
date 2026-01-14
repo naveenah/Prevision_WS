@@ -141,9 +141,10 @@
     pointer-events: none;
   }
 
-  /* Aura glow background effect */
+  /* Aura glow background effect - z-index ensures proper layering */
   .aura-glow {
     background: radial-gradient(circle at center, rgba(138,43,226,0.15) 0%, transparent 70%);
+    z-index: -1;
   }
 
   /* Success/active state indicator */
@@ -298,6 +299,16 @@
 
   .font-mono {
     font-family: var(--font-mono);
+  }
+}
+
+/* Pulse animation for AI effects */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
   }
 }
 

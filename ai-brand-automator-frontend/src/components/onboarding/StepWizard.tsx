@@ -38,7 +38,7 @@ export function StepWizard({ currentStep, totalSteps }: StepWizardProps) {
                   ? 'bg-brand-mint text-brand-midnight hover:bg-brand-mint/80'
                   : step === currentStep
                   ? 'bg-brand-electric text-brand-midnight'
-                  : 'bg-white/10 text-brand-silver/60 hover:bg-white/20'
+                  : 'bg-white/10 text-brand-silver/70 hover:bg-white/20'
               }`}
               title={`Go to ${stepLabels[step - 1]}`}
             >
@@ -60,7 +60,7 @@ export function StepWizard({ currentStep, totalSteps }: StepWizardProps) {
             key={label}
             href={stepRoutes[idx]}
             className={`hover:text-brand-electric hover:underline cursor-pointer ${
-              idx + 1 === currentStep ? 'text-brand-electric font-medium' : 'text-brand-silver/60'
+              idx + 1 === currentStep ? 'text-brand-electric font-medium' : 'text-brand-silver/70'
             }`}
           >
             {label}

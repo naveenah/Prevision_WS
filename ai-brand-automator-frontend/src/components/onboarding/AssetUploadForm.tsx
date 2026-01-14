@@ -109,7 +109,7 @@ export function AssetUploadForm() {
 
       <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center bg-white/5 hover:bg-white/10 hover:border-brand-electric/50 transition-colors">
         <div className="space-y-4">
-          <div className="text-brand-silver/60">
+          <div className="text-brand-silver/70">
             <svg
               className="mx-auto h-12 w-12 text-brand-electric/60"
               stroke="currentColor"
@@ -142,7 +142,7 @@ export function AssetUploadForm() {
                 disabled={uploading}
               />
             </label>
-            <p className="text-sm text-brand-silver/60 mt-1">
+            <p className="text-sm text-brand-silver/70 mt-1">
               or drag and drop
             </p>
           </div>
@@ -155,7 +155,7 @@ export function AssetUploadForm() {
       {uploading && (
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-electric"></div>
-          <p className="mt-2 text-sm text-brand-silver/60">Uploading files...</p>
+          <p className="mt-2 text-sm text-brand-silver/70">Uploading files...</p>
         </div>
       )}
 
@@ -169,7 +169,7 @@ export function AssetUploadForm() {
                   <span className="text-sm font-medium text-white">
                     {file.file_name}
                   </span>
-                  <span className="ml-2 text-xs text-brand-silver/60">
+                  <span className="ml-2 text-xs text-brand-silver/70">
                     ({(file.file_size / 1024).toFixed(1)} KB)
                   </span>
                 </div>

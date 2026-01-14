@@ -104,8 +104,8 @@ export default function Home() {
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/10 mt-12 sm:mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-          <div className="text-center text-brand-silver/60 font-body text-sm sm:text-base">
-            <p>&copy; 2026 AI Brand Automator. All rights reserved.</p>
+          <div className="text-center text-brand-silver/70 font-body text-sm sm:text-base">
+            <p>&copy; {new Date().getFullYear()} AI Brand Automator. All rights reserved.</p>
           </div>
         </div>
       </footer>

@@ -128,7 +128,7 @@ export function OnboardingReview() {
     return (
       <div className="text-center py-12">
         <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-brand-electric"></div>
-        <p className="mt-4 text-brand-silver/60">Loading your company data...</p>
+        <p className="mt-4 text-brand-silver/70">Loading your company data...</p>
       </div>
     );
   }
@@ -160,15 +160,15 @@ export function OnboardingReview() {
         <h2 className="text-xl font-semibold text-white mb-4">Company Information</h2>
         <dl className="grid grid-cols-1 gap-4">
           <div>
-            <dt className="text-sm font-medium text-brand-silver/60">Company Name</dt>
+            <dt className="text-sm font-medium text-brand-silver/70">Company Name</dt>
             <dd className="mt-1 text-sm text-white">{company.name}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-brand-silver/60">Industry</dt>
+            <dt className="text-sm font-medium text-brand-silver/70">Industry</dt>
             <dd className="mt-1 text-sm text-white">{company.industry}</dd>
           </div>
           <div>
-            <dt className="text-sm font-medium text-brand-silver/60">Description</dt>
+            <dt className="text-sm font-medium text-brand-silver/70">Description</dt>
             <dd className="mt-1 text-sm text-white">{company.description}</dd>
           </div>
         </dl>
@@ -180,7 +180,7 @@ export function OnboardingReview() {
           <h2 className="text-xl font-semibold text-white mb-4">Brand Details</h2>
           <dl className="grid grid-cols-1 gap-4">
             <div>
-              <dt className="text-sm font-medium text-brand-silver/60">Brand Voice</dt>
+              <dt className="text-sm font-medium text-brand-silver/70">Brand Voice</dt>
               <dd className="mt-1 text-sm text-white">{company.brand_voice}</dd>
             </div>
           </dl>
@@ -328,7 +328,7 @@ function ColorPaletteDisplay({ desc }: { desc: string }) {
             title={m[1]}
           />
           <span className="text-xs text-brand-silver">{m[1]}</span>
-          <span className="text-xs text-brand-silver/60">#{m[2]}</span>
+          <span className="text-xs text-brand-silver/70">#{m[2]}</span>
         </div>
       ))}
     </div>
@@ -347,7 +347,7 @@ function FontRecommendationsDisplay({ desc }: { desc: string }) {
     <div className="flex flex-wrap gap-6 items-center">
       {matches.map((m, i) => (
         <div key={i} className="flex flex-col items-start">
-          <span className="text-xs text-brand-silver/60 font-semibold">{m[1]}</span>
+          <span className="text-xs text-brand-silver/70 font-semibold">{m[1]}</span>
           <span className="text-base text-white" style={{ fontFamily: m[2].split(',')[0] }}>{m[2]}</span>
         </div>
       ))}
