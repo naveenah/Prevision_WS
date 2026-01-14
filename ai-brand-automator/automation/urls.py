@@ -11,6 +11,7 @@ from .views import (
     LinkedInCallbackView,
     LinkedInDisconnectView,
     LinkedInTestConnectView,
+    LinkedInPostView,
 )
 
 router = DefaultRouter()
@@ -24,6 +25,7 @@ urlpatterns = [
     path('linkedin/callback/', LinkedInCallbackView.as_view(), name='linkedin-callback'),
     path('linkedin/disconnect/', LinkedInDisconnectView.as_view(), name='linkedin-disconnect'),
     path('linkedin/test-connect/', LinkedInTestConnectView.as_view(), name='linkedin-test-connect'),
+    path('linkedin/post/', LinkedInPostView.as_view(), name='linkedin-post'),
     
     # Router URLs
     path('', include(router.urls)),

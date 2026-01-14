@@ -7,6 +7,7 @@ from django.shortcuts import redirect
 from django.http import HttpResponseRedirect
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -276,6 +277,142 @@ class LinkedInDisconnectView(APIView):
             )
 
 
+class LinkedInPostView(APIView):
+    """
+    Create a post on LinkedIn.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Create a LinkedIn post."""
+        title = request.data.get('title', '').strip()
+        text = request.data.get('text', '').strip()
+        
+        if not text:
+            return Response(
+                {'error': 'Post text is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if len(text) > 3000:
+            return Response(
+                {'error': 'Post text cannot exceed 3000 characters'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user,
+                platform='linkedin',
+                status='connected'
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {'error': 'LinkedIn account not connected'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if this is a test profile
+        if profile.access_token == 'test_access_token_not_real':
+            # Simulate posting for test mode
+            logger.info(f"Test LinkedIn post by {request.user.email}: {text[:50]}...")
+            
+            # Create a ContentCalendar entry for the published post
+            post_title = title if title else f"LinkedIn Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                platforms=['linkedin'],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status='published',
+                post_results={'test_mode': True, 'message': 'Post simulated in test mode'}
+            )
+            content.social_profiles.add(profile)
+            
+            # Create an automation task record
+            task = AutomationTask.objects.create(
+                user=request.user,
+                task_type='social_post',
+                status='completed',
+                payload={'text': text, 'platform': 'linkedin'},
+                result={'test_mode': True, 'message': 'Post simulated in test mode'}
+            )
+            
+            return Response({
+                'message': 'Post created successfully (Test Mode)',
+                'test_mode': True,
+                'task_id': task.id,
+                'content_id': content.id,
+            })
+        
+        try:
+            # Get valid access token (auto-refresh if needed)
+            access_token = profile.get_valid_access_token()
+            
+            # Create the post
+            result = linkedin_service.create_share(
+                access_token=access_token,
+                user_urn=profile.profile_id,
+                text=text
+            )
+            
+            # Create a ContentCalendar entry for the published post
+            post_title = title if title else f"LinkedIn Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                platforms=['linkedin'],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status='published',
+                post_results=result
+            )
+            content.social_profiles.add(profile)
+            
+            # Create an automation task record
+            task = AutomationTask.objects.create(
+                user=request.user,
+                task_type='social_post',
+                status='completed',
+                payload={'text': text, 'platform': 'linkedin'},
+                result=result
+            )
+            
+            logger.info(f"LinkedIn post created by {request.user.email}")
+            
+            return Response({
+                'message': 'Post created successfully',
+                'post_id': result.get('id'),
+                'task_id': task.id,
+                'content_id': content.id,
+            })
+            
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"LinkedIn post failed: {e}")
+            
+            # Create a failed task record
+            AutomationTask.objects.create(
+                user=request.user,
+                task_type='social_post',
+                status='failed',
+                payload={'text': text, 'platform': 'linkedin'},
+                result={'error': str(e)}
+            )
+            
+            return Response(
+                {'error': f'Failed to create post: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class AutomationTaskViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing automation tasks.
@@ -298,10 +435,67 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        return ContentCalendar.objects.filter(user=self.request.user)
+        queryset = ContentCalendar.objects.filter(user=self.request.user)
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by platform
+        platform = self.request.query_params.get('platform')
+        if platform:
+            queryset = queryset.filter(platforms__contains=[platform])
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(scheduled_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(scheduled_date__lte=end_date)
+        
+        queryset = queryset.order_by('-updated_at')
+        
+        # Apply limit if specified
+        limit = self.request.query_params.get('limit')
+        if limit:
+            try:
+                limit_int = int(limit)
+                if limit_int > 0:
+                    queryset = queryset[:limit_int]
+            except ValueError:
+                pass
+        
+        return queryset
     
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        # Auto-link LinkedIn profile if platform is selected
+        instance = serializer.save(user=self.request.user)
+        
+        if 'linkedin' in instance.platforms:
+            linkedin_profile = SocialProfile.objects.filter(
+                user=self.request.user,
+                platform='linkedin',
+                status='connected'
+            ).first()
+            if linkedin_profile:
+                instance.social_profiles.add(linkedin_profile)
+    
+    @action(detail=False, methods=['get'])
+    def upcoming(self, request):
+        """Get all scheduled posts (pending and overdue) ordered by date."""
+        from datetime import timedelta
+        now = timezone.now()
+        
+        # Show all scheduled posts - both upcoming and overdue ones that haven't been published
+        upcoming = ContentCalendar.objects.filter(
+            user=request.user,
+            status='scheduled',
+        ).order_by('scheduled_date')
+        
+        serializer = self.get_serializer(upcoming, many=True)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):
@@ -314,10 +508,65 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # TODO: Implement actual publishing logic
-        # This would iterate through connected platforms and post
+        results = {}
+        errors = []
+        
+        # Publish to each connected platform
+        for profile in content.social_profiles.all():
+            if profile.platform == 'linkedin' and profile.status == 'connected':
+                try:
+                    # Check if test mode
+                    if profile.access_token == 'test_access_token_not_real':
+                        results['linkedin'] = {
+                            'test_mode': True,
+                            'message': 'Post simulated in test mode'
+                        }
+                        logger.info(f"Test publish to LinkedIn: {content.title}")
+                    else:
+                        access_token = profile.get_valid_access_token()
+                        result = linkedin_service.create_share(
+                            access_token=access_token,
+                            user_urn=profile.profile_id,
+                            text=content.content
+                        )
+                        results['linkedin'] = result
+                except Exception as e:
+                    errors.append(f"LinkedIn: {str(e)}")
+                    logger.error(f"Failed to publish to LinkedIn: {e}")
+        
+        # Update content status
+        if errors and not results:
+            content.status = 'failed'
+            content.post_results = {'errors': errors}
+        else:
+            content.status = 'published'
+            content.published_at = timezone.now()
+            content.post_results = results
+        
+        content.save()
         
         return Response({
-            'message': 'Publishing initiated',
-            'status': 'in_progress'
+            'message': 'Publishing completed' if not errors else 'Publishing completed with some errors',
+            'status': content.status,
+            'results': results,
+            'errors': errors,
+        })
+    
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel a scheduled post."""
+        content = self.get_object()
+        
+        if content.status == 'published':
+            return Response(
+                {'error': 'Cannot cancel a published post'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        content.status = 'cancelled'
+        content.save()
+        
+        return Response({
+            'message': 'Post cancelled successfully',
+            'status': content.status
         })

@@ -69,6 +69,16 @@ const PLATFORM_CONFIG = {
   },
 };
 
+interface ScheduledPost {
+  id: number;
+  title: string;
+  content: string;
+  platforms: string[];
+  scheduled_date: string;
+  status: string;
+  status_display: string;
+}
+
 export default function AutomationPage() {
   useAuth();
   const searchParams = useSearchParams();
@@ -77,6 +87,23 @@ export default function AutomationPage() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  
+  // Compose post state
+  const [showComposeModal, setShowComposeModal] = useState(false);
+  const [postTitle, setPostTitle] = useState('');
+  const [postText, setPostText] = useState('');
+  const [posting, setPosting] = useState(false);
+  
+  // Schedule post state
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState('');
+  const [scheduleContent, setScheduleContent] = useState('');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
+  const [publishedPosts, setPublishedPosts] = useState<ScheduledPost[]>([]);
+  const [publishedPostsLimit, setPublishedPostsLimit] = useState<number>(6);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -101,24 +128,84 @@ export default function AutomationPage() {
     }
   }, [searchParams]);
 
-  // Fetch social profiles status
+  // Fetch social profiles status and scheduled posts
   useEffect(() => {
-    const fetchProfiles = async () => {
+    const fetchData = async () => {
       try {
-        const response = await apiClient.get('/automation/social-profiles/status/');
-        if (response.ok) {
-          const data = await response.json();
+        // Fetch social profiles
+        const profilesResponse = await apiClient.get('/automation/social-profiles/status/');
+        if (profilesResponse.ok) {
+          const data = await profilesResponse.json();
           setProfiles(data);
         }
+        
+        // Fetch upcoming scheduled posts
+        const scheduledResponse = await apiClient.get('/automation/content-calendar/upcoming/');
+        if (scheduledResponse.ok) {
+          const data = await scheduledResponse.json();
+          setScheduledPosts(data);
+        }
+
+        // Fetch published posts (initial limit of 6)
+        const publishedResponse = await apiClient.get('/automation/content-calendar/?status=published&limit=6');
+        if (publishedResponse.ok) {
+          const data = await publishedResponse.json();
+          // Handle paginated response (DRF returns {count, results, ...})
+          const posts = data.results || data;
+          setPublishedPosts(Array.isArray(posts) ? posts : []);
+        }
       } catch (error) {
-        console.error('Failed to fetch social profiles:', error);
+        console.error('Failed to fetch data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProfiles();
+    fetchData();
   }, []);
+
+  // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchScheduledPosts();
+      fetchPublishedPosts();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch scheduled posts function (for refresh after actions)
+  const fetchScheduledPosts = async () => {
+    try {
+      const response = await apiClient.get('/automation/content-calendar/upcoming/');
+      if (response.ok) {
+        const data = await response.json();
+        setScheduledPosts(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch scheduled posts:', error);
+    }
+  };
+
+  // Fetch published posts
+  const fetchPublishedPosts = async (limit?: number) => {
+    try {
+      const queryLimit = limit ?? publishedPostsLimit;
+      const response = await apiClient.get(`/automation/content-calendar/?status=published&limit=${queryLimit}`);
+      console.log('Published posts response status:', response.status);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Published posts data:', data);
+        // Handle paginated response (DRF returns {count, results, ...})
+        const posts = data.results || data;
+        setPublishedPosts(Array.isArray(posts) ? posts : []);
+      } else {
+        console.error('Published posts error:', await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to fetch published posts:', error);
+    }
+  };
 
   const handleConnect = async (platform: string) => {
     if (platform !== 'linkedin') {
@@ -226,6 +313,156 @@ export default function AutomationPage() {
     }
   };
 
+  // Handle posting to LinkedIn
+  const handlePost = async () => {
+    if (!postText.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter some text for your post',
+      });
+      return;
+    }
+
+    setPosting(true);
+    try {
+      const response = await apiClient.post('/automation/linkedin/post/', { 
+        title: postTitle.trim() || undefined,
+        text: postText 
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Post created successfully (Test Mode - not actually posted)' 
+            : 'Post published to LinkedIn successfully!',
+        });
+        setPostTitle('');
+        setPostText('');
+        setShowComposeModal(false);
+        // Refresh published posts list
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create post',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to post:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create post',
+      });
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  // Handle scheduling a post
+  const handleSchedulePost = async () => {
+    if (!scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime) {
+      setMessage({
+        type: 'error',
+        text: 'Please fill in all fields',
+      });
+      return;
+    }
+
+    // Create a proper Date object from local date/time and convert to ISO string
+    // This preserves the local timezone information
+    const localDateTime = new Date(`${scheduleDate}T${scheduleTime}:00`);
+    const scheduledDateTime = localDateTime.toISOString();
+    
+    setScheduling(true);
+    try {
+      const response = await apiClient.post('/automation/content-calendar/', {
+        title: scheduleTitle,
+        content: scheduleContent,
+        platforms: ['linkedin'],
+        scheduled_date: scheduledDateTime,
+        status: 'scheduled',
+      });
+      
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'Post scheduled successfully!',
+        });
+        setScheduleTitle('');
+        setScheduleContent('');
+        setScheduleDate('');
+        setScheduleTime('');
+        setShowScheduleModal(false);
+        fetchScheduledPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to schedule post',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to schedule:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to schedule post',
+      });
+    } finally {
+      setScheduling(false);
+    }
+  };
+
+  // Handle publishing a scheduled post
+  const handlePublishNow = async (postId: number) => {
+    try {
+      const response = await apiClient.post(`/automation/content-calendar/${postId}/publish/`, {});
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.message,
+        });
+        fetchScheduledPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to publish',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to publish:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to publish post',
+      });
+    }
+  };
+
+  // Handle cancelling a scheduled post
+  const handleCancelScheduled = async (postId: number) => {
+    try {
+      const response = await apiClient.post(`/automation/content-calendar/${postId}/cancel/`, {});
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'Scheduled post cancelled',
+        });
+        fetchScheduledPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to cancel',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to cancel:', error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-brand-midnight">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -312,7 +549,7 @@ export default function AutomationPage() {
 
                 {/* Profile Info */}
                 {isConnected && platformStatus?.profile_url && (
-                  <div className="mt-4 p-3 bg-white/5 rounded-lg">
+                  <div className="mt-4 p-3 bg-white/5 rounded-lg flex items-center justify-between">
                     <a 
                       href={platformStatus.profile_url}
                       target="_blank"
@@ -321,19 +558,40 @@ export default function AutomationPage() {
                     >
                       View Profile →
                     </a>
+                    {platform === 'linkedin' && (
+                      <button
+                        onClick={() => setShowComposeModal(true)}
+                        className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Post
+                      </button>
+                    )}
                   </div>
                 )}
 
                 {/* Action Buttons */}
                 <div className="mt-6 space-y-2">
                   {isConnected ? (
-                    <button
-                      onClick={() => handleDisconnect(platform)}
-                      disabled={isLoading}
-                      className="w-full py-2.5 px-4 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-50"
-                    >
-                      {isLoading ? 'Disconnecting...' : 'Disconnect'}
-                    </button>
+                    <>
+                      {platform === 'linkedin' && (
+                        <button
+                          onClick={() => setShowComposeModal(true)}
+                          className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                        >
+                          📝 Compose Post
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDisconnect(platform)}
+                        disabled={isLoading}
+                        className="w-full py-2.5 px-4 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                      >
+                        {isLoading ? 'Disconnecting...' : 'Disconnect'}
+                      </button>
+                    </>
                   ) : config.available ? (
                     <>
                       <button
@@ -370,24 +628,187 @@ export default function AutomationPage() {
 
         {/* Content Calendar Section */}
         <div className="mt-12">
-          <h2 className="text-2xl font-heading font-bold text-white mb-4">Content Calendar</h2>
-          <div className="glass-card p-8 text-center">
-            <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-medium text-white mb-2">Schedule Your Content</h3>
-            <p className="text-brand-silver/70 mb-6 max-w-md mx-auto">
-              Connect your social accounts first, then start scheduling posts to be published automatically.
-            </p>
-            <button 
-              disabled={!profiles?.linkedin?.connected}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Create Scheduled Post
-            </button>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-heading font-bold text-white">Content Calendar</h2>
+            {profiles?.linkedin?.connected && (
+              <button
+                onClick={() => setShowScheduleModal(true)}
+                className="btn-primary flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Schedule Post
+              </button>
+            )}
           </div>
+          
+          {scheduledPosts.length > 0 ? (
+            <div className="space-y-4">
+              {scheduledPosts.map((post) => {
+                const isOverdue = new Date(post.scheduled_date) < new Date();
+                return (
+                <div key={post.id} className={`glass-card p-4 ${isOverdue ? 'border border-yellow-500/30' : ''}`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-white font-medium">{post.title}</h4>
+                        {isOverdue && (
+                          <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                            Overdue
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-brand-silver/70 text-sm mt-1 line-clamp-2">{post.content}</p>
+                      <div className="flex items-center gap-4 mt-3">
+                        <span className={`text-xs flex items-center gap-1 ${isOverdue ? 'text-yellow-400' : 'text-brand-electric'}`}>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          {new Date(post.scheduled_date).toLocaleString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            timeZoneName: 'short'
+                          })}
+                        </span>
+                        <span className="text-xs text-brand-silver/50">
+                          {post.platforms.join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4">
+                      <button
+                        onClick={() => handlePublishNow(post.id)}
+                        className="px-3 py-1.5 text-xs rounded bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                      >
+                        Publish Now
+                      </button>
+                      <button
+                        onClick={() => handleCancelScheduled(post.id)}
+                        className="px-3 py-1.5 text-xs rounded border border-red-500/30 text-red-400 hover:bg-red-900/20 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );})}
+            </div>
+          ) : (
+            <div className="glass-card p-8 text-center">
+              <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">No Scheduled Posts</h3>
+              <p className="text-brand-silver/70 mb-6 max-w-md mx-auto">
+                {profiles?.linkedin?.connected 
+                  ? "You don't have any posts scheduled. Click 'Schedule Post' to create one."
+                  : "Connect your social accounts first, then start scheduling posts to be published automatically."
+                }
+              </p>
+              {profiles?.linkedin?.connected && (
+                <button 
+                  onClick={() => setShowScheduleModal(true)}
+                  className="btn-primary"
+                >
+                  Schedule Your First Post
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Published Posts Section */}
+        <div className="mt-12">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-heading font-bold text-white">Published Posts</h2>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-brand-silver">Show:</label>
+                <select
+                  value={publishedPostsLimit}
+                  onChange={(e) => {
+                    const newLimit = Number(e.target.value);
+                    setPublishedPostsLimit(newLimit);
+                    fetchPublishedPosts(newLimit);
+                  }}
+                  className="bg-brand-midnight border border-brand-ghost/30 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                >
+                  <option value={3}>3 posts</option>
+                  <option value={6}>6 posts</option>
+                  <option value={10}>10 posts</option>
+                </select>
+              </div>
+              <button
+                onClick={() => { fetchScheduledPosts(); fetchPublishedPosts(); }}
+                className="text-sm text-brand-electric hover:text-brand-electric/80 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
+            </div>
+          </div>
+          
+          {publishedPosts.length > 0 ? (
+            <div className="space-y-4">
+              {publishedPosts.map((post) => (
+                <div key={post.id} className="glass-card p-4 border border-green-500/20">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-white font-medium">{post.title}</h4>
+                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
+                          Published
+                        </span>
+                        {post.status_display?.includes('test') && (
+                          <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                            Test Mode
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-brand-silver/70 text-sm mt-1 line-clamp-2">{post.content}</p>
+                      <div className="flex items-center gap-4 mt-3">
+                        <span className="text-xs text-green-400 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {new Date(post.scheduled_date).toLocaleString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                        <span className="text-xs text-brand-silver/50">
+                          {post.platforms.join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="glass-card p-8 text-center">
+              <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">No Published Posts Yet</h3>
+              <p className="text-brand-silver/70 max-w-md mx-auto">
+                Once your scheduled posts are published (automatically or manually), they&apos;ll appear here.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Automation Tasks Section */}
@@ -406,6 +827,243 @@ export default function AutomationPage() {
           </div>
         </div>
       </main>
+
+      {/* Compose Post Modal */}
+      {showComposeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowComposeModal(false);
+                setPostTitle('');
+                setPostText('');
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-[#0A66C2] text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Create LinkedIn Post</h2>
+                <p className="text-sm text-brand-silver/70">
+                  Share your thoughts with your network
+                </p>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title</label>
+                <input
+                  type="text"
+                  value={postTitle}
+                  onChange={(e) => setPostTitle(e.target.value)}
+                  placeholder="Give your post a title (optional)"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                <textarea
+                  value={postText}
+                  onChange={(e) => setPostText(e.target.value)}
+                  placeholder="What do you want to talk about?"
+                  rows={6}
+                  maxLength={3000}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="flex justify-between items-center mt-1 text-xs">
+                  <span className={`${postText.length > 2800 ? 'text-amber-400' : 'text-brand-silver/50'}`}>
+                    {postText.length} / 3,000 characters
+                  </span>
+                  {profiles?.linkedin?.access_token === 'test_access_token_not_real' && (
+                    <span className="text-amber-400 flex items-center gap-1">
+                      <span>🧪</span> Test Mode
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowComposeModal(false);
+                  setPostTitle('');
+                  setPostText('');
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePost}
+                disabled={posting || !postText.trim()}
+                className="px-6 py-2.5 rounded-lg bg-[#0A66C2] hover:bg-[#004182] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {posting ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Posting...
+                  </>
+                ) : (
+                  'Post'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Post Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowScheduleModal(false);
+                setScheduleTitle('');
+                setScheduleContent('');
+                setScheduleDate('');
+                setScheduleTime('');
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-brand-electric text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Schedule Post</h2>
+                <p className="text-sm text-brand-silver/70">
+                  Schedule content to be posted later
+                </p>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title</label>
+                <input
+                  type="text"
+                  value={scheduleTitle}
+                  onChange={(e) => setScheduleTitle(e.target.value)}
+                  placeholder="Give your post a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                <textarea
+                  value={scheduleContent}
+                  onChange={(e) => setScheduleContent(e.target.value)}
+                  placeholder="What do you want to share?"
+                  rows={4}
+                  maxLength={3000}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="text-xs text-brand-silver/50 mt-1">
+                  {scheduleContent.length} / 3,000 characters
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={scheduleDate}
+                    onChange={(e) => setScheduleDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={scheduleTime}
+                    onChange={(e) => setScheduleTime(e.target.value)}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                  />
+                </div>
+              </div>
+              
+              <div className="p-3 bg-white/5 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded bg-[#0A66C2]">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                    </svg>
+                  </div>
+                  <span className="text-sm text-white">LinkedIn</span>
+                  <span className="text-xs text-brand-silver/50 ml-auto">Selected</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowScheduleModal(false);
+                  setScheduleTitle('');
+                  setScheduleContent('');
+                  setScheduleDate('');
+                  setScheduleTime('');
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSchedulePost}
+                disabled={scheduling || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime}
+                className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {scheduling ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Scheduling...
+                  </>
+                ) : (
+                  'Schedule Post'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

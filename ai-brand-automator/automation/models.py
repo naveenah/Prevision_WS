@@ -5,12 +5,16 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from .encryption import encrypt_token, decrypt_token
+
 User = get_user_model()
 
 
 class SocialProfile(models.Model):
     """
     Stores connected social media accounts (LinkedIn, Twitter, Instagram, etc.)
+    
+    OAuth tokens are encrypted at rest for security.
     """
     PLATFORM_CHOICES = [
         ('linkedin', 'LinkedIn'),
@@ -33,9 +37,9 @@ class SocialProfile(models.Model):
     )
     platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES)
     
-    # OAuth tokens (encrypted in production)
-    access_token = models.TextField(blank=True, null=True)
-    refresh_token = models.TextField(blank=True, null=True)
+    # OAuth tokens (encrypted at rest)
+    _access_token = models.TextField(blank=True, null=True, db_column='access_token')
+    _refresh_token = models.TextField(blank=True, null=True, db_column='refresh_token')
     token_expires_at = models.DateTimeField(blank=True, null=True)
     
     # Profile information from the platform
@@ -63,12 +67,83 @@ class SocialProfile(models.Model):
     def __str__(self):
         return f"{self.user.email} - {self.get_platform_display()}"
     
+    # Encrypted token properties
+    @property
+    def access_token(self):
+        """Get the decrypted access token."""
+        return decrypt_token(self._access_token) if self._access_token else None
+    
+    @access_token.setter
+    def access_token(self, value):
+        """Set and encrypt the access token."""
+        self._access_token = encrypt_token(value) if value else None
+    
+    @property
+    def refresh_token(self):
+        """Get the decrypted refresh token."""
+        return decrypt_token(self._refresh_token) if self._refresh_token else None
+    
+    @refresh_token.setter
+    def refresh_token(self, value):
+        """Set and encrypt the refresh token."""
+        self._refresh_token = encrypt_token(value) if value else None
+    
     @property
     def is_token_valid(self):
         """Check if the access token is still valid."""
         if not self.token_expires_at:
             return False
         return timezone.now() < self.token_expires_at
+    
+    @property
+    def is_token_expiring_soon(self):
+        """Check if the token will expire within 5 minutes."""
+        if not self.token_expires_at:
+            return True
+        from datetime import timedelta
+        return timezone.now() + timedelta(minutes=5) >= self.token_expires_at
+    
+    def refresh_token_if_needed(self):
+        """
+        Refresh the access token if it's expired or expiring soon.
+        Returns the current (or refreshed) access token.
+        """
+        if self.status != 'connected':
+            raise ValueError("Profile is not connected")
+        
+        if not self.is_token_expiring_soon:
+            return self.access_token
+        
+        if not self.refresh_token:
+            self.status = 'expired'
+            self.save()
+            raise ValueError("No refresh token available")
+        
+        # Import here to avoid circular imports
+        from .services import linkedin_service
+        
+        try:
+            if self.platform == 'linkedin':
+                token_data = linkedin_service.refresh_access_token(self.refresh_token)
+                self.access_token = token_data.get('access_token')
+                self.token_expires_at = token_data.get('expires_at')
+                if token_data.get('refresh_token'):
+                    self.refresh_token = token_data.get('refresh_token')
+                self.save()
+                return self.access_token
+            else:
+                raise ValueError(f"Token refresh not implemented for {self.platform}")
+        except Exception as e:
+            self.status = 'error'
+            self.save()
+            raise ValueError(f"Failed to refresh token: {str(e)}")
+    
+    def get_valid_access_token(self):
+        """
+        Get a valid access token, refreshing if necessary.
+        This is the main method to use before making API calls.
+        """
+        return self.refresh_token_if_needed()
     
     def disconnect(self):
         """Disconnect the social profile."""
