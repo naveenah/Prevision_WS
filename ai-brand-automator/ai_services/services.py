@@ -387,13 +387,16 @@ Target Audience: {company_data.get('target_audience', 'N/A')}
 
 Please provide the following in EXACTLY this format:
 
-Color Palette: Primary: #HEXCODE for [usage], Secondary: #HEXCODE for [usage], Accent: #HEXCODE for [usage]
+Color Palette: Primary: #HEXCODE for [usage], Secondary: #HEXCODE for [usage],
+Accent: #HEXCODE for [usage]
 
-Typography: Primary: [Font Name] for body text, Secondary: [Font Name] for headings
+Typography: Primary: [Font Name] for body text,
+Secondary: [Font Name] for headings
 
 Messaging Guide: [2-3 sentences about tone, voice, and communication style]
 
-Use actual hex color codes (like #1a365d, #319795). Ensure recommendations align with the brand voice and target audience.
+Use actual hex color codes (like #1a365d, #319795).
+Ensure recommendations align with the brand voice and target audience.
 """
 
     def _build_chat_prompt(self, message: str, context: Dict[str, Any]) -> str:
@@ -439,19 +442,22 @@ Use actual hex color codes (like #1a365d, #319795). Ensure recommendations align
         # Try multiple patterns to handle different AI response formats
         patterns = [
             # Pattern 1: "Section Name:" followed by content (with optional markdown)
-            rf"(?:\d+\.\s*)?(?:\*{{0,2}})?{section_name}(?:\*{{0,2}})?[:\s]+(.*?)(?=\n\n|\n\d+\.|\n(?:\*{{0,2}})?[A-Z]|$)",
+            (
+                rf"(?:\d+\.\s*)?(?:\*{{0,2}})?{section_name}"
+                rf"(?:\*{{0,2}})?[:\s]+(.*?)(?=\n\n|\n\d+\.|\n(?:\*{{0,2}})?[A-Z]|$)"
+            ),
             # Pattern 2: Just the section name followed by content
             rf"{section_name}[:\s]*(.*?)(?=\n\n|\n[A-Z]|$)",
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
                 content = match.group(1).strip()
                 # Remove leading/trailing markdown and whitespace
-                content = re.sub(r'^[\*\s]+|[\*\s]+$', '', content)
+                content = re.sub(r"^[\*\s]+|[\*\s]+$", "", content)
                 # Ensure we have meaningful content (not just empty or markdown)
-                if content and len(content) > 5 and not content.startswith('**'):
+                if content and len(content) > 5 and not content.startswith("**"):
                     return content
         return None
 

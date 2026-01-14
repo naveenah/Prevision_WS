@@ -17,9 +17,7 @@ class Command(BaseCommand):
         stripe.api_key = settings.STRIPE_SECRET_KEY
 
         if not stripe.api_key:
-            self.stdout.write(
-                self.style.ERROR("STRIPE_SECRET_KEY not configured")
-            )
+            self.stdout.write(self.style.ERROR("STRIPE_SECRET_KEY not configured"))
             return
 
         # Map of Stripe price IDs to plan metadata
@@ -60,7 +58,7 @@ class Command(BaseCommand):
             try:
                 # Fetch price from Stripe
                 price = stripe.Price.retrieve(stripe_price_id)
-                
+
                 # Get the amount (Stripe stores in cents)
                 amount = price.unit_amount / 100 if price.unit_amount else 0
                 currency = price.currency.upper()
@@ -96,12 +94,9 @@ class Command(BaseCommand):
 
             except stripe.error.StripeError as e:
                 self.stdout.write(
-                    self.style.ERROR(
-                        f"Failed to fetch {config['display_name']}: {e}"
-                    )
+                    self.style.ERROR(f"Failed to fetch {config['display_name']}: {e}")
                 )
 
         self.stdout.write(
             self.style.SUCCESS("Successfully synced subscription plans from Stripe")
         )
-

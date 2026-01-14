@@ -333,10 +333,12 @@ def sync_subscription(request):
         )
 
         serializer = SubscriptionSerializer(subscription)
-        return Response({
-            "message": "Subscription synced successfully",
-            "subscription": serializer.data,
-        })
+        return Response(
+            {
+                "message": "Subscription synced successfully",
+                "subscription": serializer.data,
+            }
+        )
 
     except stripe.error.StripeError as e:
         logger.error(f"Stripe error during sync: {e}")
