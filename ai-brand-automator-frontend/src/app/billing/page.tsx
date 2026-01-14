@@ -86,12 +86,13 @@ export default function BillingPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-brand-midnight">
+        <div className="fixed inset-0 aura-glow pointer-events-none opacity-30" />
+        <div className="relative z-10 mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
           <div className="animate-pulse">
-            <div className="h-8 w-48 rounded bg-gray-200" />
-            <div className="mt-8 h-48 rounded-lg bg-gray-200" />
-            <div className="mt-8 h-64 rounded-lg bg-gray-200" />
+            <div className="h-8 w-48 rounded bg-white/10" />
+            <div className="mt-8 h-48 rounded-lg bg-white/5 border border-white/10" />
+            <div className="mt-8 h-64 rounded-lg bg-white/5 border border-white/10" />
           </div>
         </div>
       </div>
@@ -99,21 +100,24 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-brand-midnight">
+      {/* Subtle aura glow */}
+      <div className="fixed inset-0 aura-glow pointer-events-none opacity-30" />
+      
+      <div className="relative z-10 mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-3xl font-heading font-bold text-white">
               Billing & Subscription
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-brand-silver/70 font-body">
               Manage your subscription and view payment history
             </p>
           </div>
           <button
             onClick={() => router.push('/dashboard')}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="btn-secondary text-sm"
           >
             ← Back to Dashboard
           </button>
@@ -121,7 +125,7 @@ export default function BillingPage() {
 
         {/* Error message */}
         {error && (
-          <div className="mb-6 rounded-md bg-red-50 p-4">
+          <div className="mb-6 glass-card p-4 border-red-500/30">
             <div className="flex">
               <svg
                 className="h-5 w-5 text-red-400"
@@ -134,14 +138,14 @@ export default function BillingPage() {
                   clipRule="evenodd"
                 />
               </svg>
-              <p className="ml-3 text-sm text-red-700">{error}</p>
+              <p className="ml-3 text-sm text-red-400">{error}</p>
             </div>
           </div>
         )}
 
         {/* Current Subscription */}
         <div className="mb-8">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+          <h2 className="mb-4 text-lg font-heading font-semibold text-white">
             Current Subscription
           </h2>
           <SubscriptionStatus
@@ -155,7 +159,7 @@ export default function BillingPage() {
             <div className="mt-4">
               <button
                 onClick={() => router.push('/subscription')}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                className="btn-primary"
               >
                 View Available Plans
               </button>
@@ -165,23 +169,23 @@ export default function BillingPage() {
 
         {/* Payment History */}
         <div>
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+          <h2 className="mb-4 text-lg font-heading font-semibold text-white">
             Payment History
           </h2>
           <PaymentHistoryTable payments={payments} />
         </div>
 
         {/* Billing FAQ */}
-        <div className="mt-12 rounded-lg border border-gray-200 bg-white p-6">
-          <h3 className="text-lg font-semibold text-gray-900">
+        <div className="mt-12 glass-card p-6">
+          <h3 className="text-lg font-heading font-semibold text-white">
             Need Help with Billing?
           </h3>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-brand-silver/70 font-body">
             If you have questions about your billing or subscription, please
             contact our support team at{' '}
             <a
               href={`mailto:${SUPPORT_EMAIL}`}
-              className="text-indigo-600 hover:text-indigo-500"
+              className="text-brand-electric hover:text-brand-electric/80 transition-colors"
             >
               {SUPPORT_EMAIL}
             </a>
@@ -190,13 +194,13 @@ export default function BillingPage() {
             <button
               onClick={handleManageBilling}
               disabled={!subscription || isProcessing}
-              className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
             >
               Update Payment Method
             </button>
             <button
               onClick={() => router.push('/subscription')}
-              className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              className="btn-secondary"
             >
               Change Plan
             </button>

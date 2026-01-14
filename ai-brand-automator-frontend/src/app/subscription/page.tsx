@@ -117,14 +117,15 @@ function SubscriptionContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-brand-midnight">
+        <div className="fixed inset-0 aura-glow pointer-events-none opacity-30" />
+        <div className="relative z-10 mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="animate-pulse">
-            <div className="mx-auto h-8 w-64 rounded bg-gray-200" />
-            <div className="mx-auto mt-4 h-4 w-96 rounded bg-gray-200" />
+            <div className="mx-auto h-8 w-64 rounded bg-white/10" />
+            <div className="mx-auto mt-4 h-4 w-96 rounded bg-white/10" />
             <div className="mt-16 grid gap-8 lg:grid-cols-3">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-96 rounded-2xl bg-gray-200" />
+                <div key={i} className="h-96 rounded-2xl bg-white/5 border border-white/10" />
               ))}
             </div>
           </div>
@@ -134,14 +135,17 @@ function SubscriptionContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-brand-midnight">
+      {/* Subtle aura glow */}
+      <div className="fixed inset-0 aura-glow pointer-events-none opacity-30" />
+      
+      <div className="relative z-10 mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
+          <h1 className="text-4xl font-heading font-bold tracking-tight text-white sm:text-5xl">
             Choose Your Plan
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
+          <p className="mx-auto mt-4 max-w-2xl text-lg text-brand-silver/80 font-body">
             Select the perfect plan for your brand building needs. All plans
             include our core AI-powered features.
           </p>
@@ -150,10 +154,10 @@ function SubscriptionContent() {
         {/* Success message */}
         {successMessage && (
           <div className="mx-auto mt-8 max-w-md">
-            <div className="rounded-md bg-green-50 p-4">
+            <div className="glass-card p-4 border-brand-mint/30">
               <div className="flex">
                 <svg
-                  className="h-5 w-5 text-green-400"
+                  className="h-5 w-5 text-brand-mint"
                   viewBox="0 0 20 20"
                   fill="currentColor"
                 >
@@ -163,7 +167,7 @@ function SubscriptionContent() {
                     clipRule="evenodd"
                   />
                 </svg>
-                <p className="ml-3 text-sm text-green-700">{successMessage}</p>
+                <p className="ml-3 text-sm text-brand-mint">{successMessage}</p>
               </div>
             </div>
           </div>
@@ -172,7 +176,7 @@ function SubscriptionContent() {
         {/* Error message */}
         {error && (
           <div className="mx-auto mt-8 max-w-md">
-            <div className="rounded-md bg-red-50 p-4">
+            <div className="glass-card p-4 border-red-500/30">
               <div className="flex">
                 <svg
                   className="h-5 w-5 text-red-400"
@@ -185,7 +189,7 @@ function SubscriptionContent() {
                     clipRule="evenodd"
                   />
                 </svg>
-                <p className="ml-3 text-sm text-red-700">{error}</p>
+                <p className="ml-3 text-sm text-red-400">{error}</p>
               </div>
             </div>
           </div>
@@ -220,41 +224,41 @@ function SubscriptionContent() {
         <div className="mt-12 text-center">
           <button
             onClick={() => router.push('/dashboard')}
-            className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+            className="text-sm font-medium text-brand-electric hover:text-brand-electric/80 transition-colors"
           >
             ← Back to Dashboard
           </button>
         </div>
 
         {/* FAQ or additional info */}
-        <div className="mx-auto mt-16 max-w-3xl">
-          <h2 className="text-center text-2xl font-bold text-gray-900">
+        <div className="mx-auto mt-16 max-w-3xl glass-card p-8">
+          <h2 className="text-center text-2xl font-heading font-bold text-white">
             Frequently Asked Questions
           </h2>
           <dl className="mt-8 space-y-6">
             <div>
-              <dt className="text-lg font-semibold text-gray-900">
+              <dt className="text-lg font-heading font-semibold text-white">
                 Can I change my plan later?
               </dt>
-              <dd className="mt-2 text-gray-600">
+              <dd className="mt-2 text-brand-silver/70 font-body">
                 Yes! You can upgrade or downgrade your plan at any time. Changes
                 will be prorated and applied to your next billing cycle.
               </dd>
             </div>
             <div>
-              <dt className="text-lg font-semibold text-gray-900">
+              <dt className="text-lg font-heading font-semibold text-white">
                 What payment methods do you accept?
               </dt>
-              <dd className="mt-2 text-gray-600">
+              <dd className="mt-2 text-brand-silver/70 font-body">
                 We accept all major credit cards (Visa, MasterCard, American
                 Express) through our secure Stripe payment processor.
               </dd>
             </div>
             <div>
-              <dt className="text-lg font-semibold text-gray-900">
+              <dt className="text-lg font-heading font-semibold text-white">
                 Is there a free trial?
               </dt>
-              <dd className="mt-2 text-gray-600">
+              <dd className="mt-2 text-brand-silver/70 font-body">
                 We don&apos;t currently offer a free trial. You can start with
                 any monthly plan and cancel anytime before your next billing
                 period.
@@ -269,10 +273,11 @@ function SubscriptionContent() {
 
 function SubscriptionLoadingFallback() {
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading subscription...</p>
+    <div className="min-h-screen bg-brand-midnight flex items-center justify-center">
+      <div className="fixed inset-0 aura-glow pointer-events-none opacity-30" />
+      <div className="relative z-10 text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-electric mx-auto"></div>
+        <p className="mt-4 text-brand-silver/70 font-body">Loading subscription...</p>
       </div>
     </div>
   );

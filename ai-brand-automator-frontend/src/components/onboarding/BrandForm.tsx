@@ -115,7 +115,7 @@ export function BrandForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label htmlFor="brandVoice" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="brandVoice" className="label-dark">
           Brand Voice *
         </label>
         <select
@@ -124,7 +124,7 @@ export function BrandForm() {
           required
           value={formData.brandVoice}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="select-dark mt-1"
         >
           <option value="">Select brand voice</option>
           <option value="professional">Professional</option>
@@ -139,7 +139,7 @@ export function BrandForm() {
       </div>
 
       <div>
-        <label htmlFor="visionStatement" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="visionStatement" className="label-dark">
           Vision Statement
         </label>
         <textarea
@@ -148,13 +148,13 @@ export function BrandForm() {
           rows={3}
           value={formData.visionStatement}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="What is your long-term vision?"
         />
       </div>
 
       <div>
-        <label htmlFor="missionStatement" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="missionStatement" className="label-dark">
           Mission Statement
         </label>
         <textarea
@@ -163,13 +163,13 @@ export function BrandForm() {
           rows={3}
           value={formData.missionStatement}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="What is your mission?"
         />
       </div>
 
       <div>
-        <label htmlFor="values" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="values" className="label-dark">
           Core Values
         </label>
         <textarea
@@ -178,13 +178,13 @@ export function BrandForm() {
           rows={3}
           value={formData.values}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="List your core values (comma-separated)"
         />
       </div>
 
       <div>
-        <label htmlFor="positioningStatement" className="block text-sm font-medium text-gray-700">
+        <label htmlFor="positioningStatement" className="label-dark">
           Positioning Statement
         </label>
         <textarea
@@ -193,7 +193,7 @@ export function BrandForm() {
           rows={3}
           value={formData.positioningStatement}
           onChange={handleChange}
-          className="mt-1 block w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          className="input-dark mt-1"
           placeholder="How do you position your brand?"
         />
       </div>
@@ -202,14 +202,14 @@ export function BrandForm() {
         <button
           type="button"
           onClick={() => router.push('/onboarding/step-1')}
-          className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="btn-secondary"
         >
           Previous
         </button>
         <button
           type="submit"
           disabled={isLoading}
-          className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isLoading ? 'Saving...' : 'Next Step'}
         </button>

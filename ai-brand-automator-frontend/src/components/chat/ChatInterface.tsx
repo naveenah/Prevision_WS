@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { MessageBubble } from './MessageBubble';
 import { FileSearch } from './FileSearch';
 import { apiClient } from '@/lib/api';
@@ -84,23 +85,37 @@ export function ChatInterface() {
       {/* Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <h1 className="text-xl font-semibold text-gray-900">AI Brand Assistant</h1>
-          <p className="text-sm text-gray-600">Get insights and generate content for your brand</p>
+        <div className="bg-brand-midnight/80 backdrop-blur border-b border-white/10 px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-heading font-semibold text-white truncate">AI Brand Assistant</h1>
+              <p className="text-xs sm:text-sm text-brand-silver/70 hidden sm:block">Get insights and generate content for your brand</p>
+            </div>
+            <Link 
+              href="/dashboard" 
+              className="flex items-center gap-1 sm:gap-2 text-brand-silver hover:text-brand-electric transition-colors text-xs sm:text-sm flex-shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span className="hidden sm:inline">Back to Dashboard</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
+          </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-brand-midnight">
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} />
           ))}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-gray-100 rounded-lg px-4 py-2">
+              <div className="bg-white/5 border border-white/10 rounded-lg px-4 py-2">
                 <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  <div className="w-2 h-2 bg-brand-electric rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-brand-electric rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-brand-electric rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                 </div>
               </div>
             </div>
@@ -108,20 +123,20 @@ export function ChatInterface() {
         </div>
 
         {/* Input */}
-        <div className="bg-white border-t border-gray-200 px-6 py-4">
+        <div className="bg-brand-midnight/80 backdrop-blur border-t border-white/10 px-6 py-4">
           <div className="flex space-x-4">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Ask me about your brand strategy..."
-              className="flex-1 bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+              className="input-dark flex-1 resize-none"
               rows={1}
             />
             <button
               onClick={handleSend}
               disabled={isLoading || !input.trim()}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send
             </button>
@@ -130,7 +145,7 @@ export function ChatInterface() {
       </div>
 
       {/* File Search Sidebar */}
-      <div className="w-80 bg-white border-l border-gray-200">
+      <div className="w-80 bg-brand-midnight border-l border-white/10">
         <FileSearch />
       </div>
     </div>

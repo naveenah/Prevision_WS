@@ -1,15 +1,33 @@
+import Link from 'next/link';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 
 export default function RegisterPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+    <div className="min-h-screen flex items-center justify-center bg-brand-midnight">
+      {/* Aura glow effect */}
+      <div className="fixed inset-0 aura-glow pointer-events-none" />
+      
+      {/* Back to home link */}
+      <Link 
+        href="/" 
+        className="absolute top-6 left-6 z-20 flex items-center gap-2 text-brand-silver hover:text-brand-electric transition-colors"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        </svg>
+        <span className="font-medium">Back to Home</span>
+      </Link>
+      
+      <div className="relative z-10 max-w-md w-full space-y-8 px-4">
+        <div className="glass-card p-8">
+          <h2 className="text-center text-3xl font-heading font-bold text-white mb-2">
             Create your account
           </h2>
+          <p className="text-center text-brand-silver/70 font-body mb-6">
+            Start building your brand with AI power.
+          </p>
+          <RegisterForm />
         </div>
-        <RegisterForm />
       </div>
     </div>
   );

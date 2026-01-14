@@ -8,9 +8,12 @@ import { useAuth } from '@/hooks/useAuth';
 export default function DashboardPage() {
   useAuth(); // Protect this route
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">Dashboard</h1>
+    <div className="min-h-screen bg-brand-midnight">
+      {/* Subtle aura glow */}
+      <div className="fixed inset-0 aura-glow pointer-events-none opacity-50" />
+      
+      <div className="relative z-10 max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <h1 className="text-3xl font-heading font-bold text-white mb-8">Dashboard</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">

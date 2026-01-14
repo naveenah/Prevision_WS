@@ -37,7 +37,7 @@ export function FileSearch() {
 
   return (
     <div className="p-4">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">File Search</h2>
+      <h2 className="text-lg font-heading font-semibold text-white mb-4">File Search</h2>
 
       <div className="mb-4">
         <input
@@ -46,12 +46,12 @@ export function FileSearch() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyPress={handleKeyPress}
           placeholder="Search your files..."
-          className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+          className="input-dark"
         />
         <button
           onClick={handleSearch}
           disabled={isSearching}
-          className="mt-2 w-full bg-indigo-600 text-white px-3 py-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          className="mt-2 w-full btn-primary disabled:opacity-50"
         >
           {isSearching ? 'Searching...' : 'Search'}
         </button>
@@ -59,14 +59,14 @@ export function FileSearch() {
 
       {results.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-gray-700">Results</h3>
+          <h3 className="text-sm font-medium text-brand-silver/70">Results</h3>
           {results.map((result) => (
-            <div key={result.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
+            <div key={result.id} className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors">
               <div>
-                <p className="text-sm font-medium text-gray-900">{result.name}</p>
-                <p className="text-xs text-gray-500">{result.type}</p>
+                <p className="text-sm font-medium text-white">{result.name}</p>
+                <p className="text-xs text-brand-silver/50">{result.type}</p>
               </div>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-brand-electric">
                 {(result.relevance * 100).toFixed(0)}% match
               </span>
             </div>
