@@ -23,8 +23,13 @@ export function LoginForm() {
         // Redirect to dashboard
         window.location.href = '/dashboard';
       } else {
-        const error = await response.json();
-        alert(error.detail || 'Login failed');
+        let error;
+        try {
+          error = await response.json();
+        } catch {
+          error = { detail: 'Login failed' };
+        }
+        alert(error.detail || error.non_field_errors?.[0] || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);

@@ -22,7 +22,7 @@ class GeminiAIService:
 
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY") or settings.GOOGLE_API_KEY
-        self.model_name = "gemini-1.5-flash"
+        self.model_name = "gemini-2.0-flash"
         if self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
@@ -378,21 +378,26 @@ class GeminiAIService:
     def _build_brand_identity_prompt(self, company_data: Dict[str, Any]) -> str:
         """Build prompt for brand identity generation"""
         return f"""
-        Generate brand identity elements for a company with these characteristics:
+Generate brand identity elements for a company with these characteristics:
 
-        Company Name: {company_data.get('name', 'N/A')}
-        Industry: {company_data.get('industry', 'N/A')}
-        Brand Voice: {company_data.get('brand_voice', 'N/A')}
-        Target Audience: {company_data.get('target_audience', 'N/A')}
+Company Name: {company_data.get('name', 'N/A')}
+Industry: {company_data.get('industry', 'N/A')}
+Brand Voice: {company_data.get('brand_voice', 'N/A')}
+Target Audience: {company_data.get('target_audience', 'N/A')}
 
-        Please provide:
-        1. Color Palette: 3-4 colors with hex codes and usage guidelines
-        2. Typography: Primary and secondary font recommendations
-        3. Messaging Guide: Tone, voice, and communication guidelines
+Please provide the following in EXACTLY this format:
 
-        Ensure the recommendations align with the brand voice and appeal to
-        the target audience.
-        """
+Color Palette: Primary: #HEXCODE for [usage], Secondary: #HEXCODE for [usage],
+Accent: #HEXCODE for [usage]
+
+Typography: Primary: [Font Name] for body text,
+Secondary: [Font Name] for headings
+
+Messaging Guide: [2-3 sentences about tone, voice, and communication style]
+
+Use actual hex color codes (like #1a365d, #319795).
+Ensure recommendations align with the brand voice and target audience.
+"""
 
     def _build_chat_prompt(self, message: str, context: Dict[str, Any]) -> str:
         """Build prompt for chat interactions"""
@@ -434,9 +439,27 @@ class GeminiAIService:
         """Extract a section from AI response text"""
         import re
 
-        pattern = rf"{section_name}[:\s]*(.*?)(?=\n\n|\n[A-Z]|$)"
-        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-        return match.group(1).strip() if match else None
+        # Try multiple patterns to handle different AI response formats
+        patterns = [
+            # Pattern 1: "Section Name:" followed by content (with optional markdown)
+            (
+                rf"(?:\d+\.\s*)?(?:\*{{0,2}})?{section_name}"
+                rf"(?:\*{{0,2}})?[:\s]+(.*?)(?=\n\n|\n\d+\.|\n(?:\*{{0,2}})?[A-Z]|$)"
+            ),
+            # Pattern 2: Just the section name followed by content
+            rf"{section_name}[:\s]*(.*?)(?=\n\n|\n[A-Z]|$)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+            if match:
+                content = match.group(1).strip()
+                # Remove leading/trailing markdown and whitespace
+                content = re.sub(r"^[\*\s]+|[\*\s]+$", "", content)
+                # Ensure we have meaningful content (not just empty or markdown)
+                if content and len(content) > 5 and not content.startswith("**"):
+                    return content
+        return None
 
     def _extract_list_section(
         self, text: str, section_name: str

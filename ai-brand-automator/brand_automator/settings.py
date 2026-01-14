@@ -88,6 +88,7 @@ SHARED_APPS = [
     # Our shared apps
     "ai_services",  # AI integration (shared for logging)
     "onboarding",  # Company data (has FK to Tenant)
+    "subscriptions",  # Stripe payment integration
 ]
 
 TENANT_APPS = [
@@ -106,10 +107,11 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 ]
 
 MIDDLEWARE = [
-    # Multi-tenancy middleware - MUST BE FIRST
+    # CORS middleware - MUST BE FIRST for preflight OPTIONS requests
+    "corsheaders.middleware.CorsMiddleware",
+    # Multi-tenancy middleware
     "django_tenants.middleware.main.TenantMainMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -178,6 +180,9 @@ CORS_ALLOWED_ORIGINS = config(
     default="http://localhost:3000,http://127.0.0.1:3000",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
+# Note: Add development IPs to CORS_ALLOWED_ORIGINS env var instead of using
+# CORS_ALLOW_ALL_ORIGINS for security. Example:
+# CORS_ALLOWED_ORIGINS=http://localhost:3000,http://10.0.0.224:3000
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -402,3 +407,11 @@ if not os.path.exists(logs_dir):
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Stripe Configuration
+STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="")
+STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="")
+STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
+STRIPE_PRICE_BASIC = config("STRIPE_PRICE_BASIC", default="")
+STRIPE_PRICE_PRO = config("STRIPE_PRICE_PRO", default="")
+STRIPE_PRICE_ENTERPRISE = config("STRIPE_PRICE_ENTERPRISE", default="")
