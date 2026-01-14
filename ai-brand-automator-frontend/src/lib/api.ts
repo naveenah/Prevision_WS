@@ -131,4 +131,139 @@ export const apiClient = {
       body: JSON.stringify(data),
     });
   },
+
+  async delete(endpoint: string) {
+    return this.request(endpoint, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// Subscription API types
+export interface SubscriptionPlan {
+  id: number;
+  name: string;
+  display_name: string;
+  description: string;
+  price: string;
+  currency: string;
+  max_brands: number;
+  max_team_members: number;
+  ai_generations_per_month: number;
+  automation_enabled: boolean;
+  priority_support: boolean;
+  is_active: boolean;
+}
+
+export interface Subscription {
+  id: number;
+  plan: SubscriptionPlan;
+  status: string;
+  stripe_subscription_id: string;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+}
+
+export interface PaymentHistory {
+  id: number;
+  stripe_payment_intent_id: string;
+  amount: string;
+  currency: string;
+  status: string;
+  description: string;
+  created_at: string;
+}
+
+// Paginated response type
+interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+// Subscription API functions
+export const subscriptionApi = {
+  async getPlans(): Promise<SubscriptionPlan[]> {
+    const response = await apiClient.get('/subscriptions/plans/');
+    if (!response.ok) {
+      throw new Error('Failed to fetch plans');
+    }
+    const data = await response.json();
+    // Handle both paginated and non-paginated responses
+    if (Array.isArray(data)) {
+      return data;
+    }
+    // Paginated response
+    return (data as PaginatedResponse<SubscriptionPlan>).results || [];
+  },
+
+  async getStatus(): Promise<Subscription | null> {
+    const response = await apiClient.get('/subscriptions/status/');
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error('Failed to fetch subscription status');
+    }
+    return response.json();
+  },
+
+  async createCheckoutSession(planId: number): Promise<{ checkout_url: string }> {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const response = await apiClient.post('/subscriptions/create-checkout-session/', {
+      plan_id: planId,
+      success_url: `${baseUrl}/subscription?success=true`,
+      cancel_url: `${baseUrl}/subscription?canceled=true`,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create checkout session');
+    }
+    return response.json();
+  },
+
+  async createPortalSession(): Promise<{ portal_url: string }> {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const response = await apiClient.post('/subscriptions/create-portal-session/', {
+      return_url: `${baseUrl}/billing`,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create portal session');
+    }
+    return response.json();
+  },
+
+  async cancelSubscription(): Promise<{ message: string }> {
+    const response = await apiClient.post('/subscriptions/cancel/', {});
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to cancel subscription');
+    }
+    return response.json();
+  },
+
+  async syncSubscription(): Promise<{ message: string; subscription: Subscription }> {
+    const response = await apiClient.post('/subscriptions/sync/', {});
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to sync subscription');
+    }
+    return response.json();
+  },
+
+  async getPaymentHistory(): Promise<PaymentHistory[]> {
+    const response = await apiClient.get('/subscriptions/payments/');
+    if (!response.ok) {
+      throw new Error('Failed to fetch payment history');
+    }
+    const data = await response.json();
+    // Handle both paginated and non-paginated responses
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return (data as PaginatedResponse<PaymentHistory>).results || [];
+  },
 };

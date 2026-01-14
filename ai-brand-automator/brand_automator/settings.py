@@ -88,6 +88,7 @@ SHARED_APPS = [
     # Our shared apps
     "ai_services",  # AI integration (shared for logging)
     "onboarding",  # Company data (has FK to Tenant)
+    "subscriptions",  # Stripe payment integration
 ]
 
 TENANT_APPS = [
@@ -402,3 +403,11 @@ if not os.path.exists(logs_dir):
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Stripe Configuration
+STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="")
+STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="")
+STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
+STRIPE_PRICE_BASIC = config("STRIPE_PRICE_BASIC", default="")
+STRIPE_PRICE_PRO = config("STRIPE_PRICE_PRO", default="")
+STRIPE_PRICE_ENTERPRISE = config("STRIPE_PRICE_ENTERPRISE", default="")

@@ -27,10 +27,16 @@ export function QuickActions() {
       icon: '📅',
     },
     {
-      title: 'View Reports',
-      description: 'Analyze your brand performance',
-      href: '/reports',
-      icon: '📊',
+      title: 'Subscription Plans',
+      description: 'View and upgrade your subscription',
+      href: '/subscription',
+      icon: '⭐',
+    },
+    {
+      title: 'Billing',
+      description: 'Manage payments and invoices',
+      href: '/billing',
+      icon: '💳',
     },
   ];
 

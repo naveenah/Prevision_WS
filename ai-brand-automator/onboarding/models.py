@@ -9,7 +9,12 @@ class Company(models.Model):
     """
 
     tenant = models.OneToOneField(
-        Tenant, on_delete=models.CASCADE, related_name="company"
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="company",
+        null=True,
+        blank=True,
+        help_text="Tenant (optional in MVP mode)",
     )
     name = models.CharField(max_length=255, help_text="Company/Brand name")
     description = models.TextField(blank=True, help_text="Brief company description")
@@ -101,7 +106,12 @@ class BrandAsset(models.Model):
     """
 
     tenant = models.ForeignKey(
-        Tenant, on_delete=models.CASCADE, related_name="brand_assets"
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="brand_assets",
+        null=True,
+        blank=True,
+        help_text="Tenant (optional in MVP mode)",
     )
     company = models.ForeignKey(
         Company, on_delete=models.CASCADE, related_name="assets"
@@ -145,7 +155,12 @@ class OnboardingProgress(models.Model):
     """
 
     tenant = models.OneToOneField(
-        Tenant, on_delete=models.CASCADE, related_name="onboarding_progress"
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="onboarding_progress",
+        null=True,
+        blank=True,
+        help_text="Tenant (optional in MVP mode)",
     )
     company = models.OneToOneField(
         Company, on_delete=models.CASCADE, related_name="onboarding_progress"

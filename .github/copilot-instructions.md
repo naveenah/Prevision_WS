@@ -178,16 +178,145 @@ Frontend must run on **localhost:3000** (NOT 127.0.0.1) to match `CORS_ALLOWED_O
 
 ## Current Status & Issues
 
-**Status**: Phase 3 implemented but with critical bugs - see [docs/CRITICAL_FIXES_SUMMARY.md](docs/CRITICAL_FIXES_SUMMARY.md)
+**Status**: Phase 3 complete, Phase 4 in progress
+
+**Completed Phases**:
+- ✅ Phase 1: Foundation (Django multi-tenancy, PostgreSQL, auth)
+- ✅ Phase 2: Core Backend (Onboarding APIs, GCS integration, AI services)
+- ✅ Phase 3: Frontend Development (Next.js, auth UI, onboarding flow, chat)
 
 **Major Resolved Issues**:
 - ✅ Email-based login working
 - ✅ Company creation with nullable tenant field  
 - ✅ Defensive tenant access in views
+- ✅ Comprehensive test suite (pytest + Hypothesis property tests)
 
-**Known Issues**:
-- Multi-tenancy partially configured but not fully functional
-- No comprehensive test suite (pytest configured but minimal tests)
-- Some API endpoints missing error handling
+---
+
+## Phase 4: Integrations - Implementation Plan
+
+### 4.1 Stripe Payment Integration (Priority: HIGH)
+
+**Backend Tasks:**
+1. **Create `subscriptions` Django app**
+   - Models: `Subscription`, `SubscriptionPlan`, `PaymentHistory`
+   - Add `stripe_customer_id` to Tenant model
+   
+2. **API Endpoints:**
+   - `GET /api/v1/subscriptions/plans` - List available plans
+   - `POST /api/v1/subscriptions/create-checkout-session` - Create Stripe checkout
+   - `GET /api/v1/subscriptions/status` - Current subscription status
+   - `POST /api/v1/subscriptions/webhook` - Handle Stripe webhooks
+   - `POST /api/v1/subscriptions/create-portal-session` - Customer billing portal
+
+3. **Subscription Tiers:**
+   | Plan | Price | Features |
+   |------|-------|----------|
+   | Basic | $29/mo | Core features, 1 brand |
+   | Pro | $79/mo | Advanced AI, 5 brands, automation |
+   | Enterprise | $199/mo | Unlimited, team features |
+
+**Frontend Tasks:**
+1. Create `/subscription` page with plan cards
+2. Create `/billing` page for subscription management
+3. Add subscription status to dashboard
+4. Implement checkout redirect flow
+
+**Environment Variables Required:**
+```bash
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_BASIC=price_...
+STRIPE_PRICE_PRO=price_...
+STRIPE_PRICE_ENTERPRISE=price_...
+```
+
+### 4.2 Automation Models (Priority: MEDIUM)
+
+**Backend Tasks:**
+1. **Populate `automation` app with models:**
+   - `SocialProfile` - Connected social accounts
+   - `AutomationTask` - Scheduled automation jobs
+   - `ContentCalendar` - Scheduled posts
+
+2. **API Endpoints:**
+   - `GET /api/v1/automation/social-profiles` - List connected profiles
+   - `POST /api/v1/automation/connect/{platform}` - OAuth connect (stub)
+   - `DELETE /api/v1/automation/disconnect/{platform}` - Disconnect
+
+3. **Supported Platforms (MVP):**
+   - LinkedIn (Company Pages API)
+   - Twitter/X (OAuth 2.0)
+   - Instagram Business (via Facebook Graph API)
+
+**Frontend Tasks:**
+1. Create `/automation` page
+2. Add social connection buttons
+3. Show connected accounts status
+
+### 4.3 Webhook Handling (Priority: HIGH)
+
+**Stripe webhook events to handle:**
+- `checkout.session.completed` - New subscription
+- `invoice.payment_succeeded` - Recurring payment
+- `invoice.payment_failed` - Payment failure
+- `customer.subscription.updated` - Plan change
+- `customer.subscription.deleted` - Cancellation
+
+### 4.4 Files to Create/Modify
+
+**New Files:**
+```
+ai-brand-automator/
+├── subscriptions/
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py          # Subscription, Plan, PaymentHistory
+│   ├── serializers.py
+│   ├── views.py           # Checkout, webhook, portal
+│   ├── urls.py
+│   └── services.py        # Stripe service wrapper
+├── automation/
+│   ├── models.py          # SocialProfile, AutomationTask, ContentCalendar
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
+
+ai-brand-automator-frontend/src/
+├── app/
+│   ├── subscription/
+│   │   └── page.tsx       # Pricing/plans page
+│   ├── billing/
+│   │   └── page.tsx       # Billing management
+│   └── automation/
+│       └── page.tsx       # Social connections
+├── components/
+│   ├── subscription/
+│   │   ├── PlanCard.tsx
+│   │   └── CheckoutButton.tsx
+│   └── automation/
+│       └── SocialConnectButton.tsx
+```
+
+**Modified Files:**
+- `tenants/models.py` - Add `stripe_customer_id` field
+- `brand_automator/urls.py` - Add subscription/automation routes
+- `brand_automator/settings.py` - Add Stripe config
+
+### Implementation Order
+
+| Step | Task | Est. Time | Priority |
+|------|------|-----------|----------|
+| 4.1.1 | Create `subscriptions` app with models | 2 hours | HIGH |
+| 4.1.2 | Implement Stripe checkout endpoints | 3 hours | HIGH |
+| 4.1.3 | Implement webhook handler | 2 hours | HIGH |
+| 4.1.4 | Frontend subscription pages | 3 hours | HIGH |
+| 4.2.1 | Create automation models | 2 hours | MEDIUM |
+| 4.2.2 | OAuth connection endpoints (stub) | 2 hours | MEDIUM |
+| 4.2.3 | Frontend automation page | 2 hours | MEDIUM |
+
+---
 
 **When fixing issues**: Always reference [CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md](docs/CODEBASE_ANALYSIS_AND_IMPLEMENTATION_PLAN.md) for detailed implementation guidance and use defensive programming patterns for tenant access.

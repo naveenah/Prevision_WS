@@ -71,6 +71,8 @@ urlpatterns = [
                 path("", include("onboarding.urls")),
                 # AI Services
                 path("ai/", include("ai_services.urls")),
+                # Subscriptions
+                path("subscriptions/", include("subscriptions.urls")),
             ]
         ),
     ),
