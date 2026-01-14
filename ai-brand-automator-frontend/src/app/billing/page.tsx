@@ -11,6 +11,10 @@ import {
   PaymentHistory,
 } from '@/lib/api';
 
+// Support email - can be configured via environment variable
+const SUPPORT_EMAIL =
+  process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'support@aibrandautomator.com';
+
 export default function BillingPage() {
   useAuth();
   const router = useRouter();
@@ -176,10 +180,10 @@ export default function BillingPage() {
             If you have questions about your billing or subscription, please
             contact our support team at{' '}
             <a
-              href="mailto:support@aibrandautomator.com"
+              href={`mailto:${SUPPORT_EMAIL}`}
               className="text-indigo-600 hover:text-indigo-500"
             >
-              support@aibrandautomator.com
+              {SUPPORT_EMAIL}
             </a>
           </p>
           <div className="mt-4 flex gap-4">

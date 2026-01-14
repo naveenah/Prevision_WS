@@ -20,6 +20,24 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("STRIPE_SECRET_KEY not configured"))
             return
 
+        # Validate required price ID settings
+        price_ids = [
+            ("STRIPE_PRICE_BASIC", getattr(settings, "STRIPE_PRICE_BASIC", "")),
+            ("STRIPE_PRICE_PRO", getattr(settings, "STRIPE_PRICE_PRO", "")),
+            (
+                "STRIPE_PRICE_ENTERPRISE",
+                getattr(settings, "STRIPE_PRICE_ENTERPRISE", ""),
+            ),
+        ]
+        missing_settings = [name for name, value in price_ids if not value]
+        if missing_settings:
+            self.stdout.write(
+                self.style.ERROR(
+                    f"Missing Stripe price settings: {', '.join(missing_settings)}"
+                )
+            )
+            return
+
         # Map of Stripe price IDs to plan metadata
         plan_config = {
             settings.STRIPE_PRICE_BASIC: {
@@ -46,13 +64,16 @@ class Command(BaseCommand):
                 "name": "enterprise",
                 "display_name": "Enterprise",
                 "description": "Unlimited features for large organizations",
-                "max_brands": -1,  # -1 for unlimited
-                "max_team_members": -1,  # -1 for unlimited
-                "ai_generations_per_month": -1,  # -1 for unlimited
+                "max_brands": SubscriptionPlan.UNLIMITED,
+                "max_team_members": SubscriptionPlan.UNLIMITED,
+                "ai_generations_per_month": SubscriptionPlan.UNLIMITED,
                 "automation_enabled": True,
                 "priority_support": True,
             },
         }
+
+        success_count = 0
+        failure_count = 0
 
         for stripe_price_id, config in plan_config.items():
             try:
@@ -91,12 +112,26 @@ class Command(BaseCommand):
                             f"Updated plan: {plan.display_name} - ${amount}"
                         )
                     )
+                success_count += 1
 
             except stripe.error.StripeError as e:
                 self.stdout.write(
                     self.style.ERROR(f"Failed to fetch {config['display_name']}: {e}")
                 )
+                failure_count += 1
 
-        self.stdout.write(
-            self.style.SUCCESS("Successfully synced subscription plans from Stripe")
-        )
+        # Show accurate summary based on results
+        if failure_count == 0:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Successfully synced all {success_count} subscription plans"
+                )
+            )
+        elif success_count > 0:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Synced {success_count} plans, {failure_count} failed"
+                )
+            )
+        else:
+            self.stdout.write(self.style.ERROR("Failed to sync any subscription plans"))

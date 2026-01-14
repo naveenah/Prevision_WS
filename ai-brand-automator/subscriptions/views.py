@@ -6,7 +6,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
 import logging
 
 from .models import SubscriptionPlan, Subscription, PaymentHistory
@@ -196,6 +195,12 @@ def cancel_subscription(request):
         )
 
     at_period_end = request.data.get("at_period_end", True)
+    # Validate at_period_end is a boolean
+    if not isinstance(at_period_end, bool):
+        return Response(
+            {"detail": "at_period_end must be a boolean"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     try:
         stripe_service.cancel_subscription(subscription, at_period_end=at_period_end)
@@ -249,13 +254,13 @@ def stripe_webhook(request):
     except ValueError as e:
         logger.error(f"Webhook error: {e}")
         return Response(
-            {"error": "Invalid payload"},
+            {"detail": "Invalid Stripe webhook payload."},
             status=status.HTTP_400_BAD_REQUEST,
         )
     except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
+        logger.exception(f"Webhook processing error: {e}")
         return Response(
-            {"error": str(e)},
+            {"detail": "Error processing Stripe webhook."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -264,12 +269,6 @@ def stripe_webhook(request):
 @permission_classes([IsAuthenticated])
 def sync_subscription(request):
     """Sync subscription status from Stripe (for after checkout)"""
-    import stripe
-    from datetime import datetime
-    from django.utils import timezone as django_timezone
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
-
     tenant = getattr(request, "tenant", None)
     if not tenant:
         from tenants.models import Tenant
@@ -278,60 +277,12 @@ def sync_subscription(request):
             tenant = Tenant.objects.get(schema_name="public")
         except Tenant.DoesNotExist:
             return Response(
-                {"error": "Tenant not found"},
+                {"detail": "Tenant not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-    if not tenant.stripe_customer_id:
-        return Response(
-            {"error": "No Stripe customer associated with this account"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
 
     try:
-        # Fetch subscriptions from Stripe for this customer
-        subscriptions = stripe.Subscription.list(
-            customer=tenant.stripe_customer_id,
-            status="all",
-            limit=1,
-        )
-
-        if not subscriptions.data:
-            return Response(
-                {"error": "No subscription found in Stripe"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        stripe_sub = subscriptions.data[0]
-
-        # Find the plan by matching the price ID
-        price_id = stripe_sub["items"]["data"][0]["price"]["id"]
-        try:
-            plan = SubscriptionPlan.objects.get(stripe_price_id=price_id)
-        except SubscriptionPlan.DoesNotExist:
-            return Response(
-                {"error": f"Plan not found for price: {price_id}"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Create or update local subscription
-        subscription, created = Subscription.objects.update_or_create(
-            tenant=tenant,
-            defaults={
-                "plan": plan,
-                "stripe_subscription_id": stripe_sub.id,
-                "stripe_customer_id": tenant.stripe_customer_id,
-                "status": stripe_sub.status,
-                "current_period_start": datetime.fromtimestamp(
-                    stripe_sub.current_period_start, tz=django_timezone.utc
-                ),
-                "current_period_end": datetime.fromtimestamp(
-                    stripe_sub.current_period_end, tz=django_timezone.utc
-                ),
-                "cancel_at_period_end": stripe_sub.cancel_at_period_end,
-            },
-        )
-
+        subscription = stripe_service.sync_subscription_from_stripe(tenant)
         serializer = SubscriptionSerializer(subscription)
         return Response(
             {
@@ -339,10 +290,14 @@ def sync_subscription(request):
                 "subscription": serializer.data,
             }
         )
-
-    except stripe.error.StripeError as e:
-        logger.error(f"Stripe error during sync: {e}")
+    except ValueError as e:
         return Response(
-            {"error": str(e)},
+            {"detail": str(e)},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    except Exception as e:
+        logger.exception(f"Error syncing subscription: {e}")
+        return Response(
+            {"detail": "Error syncing subscription from Stripe."},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )

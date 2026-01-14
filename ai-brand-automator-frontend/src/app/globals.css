@@ -41,11 +41,15 @@ img, video, svg {
   height: auto;
 }
 
-/* Responsive tables */
-table {
-  display: block;
+/* Responsive tables - use wrapper div for overflow */
+.table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+table {
+  display: table;
+  width: 100%;
 }
 
 /* Better touch targets for mobile */

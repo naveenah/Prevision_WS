@@ -132,15 +132,17 @@ export function SubscriptionStatus({
         >
           Manage Billing
         </button>
-        {!subscription.cancel_at_period_end && subscription.status === 'active' && (
-          <button
-            onClick={onCancelSubscription}
-            disabled={isLoading}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-75"
-          >
-            Cancel
-          </button>
-        )}
+        {!subscription.cancel_at_period_end &&
+          (subscription.status === 'active' ||
+            subscription.status === 'trialing') && (
+            <button
+              onClick={onCancelSubscription}
+              disabled={isLoading}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-75"
+            >
+              Cancel
+            </button>
+          )}
       </div>
     </div>
   );

@@ -8,6 +8,9 @@ from django.utils import timezone
 class SubscriptionPlan(models.Model):
     """Available subscription plans"""
 
+    # Constant for unlimited feature values
+    UNLIMITED = -1
+
     PLAN_CHOICES = [
         ("basic", "Basic"),
         ("pro", "Pro"),
@@ -21,7 +24,7 @@ class SubscriptionPlan(models.Model):
     currency = models.CharField(max_length=3, default="USD")
     stripe_price_id = models.CharField(max_length=255, unique=True)
 
-    # Plan features
+    # Plan features (use UNLIMITED = -1 for unlimited)
     max_brands = models.IntegerField(default=1)
     max_team_members = models.IntegerField(default=1)
     ai_generations_per_month = models.IntegerField(default=10)
@@ -37,6 +40,21 @@ class SubscriptionPlan(models.Model):
 
     def __str__(self):
         return f"{self.display_name} - ${self.price}/mo"
+
+    @property
+    def is_brands_unlimited(self):
+        """Check if brands are unlimited for this plan."""
+        return self.max_brands == self.UNLIMITED
+
+    @property
+    def is_team_members_unlimited(self):
+        """Check if team members are unlimited for this plan."""
+        return self.max_team_members == self.UNLIMITED
+
+    @property
+    def is_ai_generations_unlimited(self):
+        """Check if AI generations are unlimited for this plan."""
+        return self.ai_generations_per_month == self.UNLIMITED
 
 
 class Subscription(models.Model):

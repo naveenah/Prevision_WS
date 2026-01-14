@@ -180,7 +180,9 @@ CORS_ALLOWED_ORIGINS = config(
     default="http://localhost:3000,http://127.0.0.1:3000",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Allow all origins in development mode
+# Note: Add development IPs to CORS_ALLOWED_ORIGINS env var instead of using
+# CORS_ALLOW_ALL_ORIGINS for security. Example:
+# CORS_ALLOWED_ORIGINS=http://localhost:3000,http://10.0.0.224:3000
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     "accept",

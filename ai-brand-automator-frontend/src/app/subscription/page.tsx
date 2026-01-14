@@ -56,7 +56,7 @@ function SubscriptionContent() {
     }
 
     fetchData();
-  }, [searchParams, router]);
+  }, [searchParams]);
 
   const handleSelectPlan = async (plan: SubscriptionPlan) => {
     setIsProcessing(true);
@@ -255,8 +255,9 @@ function SubscriptionContent() {
                 Is there a free trial?
               </dt>
               <dd className="mt-2 text-gray-600">
-                We offer a 14-day free trial on all plans. No credit card
-                required to start your trial.
+                We don&apos;t currently offer a free trial. You can start with
+                any monthly plan and cancel anytime before your next billing
+                period.
               </dd>
             </div>
           </dl>

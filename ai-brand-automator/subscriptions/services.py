@@ -4,10 +4,39 @@ Stripe service wrapper for payment operations.
 import stripe
 import logging
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from datetime import datetime
 
 from .models import Subscription, SubscriptionPlan, PaymentHistory
+
+# Zero-decimal currencies (amounts not in cents)
+ZERO_DECIMAL_CURRENCIES = {
+    "BIF",
+    "CLP",
+    "DJF",
+    "GNF",
+    "JPY",
+    "KMF",
+    "KRW",
+    "MGA",
+    "PYG",
+    "RWF",
+    "UGX",
+    "VND",
+    "VUV",
+    "XAF",
+    "XOF",
+    "XPF",
+}
+
+
+def convert_stripe_amount(amount: int, currency: str) -> float:
+    """Convert Stripe amount to decimal, handling zero-decimal currencies."""
+    if currency.upper() in ZERO_DECIMAL_CURRENCIES:
+        return float(amount)
+    return amount / 100
+
 
 logger = logging.getLogger(__name__)
 
@@ -175,33 +204,35 @@ class StripeService:
             return {"status": "error", "message": "Missing metadata"}
 
         try:
-            tenant = Tenant.objects.get(id=tenant_id)
-            plan = SubscriptionPlan.objects.get(id=plan_id)
+            # Use transaction.atomic() to ensure all DB changes are atomic
+            with transaction.atomic():
+                tenant = Tenant.objects.get(id=tenant_id)
+                plan = SubscriptionPlan.objects.get(id=plan_id)
 
-            # Retrieve the subscription from Stripe
-            stripe_sub = stripe.Subscription.retrieve(session["subscription"])
+                # Retrieve the subscription from Stripe
+                stripe_sub = stripe.Subscription.retrieve(session["subscription"])
 
-            # Create or update subscription
-            subscription, created = Subscription.objects.update_or_create(
-                tenant=tenant,
-                defaults={
-                    "plan": plan,
-                    "stripe_subscription_id": stripe_sub.id,
-                    "stripe_customer_id": session["customer"],
-                    "status": stripe_sub.status,
-                    "current_period_start": datetime.fromtimestamp(
-                        stripe_sub.current_period_start, tz=timezone.utc
-                    ),
-                    "current_period_end": datetime.fromtimestamp(
-                        stripe_sub.current_period_end, tz=timezone.utc
-                    ),
-                },
-            )
+                # Create or update subscription
+                subscription, created = Subscription.objects.update_or_create(
+                    tenant=tenant,
+                    defaults={
+                        "plan": plan,
+                        "stripe_subscription_id": stripe_sub.id,
+                        "stripe_customer_id": session["customer"],
+                        "status": stripe_sub.status,
+                        "current_period_start": datetime.fromtimestamp(
+                            stripe_sub.current_period_start, tz=timezone.utc
+                        ),
+                        "current_period_end": datetime.fromtimestamp(
+                            stripe_sub.current_period_end, tz=timezone.utc
+                        ),
+                    },
+                )
 
-            # Update tenant's Stripe customer ID
-            tenant.stripe_customer_id = session["customer"]
-            tenant.subscription_status = "active"
-            tenant.save(update_fields=["stripe_customer_id", "subscription_status"])
+                # Update tenant's Stripe customer ID
+                tenant.stripe_customer_id = session["customer"]
+                tenant.subscription_status = "active"
+                tenant.save(update_fields=["stripe_customer_id", "subscription_status"])
 
             return {"status": "success", "subscription_id": subscription.id}
 
@@ -219,14 +250,17 @@ class StripeService:
             tenant = Tenant.objects.get(stripe_customer_id=customer_id)
             subscription = Subscription.objects.get(tenant=tenant)
 
-            # Record payment
+            # Record payment (handle zero-decimal currencies)
+            currency = invoice.get("currency", "usd").upper()
+            amount = convert_stripe_amount(invoice.get("amount_paid", 0), currency)
+
             PaymentHistory.objects.create(
                 tenant=tenant,
                 subscription=subscription,
                 stripe_invoice_id=invoice.get("id", ""),
                 stripe_payment_intent_id=invoice.get("payment_intent", ""),
-                amount=invoice.get("amount_paid", 0) / 100,  # Convert from cents
-                currency=invoice.get("currency", "usd").upper(),
+                amount=amount,
+                currency=currency,
                 status="succeeded",
                 description=(
                     f"Subscription payment for {subscription.plan.display_name}"
@@ -249,13 +283,16 @@ class StripeService:
             tenant = Tenant.objects.get(stripe_customer_id=customer_id)
             subscription = Subscription.objects.filter(tenant=tenant).first()
 
-            # Record failed payment
+            # Record failed payment (handle zero-decimal currencies)
+            currency = invoice.get("currency", "usd").upper()
+            amount = convert_stripe_amount(invoice.get("amount_due", 0), currency)
+
             PaymentHistory.objects.create(
                 tenant=tenant,
                 subscription=subscription,
                 stripe_invoice_id=invoice.get("id", ""),
-                amount=invoice.get("amount_due", 0) / 100,
-                currency=invoice.get("currency", "usd").upper(),
+                amount=amount,
+                currency=currency,
                 status="failed",
                 description="Payment failed",
             )
@@ -315,6 +352,57 @@ class StripeService:
         except Subscription.DoesNotExist:
             logger.warning(f"Subscription not found for deletion: {stripe_sub['id']}")
             return {"status": "warning", "message": "Subscription not found"}
+
+    def sync_subscription_from_stripe(self, tenant):
+        """
+        Sync subscription status from Stripe for a tenant.
+        Returns the subscription or raises an exception.
+        """
+        if not self.api_key:
+            raise ValueError("Stripe not configured")
+
+        if not tenant.stripe_customer_id:
+            raise ValueError("No Stripe customer associated with this account")
+
+        # Fetch subscriptions from Stripe for this customer
+        subscriptions = stripe.Subscription.list(
+            customer=tenant.stripe_customer_id,
+            status="all",
+            limit=1,
+        )
+
+        if not subscriptions.data:
+            raise ValueError("No subscription found in Stripe")
+
+        stripe_sub = subscriptions.data[0]
+
+        # Find the plan by matching the price ID
+        price_id = stripe_sub["items"]["data"][0]["price"]["id"]
+        try:
+            plan = SubscriptionPlan.objects.get(stripe_price_id=price_id)
+        except SubscriptionPlan.DoesNotExist:
+            raise ValueError(f"Plan not found for price: {price_id}")
+
+        # Create or update local subscription atomically
+        with transaction.atomic():
+            subscription, created = Subscription.objects.update_or_create(
+                tenant=tenant,
+                defaults={
+                    "plan": plan,
+                    "stripe_subscription_id": stripe_sub.id,
+                    "stripe_customer_id": tenant.stripe_customer_id,
+                    "status": stripe_sub.status,
+                    "current_period_start": datetime.fromtimestamp(
+                        stripe_sub.current_period_start, tz=timezone.utc
+                    ),
+                    "current_period_end": datetime.fromtimestamp(
+                        stripe_sub.current_period_end, tz=timezone.utc
+                    ),
+                    "cancel_at_period_end": stripe_sub.cancel_at_period_end,
+                },
+            )
+
+        return subscription
 
 
 # Singleton instance
