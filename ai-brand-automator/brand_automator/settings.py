@@ -107,10 +107,11 @@ INSTALLED_APPS = list(SHARED_APPS) + [
 ]
 
 MIDDLEWARE = [
-    # Multi-tenancy middleware - MUST BE FIRST
+    # CORS middleware - MUST BE FIRST for preflight OPTIONS requests
+    "corsheaders.middleware.CorsMiddleware",
+    # Multi-tenancy middleware
     "django_tenants.middleware.main.TenantMainMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -179,6 +180,7 @@ CORS_ALLOWED_ORIGINS = config(
     default="http://localhost:3000,http://127.0.0.1:3000",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Allow all origins in development mode
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     "accept",

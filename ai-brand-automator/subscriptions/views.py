@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 import logging
 
 from .models import SubscriptionPlan, Subscription, PaymentHistory

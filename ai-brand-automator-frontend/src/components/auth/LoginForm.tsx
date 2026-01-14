@@ -12,19 +12,34 @@ export function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    console.log('Login attempt with email:', email);
+    console.log('API URL:', process.env.NEXT_PUBLIC_API_URL);
     try {
-      const response = await apiClient.post('/auth/login/', { email, password });
+      const requestBody = { email, password };
+      console.log('Request body:', JSON.stringify(requestBody));
+      const response = await apiClient.post('/auth/login/', requestBody);
+      console.log('Login response status:', response.status);
+      const responseText = await response.text();
+      console.log('Response body:', responseText);
 
       if (response.ok) {
-        const data = await response.json();
+        const data = JSON.parse(responseText);
+        console.log('Login successful, storing tokens');
         // Store tokens in localStorage
         localStorage.setItem('access_token', data.access);
         localStorage.setItem('refresh_token', data.refresh);
+        console.log('Redirecting to dashboard...');
         // Redirect to dashboard
         window.location.href = '/dashboard';
       } else {
-        const error = await response.json();
-        alert(error.detail || 'Login failed');
+        let error;
+        try {
+          error = JSON.parse(responseText);
+        } catch {
+          error = { detail: responseText };
+        }
+        console.log('Login failed:', error);
+        alert(error.detail || error.non_field_errors?.[0] || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);

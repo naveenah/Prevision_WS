@@ -37,10 +37,11 @@ export default function SubscriptionPage() {
           } catch {
             // Subscription might already be synced via webhook
           }
-          // Clear the query params
-          router.replace('/subscription');
+          // Clear the query params without triggering a re-render loop
+          window.history.replaceState({}, '', '/subscription');
         }
 
+        // Fetch fresh data after sync
         const [plansData, subscriptionData] = await Promise.all([
           subscriptionApi.getPlans(),
           subscriptionApi.getStatus(),

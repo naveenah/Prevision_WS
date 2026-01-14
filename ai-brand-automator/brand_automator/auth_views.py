@@ -32,8 +32,13 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise serializers.ValidationError("Email and password are required")
 
         try:
-            # Look up user by email
-            user = User.objects.get(email=email)
+            # Look up user by email - use filter().first() to handle duplicates gracefully
+            user = User.objects.filter(email=email).first()
+            
+            if not user:
+                raise serializers.ValidationError(
+                    "No active account found with the given credentials"
+                )
 
             # Replace email with username in attrs and change field name to 'username'
             # This allows parent class to authenticate properly
