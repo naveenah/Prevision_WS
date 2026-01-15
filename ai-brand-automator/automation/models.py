@@ -118,11 +118,19 @@ class SocialProfile(models.Model):
             raise ValueError("No refresh token available")
 
         # Import here to avoid circular imports
-        from .services import linkedin_service
+        from .services import linkedin_service, twitter_service
 
         try:
             if self.platform == "linkedin":
                 token_data = linkedin_service.refresh_access_token(self.refresh_token)
+                self.access_token = token_data.get("access_token")
+                self.token_expires_at = token_data.get("expires_at")
+                if token_data.get("refresh_token"):
+                    self.refresh_token = token_data.get("refresh_token")
+                self.save()
+                return self.access_token
+            elif self.platform == "twitter":
+                token_data = twitter_service.refresh_access_token(self.refresh_token)
                 self.access_token = token_data.get("access_token")
                 self.token_expires_at = token_data.get("expires_at")
                 if token_data.get("refresh_token"):

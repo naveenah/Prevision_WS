@@ -1139,6 +1139,224 @@ class TwitterService:
             "remaining": max_length - length,
         }
 
+    def upload_media(
+        self,
+        access_token: str,
+        media_data: bytes,
+        media_type: str,
+        media_category: str = "tweet_image",
+    ) -> dict:
+        """
+        Upload media to Twitter for use in tweets.
+
+        Twitter uses v1.1 media upload endpoint (still required for v2 tweets).
+        Documentation: https://developer.twitter.com/en/docs/twitter-api/v1/media/upload-media/overview
+
+        Args:
+            access_token: Valid Twitter access token
+            media_data: The raw bytes of the media file
+            media_type: The MIME type (e.g., "image/jpeg", "image/png", "video/mp4")
+            media_category: One of "tweet_image", "tweet_gif", "tweet_video"
+
+        Returns:
+            Dictionary with media_id and media_id_string
+        """
+        import base64
+
+        MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+
+        # For images under 5MB, use simple upload
+        if media_category == "tweet_image" and len(media_data) <= 5 * 1024 * 1024:
+            # Simple upload (base64 encoded)
+            media_b64 = base64.b64encode(media_data).decode()
+
+            try:
+                response = requests.post(
+                    MEDIA_UPLOAD_URL,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data={
+                        "media_data": media_b64,
+                        "media_category": media_category,
+                    },
+                    timeout=60,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                logger.info(f"Twitter media uploaded: {data.get('media_id_string')}")
+                return {
+                    "media_id": data.get("media_id"),
+                    "media_id_string": data.get("media_id_string"),
+                    "type": data.get("type"),
+                    "expires_after_secs": data.get("expires_after_secs"),
+                }
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Twitter media upload failed: {e}")
+                if hasattr(e, "response") and e.response is not None:
+                    logger.error(f"Response: {e.response.text}")
+                raise Exception(f"Failed to upload media: {str(e)}")
+
+        # For larger files or videos, use chunked upload
+        return self._chunked_media_upload(
+            access_token, media_data, media_type, media_category
+        )
+
+    def _chunked_media_upload(
+        self,
+        access_token: str,
+        media_data: bytes,
+        media_type: str,
+        media_category: str,
+    ) -> dict:
+        """
+        Chunked media upload for large files and videos.
+
+        Uses INIT, APPEND, FINALIZE flow.
+        """
+        import base64
+
+        MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+        total_bytes = len(media_data)
+
+        # INIT phase
+        try:
+            init_response = requests.post(
+                MEDIA_UPLOAD_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                data={
+                    "command": "INIT",
+                    "total_bytes": total_bytes,
+                    "media_type": media_type,
+                    "media_category": media_category,
+                },
+                timeout=30,
+            )
+            init_response.raise_for_status()
+            init_data = init_response.json()
+            media_id = init_data["media_id_string"]
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter media INIT failed: {e}")
+            raise Exception(f"Failed to initialize media upload: {str(e)}")
+
+        # APPEND phase - upload in chunks
+        chunk_size = 4 * 1024 * 1024  # 4MB chunks
+        segment_index = 0
+
+        for i in range(0, total_bytes, chunk_size):
+            chunk = media_data[i:i + chunk_size]
+            chunk_b64 = base64.b64encode(chunk).decode()
+
+            try:
+                append_response = requests.post(
+                    MEDIA_UPLOAD_URL,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                    },
+                    data={
+                        "command": "APPEND",
+                        "media_id": media_id,
+                        "media_data": chunk_b64,
+                        "segment_index": segment_index,
+                    },
+                    timeout=120,
+                )
+                append_response.raise_for_status()
+                segment_index += 1
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Twitter media APPEND failed at segment {segment_index}: {e}")
+                raise Exception(f"Failed to upload media chunk: {str(e)}")
+
+        # FINALIZE phase
+        try:
+            finalize_response = requests.post(
+                MEDIA_UPLOAD_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                data={
+                    "command": "FINALIZE",
+                    "media_id": media_id,
+                },
+                timeout=30,
+            )
+            finalize_response.raise_for_status()
+            finalize_data = finalize_response.json()
+
+            # Check for async processing (videos/GIFs)
+            processing_info = finalize_data.get("processing_info")
+            if processing_info:
+                logger.info(
+                    f"Twitter media {media_id} is processing: {processing_info}"
+                )
+                return {
+                    "media_id": finalize_data.get("media_id"),
+                    "media_id_string": media_id,
+                    "processing_info": processing_info,
+                    "status": "PROCESSING",
+                }
+
+            logger.info(f"Twitter media uploaded and ready: {media_id}")
+            return {
+                "media_id": finalize_data.get("media_id"),
+                "media_id_string": media_id,
+                "status": "READY",
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter media FINALIZE failed: {e}")
+            raise Exception(f"Failed to finalize media upload: {str(e)}")
+
+    def get_media_status(self, access_token: str, media_id: str) -> dict:
+        """
+        Check the processing status of uploaded media.
+
+        Args:
+            access_token: Valid Twitter access token
+            media_id: The media_id_string from upload
+
+        Returns:
+            Dictionary with processing status
+        """
+        MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+
+        try:
+            response = requests.get(
+                MEDIA_UPLOAD_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "command": "STATUS",
+                    "media_id": media_id,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            processing_info = data.get("processing_info", {})
+            state = processing_info.get("state", "succeeded")
+
+            return {
+                "media_id": media_id,
+                "state": state,
+                "check_after_secs": processing_info.get("check_after_secs"),
+                "progress_percent": processing_info.get("progress_percent"),
+                "error": processing_info.get("error"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter media status check failed: {e}")
+            raise Exception(f"Failed to get media status: {str(e)}")
+
 
 # Singleton instance
 twitter_service = TwitterService()

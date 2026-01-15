@@ -35,6 +35,11 @@ from .constants import (
     TWITTER_TEST_ACCESS_TOKEN,
     TWITTER_TEST_REFRESH_TOKEN,
     TWITTER_POST_MAX_LENGTH,
+    TWITTER_IMAGE_TYPES,
+    TWITTER_VIDEO_TYPES,
+    TWITTER_MEDIA_MAX_IMAGE_SIZE,
+    TWITTER_MEDIA_MAX_VIDEO_SIZE,
+    TWITTER_MEDIA_MAX_GIF_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -814,6 +819,190 @@ class LinkedInDocumentStatusView(APIView):
             )
 
 
+class TwitterMediaUploadView(APIView):
+    """
+    Upload media (images, videos, or GIFs) to Twitter for use in tweets.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Upload an image, video, or GIF to Twitter.
+
+        Accepts a file upload (multipart/form-data with 'media' field).
+
+        Returns the media_id to use when creating a tweet with media.
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for file upload
+        media_file = request.FILES.get("media")
+
+        if not media_file:
+            return Response(
+                {"error": "No media file provided. Use 'media' field."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = media_file.content_type
+        is_image = content_type in TWITTER_IMAGE_TYPES
+        is_video = content_type in TWITTER_VIDEO_TYPES
+        is_gif = content_type == "image/gif"
+
+        if not is_image and not is_video:
+            allowed = "JPEG, PNG, GIF, WEBP (images); MP4, MOV (video)"
+            return Response(
+                {"error": f"Invalid file type: {content_type}. Allowed: {allowed}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Determine media category and size limit
+        if is_video:
+            media_category = "tweet_video"
+            max_size = TWITTER_MEDIA_MAX_VIDEO_SIZE
+            size_label = "512MB"
+        elif is_gif:
+            media_category = "tweet_gif"
+            max_size = TWITTER_MEDIA_MAX_GIF_SIZE
+            size_label = "15MB"
+        else:
+            media_category = "tweet_image"
+            max_size = TWITTER_MEDIA_MAX_IMAGE_SIZE
+            size_label = "5MB"
+
+        if media_file.size > max_size:
+            return Response(
+                {"error": f"File too large. Maximum size is {size_label}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            media_type = "video" if is_video else ("gif" if is_gif else "image")
+            test_media_id = f"test-{media_type}-{uuid.uuid4().hex[:12]}"
+            logger.info(f"Test Twitter {media_type} upload by {request.user.email}")
+            return Response(
+                {
+                    "media_id": test_media_id,
+                    "media_id_string": test_media_id,
+                    "media_type": media_type,
+                    "test_mode": True,
+                    "status": "PROCESSING" if is_video else "READY",
+                    "message": f"{media_type.capitalize()} upload simulated",
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            file_data = media_file.read()
+
+            result = twitter_service.upload_media(
+                access_token=access_token,
+                media_data=file_data,
+                media_type=content_type,
+                media_category=media_category,
+            )
+
+            media_type = "video" if is_video else ("gif" if is_gif else "image")
+            processing_msg = (
+                "Processing may take a few minutes."
+                if result.get("status") == "PROCESSING"
+                else ""
+            )
+
+            logger.info(
+                f"Twitter {media_type} uploaded by {request.user.email}: "
+                f"{result.get('media_id_string')}"
+            )
+
+            return Response(
+                {
+                    "media_id": result.get("media_id"),
+                    "media_id_string": result.get("media_id_string"),
+                    "media_type": media_type,
+                    "status": result.get("status", "READY"),
+                    "message": f"{media_type.capitalize()} uploaded. {processing_msg}",
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Twitter media upload failed: {e}")
+            return Response(
+                {"error": f"Failed to upload media: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterMediaStatusView(APIView):
+    """
+    Check the processing status of uploaded Twitter media.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, media_id):
+        """
+        Check media processing status.
+
+        Args:
+            media_id: The media_id_string returned from media upload
+
+        Returns:
+            Status: pending, in_progress, succeeded, failed
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            return Response(
+                {
+                    "media_id": media_id,
+                    "state": "succeeded",
+                    "test_mode": True,
+                    "message": "Media ready (test mode)",
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            result = twitter_service.get_media_status(access_token, media_id)
+
+            return Response(
+                {
+                    "media_id": result["media_id"],
+                    "state": result["state"],
+                    "check_after_secs": result.get("check_after_secs"),
+                    "progress_percent": result.get("progress_percent"),
+                    "error": result.get("error"),
+                    "message": f"Media status: {result['state']}",
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Twitter media status check failed: {e}")
+            return Response(
+                {"error": f"Failed to check media status: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class AutomationTaskViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing automation tasks.
@@ -901,6 +1090,28 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
             if linkedin_profiles_on_instance.exists():
                 instance.social_profiles.remove(*linkedin_profiles_on_instance)
 
+        # Handle Twitter platform
+        twitter_profiles_on_instance = instance.social_profiles.filter(
+            platform="twitter"
+        )
+
+        if "twitter" in instance.platforms:
+            # Ensure the user's connected Twitter profile is attached
+            twitter_profile = SocialProfile.objects.filter(
+                user=self.request.user, platform="twitter", status="connected"
+            ).first()
+
+            if twitter_profile:
+                # Add if not already linked
+                if not twitter_profiles_on_instance.filter(
+                    id=twitter_profile.id
+                ).exists():
+                    instance.social_profiles.add(twitter_profile)
+        else:
+            # Twitter removed from platforms - remove any Twitter profiles
+            if twitter_profiles_on_instance.exists():
+                instance.social_profiles.remove(*twitter_profiles_on_instance)
+
     def perform_create(self, serializer):
         """Auto-link social profiles based on selected platforms."""
         instance = serializer.save(user=self.request.user)
@@ -978,6 +1189,29 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     errors.append(f"LinkedIn: {str(e)}")
                     logger.error(f"Failed to publish to LinkedIn: {e}")
+
+            elif profile.platform == "twitter" and profile.status == "connected":
+                try:
+                    # Check if test mode
+                    if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+                        results["twitter"] = {
+                            "test_mode": True,
+                            "message": "Tweet simulated in test mode",
+                            "has_media": len(media_urns) > 0,
+                        }
+                        logger.info(f"Test publish to Twitter: {content.title}")
+                    else:
+                        access_token = profile.get_valid_access_token()
+                        # Twitter uses media_ids instead of URNs
+                        result = twitter_service.create_tweet(
+                            access_token=access_token,
+                            text=content.content,
+                            media_ids=media_urns if media_urns else None,
+                        )
+                        results["twitter"] = result
+                except Exception as e:
+                    errors.append(f"Twitter: {str(e)}")
+                    logger.error(f"Failed to publish to Twitter: {e}")
 
         # Update content status
         if errors and not results:
@@ -1245,7 +1479,9 @@ class TwitterPostView(APIView):
         from .services import twitter_service
         from .constants import TWITTER_POST_MAX_LENGTH
 
+        title = request.data.get("title", "").strip()
         text = request.data.get("text", "").strip()
+        media_ids = request.data.get("media_ids", [])
 
         if not text:
             return Response(
@@ -1264,6 +1500,10 @@ class TwitterPostView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate media_ids is a list
+        if media_ids and not isinstance(media_ids, list):
+            media_ids = [media_ids]
+
         try:
             profile = SocialProfile.objects.get(
                 user=request.user, platform="twitter", status="connected"
@@ -1275,12 +1515,51 @@ class TwitterPostView(APIView):
             )
 
         # Check for test mode
-        if profile.access_token == TEST_ACCESS_TOKEN:
-            logger.info(f"Test mode tweet: {text[:50]}...")
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode tweet by {request.user.email}: {text[:50]}...")
+
+            # Create a ContentCalendar entry for the published tweet
+            post_title = (
+                title
+                if title
+                else f"Twitter Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                media_urls=media_ids,
+                platforms=["twitter"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "test_mode": True,
+                    "message": "Tweet simulated in test mode",
+                    "has_media": len(media_ids) > 0,
+                },
+            )
+            content.social_profiles.add(profile)
+
+            # Create an automation task record
+            task = AutomationTask.objects.create(
+                user=request.user,
+                task_type="social_post",
+                status="completed",
+                payload={
+                    "text": text,
+                    "platform": "twitter",
+                    "media_count": len(media_ids),
+                },
+                result={"test_mode": True, "message": "Tweet simulated in test mode"},
+            )
+
             return Response(
                 {
                     "message": "Tweet simulated (test mode)",
                     "test_mode": True,
+                    "task_id": task.id,
+                    "content_id": content.id,
                     "tweet": {
                         "id": f"test_tweet_{uuid.uuid4().hex[:12]}",
                         "text": text,
@@ -1298,12 +1577,53 @@ class TwitterPostView(APIView):
                 text=text,
                 reply_to_id=request.data.get("reply_to_id"),
                 quote_tweet_id=request.data.get("quote_tweet_id"),
-                media_ids=request.data.get("media_ids"),
+                media_ids=media_ids if media_ids else None,
+            )
+
+            # Create a ContentCalendar entry for the published tweet
+            post_title = (
+                title
+                if title
+                else f"Twitter Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                media_urls=media_ids,
+                platforms=["twitter"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results=result,
+            )
+            content.social_profiles.add(profile)
+
+            # Create an automation task record
+            task = AutomationTask.objects.create(
+                user=request.user,
+                task_type="social_post",
+                status="completed",
+                payload={
+                    "text": text,
+                    "platform": "twitter",
+                    "media_count": len(media_ids),
+                },
+                result=result,
+            )
+
+            logger.info(
+                f"Twitter tweet created by {request.user.email} "
+                f"(media: {len(media_ids)})"
             )
 
             return Response(
                 {
                     "message": "Tweet posted successfully",
+                    "tweet_id": result.get("id"),
+                    "task_id": task.id,
+                    "content_id": content.id,
+                    "has_media": len(media_ids) > 0,
                     "tweet": result,
                 }
             )

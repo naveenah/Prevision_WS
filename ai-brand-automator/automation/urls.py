@@ -23,6 +23,8 @@ from .views import (
     TwitterTestConnectView,
     TwitterPostView,
     TwitterValidateTweetView,
+    TwitterMediaUploadView,
+    TwitterMediaStatusView,
 )
 
 router = DefaultRouter()
@@ -82,6 +84,16 @@ urlpatterns = [
         "twitter/validate/",
         TwitterValidateTweetView.as_view(),
         name="twitter-validate",
+    ),
+    path(
+        "twitter/media/upload/",
+        TwitterMediaUploadView.as_view(),
+        name="twitter-media-upload",
+    ),
+    path(
+        "twitter/media/status/<str:media_id>/",
+        TwitterMediaStatusView.as_view(),
+        name="twitter-media-status",
     ),
     # Router URLs
     path("", include(router.urls)),

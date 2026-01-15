@@ -107,14 +107,93 @@ const DOCUMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ] as const;
 
-const MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
-const MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
-const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
+// LinkedIn media size limits
+const LINKEDIN_MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
+const LINKEDIN_MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
+const LINKEDIN_MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
+
+// Twitter media size limits
+const TWITTER_MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
+const TWITTER_MAX_VIDEO_SIZE = 512 * 1024 * 1024;  // 512MB
+const TWITTER_MAX_GIF_SIZE = 15 * 1024 * 1024;  // 15MB
+
+// Legacy constants (kept for backward compatibility)
+const MAX_IMAGE_SIZE = LINKEDIN_MAX_IMAGE_SIZE;
+const MAX_VIDEO_SIZE = LINKEDIN_MAX_VIDEO_SIZE;
+const MAX_DOCUMENT_SIZE = LINKEDIN_MAX_DOCUMENT_SIZE;
 
 // Twitter constants
 const TWITTER_MAX_LENGTH = 280;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const TWITTER_PREMIUM_MAX_LENGTH = 25000;  // Reserved for premium Twitter accounts
+
+// Helper function to get media limits based on selected platforms
+const getMediaLimits = (platforms: string[]) => {
+  const hasTwitter = platforms.includes('twitter');
+  const hasLinkedIn = platforms.includes('linkedin');
+  
+  // If no platforms or only unknown platforms, use LinkedIn defaults
+  if (!hasTwitter && !hasLinkedIn) {
+    return {
+      maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
+      maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
+      maxDocumentSize: LINKEDIN_MAX_DOCUMENT_SIZE,
+      imageSizeLabel: '8MB',
+      videoSizeLabel: '500MB',
+      documentSizeLabel: '100MB',
+      supportsDocuments: true,
+    };
+  }
+  
+  // If only Twitter selected
+  if (hasTwitter && !hasLinkedIn) {
+    return {
+      maxImageSize: TWITTER_MAX_IMAGE_SIZE,
+      maxVideoSize: TWITTER_MAX_VIDEO_SIZE,
+      maxDocumentSize: 0, // Twitter doesn't support documents
+      imageSizeLabel: '5MB',
+      videoSizeLabel: '512MB',
+      documentSizeLabel: 'N/A',
+      supportsDocuments: false,
+    };
+  }
+  
+  // If only LinkedIn selected
+  if (hasLinkedIn && !hasTwitter) {
+    return {
+      maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
+      maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
+      maxDocumentSize: LINKEDIN_MAX_DOCUMENT_SIZE,
+      imageSizeLabel: '8MB',
+      videoSizeLabel: '500MB',
+      documentSizeLabel: '100MB',
+      supportsDocuments: true,
+    };
+  }
+  
+  // If both platforms selected, use the most restrictive limits
+  return {
+    maxImageSize: Math.min(LINKEDIN_MAX_IMAGE_SIZE, TWITTER_MAX_IMAGE_SIZE), // 5MB (Twitter limit)
+    maxVideoSize: Math.min(LINKEDIN_MAX_VIDEO_SIZE, TWITTER_MAX_VIDEO_SIZE), // 500MB (LinkedIn limit)
+    maxDocumentSize: 0, // Twitter doesn't support documents
+    imageSizeLabel: '5MB',
+    videoSizeLabel: '500MB',
+    documentSizeLabel: 'N/A',
+    supportsDocuments: false, // Twitter doesn't support documents
+  };
+};
+
+// Helper function to get media helper text based on selected platforms
+const getMediaHelperText = (platforms: string[]) => {
+  const limits = getMediaLimits(platforms);
+  const hasTwitter = platforms.includes('twitter');
+  
+  if (hasTwitter && !limits.supportsDocuments) {
+    return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Note: Documents not supported on Twitter`;
+  }
+  
+  return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Documents: PDF, DOC, PPT (max ${limits.documentSizeLabel})`;
+};
 
 // File input accept attribute - all supported media types
 const ACCEPTED_FILE_TYPES = [
@@ -122,6 +201,15 @@ const ACCEPTED_FILE_TYPES = [
   ...VIDEO_TYPES,
   ...DOCUMENT_TYPES,
 ].join(',');
+
+// Get accepted file types based on platforms
+const getAcceptedFileTypes = (platforms: string[]) => {
+  const limits = getMediaLimits(platforms);
+  if (!limits.supportsDocuments) {
+    return [...IMAGE_TYPES, ...VIDEO_TYPES].join(',');
+  }
+  return ACCEPTED_FILE_TYPES;
+};
 
 // Loading fallback for Suspense
 function AutomationLoading() {
@@ -191,6 +279,8 @@ function AutomationPageContent() {
   const [showTwitterComposeModal, setShowTwitterComposeModal] = useState(false);
   const [tweetTitle, setTweetTitle] = useState('');
   const [tweetText, setTweetText] = useState('');
+  const [tweetMediaUrns, setTweetMediaUrns] = useState<string[]>([]);
+  const [uploadingTweetMedia, setUploadingTweetMedia] = useState(false);
   const [tweetPosting, setTweetPosting] = useState(false);
   const [twitterTestMode, setTwitterTestMode] = useState(true); // Default to test mode for safety
   const [testTweets, setTestTweets] = useState<Array<{ id: string; title: string; text: string; created_at: string }>>([]);
@@ -430,8 +520,11 @@ function AutomationPageContent() {
   const handleMediaUpload = async (
     file: File,
     setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
-    setUploading: React.Dispatch<React.SetStateAction<boolean>>
+    setUploading: React.Dispatch<React.SetStateAction<boolean>>,
+    platforms: string[] = ['linkedin'] // Default to LinkedIn for backward compatibility
   ) => {
+    const limits = getMediaLimits(platforms);
+    
     // Validate file type using constants
     const isImage = (IMAGE_TYPES as readonly string[]).includes(file.type);
     const isVideo = (VIDEO_TYPES as readonly string[]).includes(file.type);
@@ -445,24 +538,33 @@ function AutomationPageContent() {
       return;
     }
 
-    // Validate file size using constants
+    // Check if documents are supported for the selected platforms
+    if (isDocument && !limits.supportsDocuments) {
+      setMessage({
+        type: 'error',
+        text: 'Documents are not supported on Twitter. Please upload an image or video instead.',
+      });
+      return;
+    }
+
+    // Validate file size using platform-specific limits
     let maxSize: number;
     let sizeLabel: string;
     if (isVideo) {
-      maxSize = MAX_VIDEO_SIZE;
-      sizeLabel = '500MB';
+      maxSize = limits.maxVideoSize;
+      sizeLabel = limits.videoSizeLabel;
     } else if (isDocument) {
-      maxSize = MAX_DOCUMENT_SIZE;
-      sizeLabel = '100MB';
+      maxSize = limits.maxDocumentSize;
+      sizeLabel = limits.documentSizeLabel;
     } else {
-      maxSize = MAX_IMAGE_SIZE;
-      sizeLabel = '8MB';
+      maxSize = limits.maxImageSize;
+      sizeLabel = limits.imageSizeLabel;
     }
     
     if (file.size > maxSize) {
       setMessage({
         type: 'error',
-        text: `File too large. Maximum size is ${sizeLabel}`,
+        text: `File too large. Maximum size for selected platforms is ${sizeLabel}`,
       });
       return;
     }
@@ -472,7 +574,15 @@ function AutomationPageContent() {
       const formData = new FormData();
       formData.append('media', file);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/linkedin/media/upload/`, {
+      // Determine which endpoint to use based on selected platforms
+      // If Twitter only, use Twitter endpoint. Otherwise use LinkedIn (works for both or LinkedIn-only)
+      const hasLinkedIn = platforms.includes('linkedin');
+      const hasTwitterOnly = platforms.includes('twitter') && !hasLinkedIn;
+      const uploadEndpoint = hasTwitterOnly 
+        ? '/api/v1/automation/twitter/media/upload/'
+        : '/api/v1/automation/linkedin/media/upload/';
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${uploadEndpoint}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -482,13 +592,17 @@ function AutomationPageContent() {
 
       if (response.ok) {
         const data = await response.json();
-        setMediaUrns((prev) => [...prev, data.asset_urn]);
+        // For LinkedIn: asset_urn, For Twitter: media_id_string
+        const mediaId = data.asset_urn || data.media_id_string;
+        setMediaUrns((prev) => [...prev, mediaId]);
         
         let mediaType: string;
         if (data.media_type === 'video') {
           mediaType = 'Video';
         } else if (data.media_type === 'document') {
           mediaType = 'Document';
+        } else if (data.media_type === 'gif') {
+          mediaType = 'GIF';
         } else {
           mediaType = 'Image';
         }
@@ -610,11 +724,13 @@ function AutomationPageContent() {
         });
         setTweetTitle('');
         setTweetText('');
+        setTweetMediaUrns([]);
         setShowTwitterComposeModal(false);
       } else {
         // Real mode - post to Twitter
         const response = await apiClient.post('/automation/twitter/post/', {
           text: tweetText,
+          media_urns: tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined,
         });
 
         if (response.ok) {
@@ -625,6 +741,7 @@ function AutomationPageContent() {
           });
           setTweetTitle('');
           setTweetText('');
+          setTweetMediaUrns([]);
           setShowTwitterComposeModal(false);
         } else {
           const error = await response.json();
@@ -1516,13 +1633,13 @@ function AutomationPageContent() {
                     {uploadingMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept={ACCEPTED_FILE_TYPES}
+                      accept={getAcceptedFileTypes(['linkedin'])}
                       className="hidden"
                       disabled={uploadingMedia}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          handleMediaUpload(file, setPostMediaUrns, setUploadingMedia);
+                          handleMediaUpload(file, setPostMediaUrns, setUploadingMedia, ['linkedin']);
                         }
                         e.target.value = '';
                       }}
@@ -1546,7 +1663,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['linkedin'])}</p>
               </div>
             </div>
 
@@ -1688,6 +1805,50 @@ function AutomationPageContent() {
                   )}
                 </div>
               </div>
+
+              {/* Media Upload for Twitter */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingTweetMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingTweetMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={getAcceptedFileTypes(['twitter'])}
+                      className="hidden"
+                      disabled={uploadingTweetMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setTweetMediaUrns, setUploadingTweetMedia, ['twitter']);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {tweetMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {tweetMediaUrns.length} file{tweetMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setTweetMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['twitter'])}</p>
+              </div>
             </div>
 
             {/* Action Buttons */}
@@ -1697,6 +1858,7 @@ function AutomationPageContent() {
                   setShowTwitterComposeModal(false);
                   setTweetTitle('');
                   setTweetText('');
+                  setTweetMediaUrns([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1704,7 +1866,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleTwitterPost}
-                disabled={tweetPosting || !tweetTitle.trim() || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
+                disabled={tweetPosting || uploadingTweetMedia || !tweetTitle.trim() || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
                 className={`px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
                   twitterTestMode 
                     ? 'bg-green-600 hover:bg-green-700' 
@@ -1890,13 +2052,13 @@ function AutomationPageContent() {
                     {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept={ACCEPTED_FILE_TYPES}
+                      accept={getAcceptedFileTypes(schedulePlatforms)}
                       className="hidden"
                       disabled={uploadingScheduleMedia}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia);
+                          handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia, schedulePlatforms);
                         }
                         e.target.value = '';
                       }}
@@ -1920,7 +2082,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(schedulePlatforms)}</p>
               </div>
             </div>
 
@@ -2124,13 +2286,13 @@ function AutomationPageContent() {
                     {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept={ACCEPTED_FILE_TYPES}
+                      accept={getAcceptedFileTypes(editPlatforms)}
                       className="hidden"
                       disabled={uploadingEditMedia}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          handleMediaUpload(file, setEditMediaUrns, setUploadingEditMedia);
+                          handleMediaUpload(file, setEditMediaUrns, setUploadingEditMedia, editPlatforms);
                         }
                         e.target.value = '';
                       }}
@@ -2154,7 +2316,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(editPlatforms)}</p>
               </div>
             </div>
 

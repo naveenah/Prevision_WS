@@ -5,7 +5,7 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
-from .constants import TEST_ACCESS_TOKEN
+from .constants import TEST_ACCESS_TOKEN, TWITTER_TEST_ACCESS_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def publish_scheduled_posts():
     This task should be run periodically (e.g., every minute) via Celery Beat.
     """
     from automation.models import ContentCalendar
-    from automation.services import linkedin_service
+    from automation.services import linkedin_service, twitter_service
 
     now = timezone.now()
 
@@ -61,6 +61,29 @@ def publish_scheduled_posts():
                     errors.append(f"LinkedIn: {str(e)}")
                     logger.error(f"Failed to auto-publish to LinkedIn: {e}")
 
+            elif profile.platform == "twitter" and profile.status == "connected":
+                try:
+                    # Check if test mode
+                    if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+                        results["twitter"] = {
+                            "test_mode": True,
+                            "message": "Tweet simulated in test mode",
+                        }
+                        logger.info(f"Test auto-publish to Twitter: {content.title}")
+                    else:
+                        access_token = profile.get_valid_access_token()
+                        result = twitter_service.create_tweet(
+                            access_token=access_token,
+                            text=content.content,
+                        )
+                        results["twitter"] = result
+                        logger.info(
+                            f"Successfully published to Twitter: {content.title}"
+                        )
+                except Exception as e:
+                    errors.append(f"Twitter: {str(e)}")
+                    logger.error(f"Failed to auto-publish to Twitter: {e}")
+
         # Update content status
         if errors and not results:
             content.status = "failed"
@@ -91,7 +114,7 @@ def publish_single_post(content_id):
     This can be called when a post is scheduled to run at a specific time.
     """
     from automation.models import ContentCalendar
-    from automation.services import linkedin_service
+    from automation.services import linkedin_service, twitter_service
 
     try:
         content = ContentCalendar.objects.get(id=content_id)
@@ -115,7 +138,7 @@ def publish_single_post(content_id):
         if profile.platform == "linkedin" and profile.status == "connected":
             try:
                 # Check if test mode
-                if profile.access_token == "test_access_token_not_real":
+                if profile.access_token == TEST_ACCESS_TOKEN:
                     results["linkedin"] = {
                         "test_mode": True,
                         "message": "Post simulated in test mode",
@@ -133,6 +156,27 @@ def publish_single_post(content_id):
             except Exception as e:
                 errors.append(f"LinkedIn: {str(e)}")
                 logger.error(f"Failed to publish to LinkedIn: {e}")
+
+        elif profile.platform == "twitter" and profile.status == "connected":
+            try:
+                # Check if test mode
+                if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+                    results["twitter"] = {
+                        "test_mode": True,
+                        "message": "Tweet simulated in test mode",
+                    }
+                    logger.info(f"Test publish to Twitter: {content.title}")
+                else:
+                    access_token = profile.get_valid_access_token()
+                    result = twitter_service.create_tweet(
+                        access_token=access_token,
+                        text=content.content,
+                    )
+                    results["twitter"] = result
+                    logger.info(f"Successfully published to Twitter: {content.title}")
+            except Exception as e:
+                errors.append(f"Twitter: {str(e)}")
+                logger.error(f"Failed to publish to Twitter: {e}")
 
     # Update content status
     if errors and not results:
