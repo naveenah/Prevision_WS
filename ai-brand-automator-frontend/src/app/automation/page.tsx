@@ -280,6 +280,7 @@ function AutomationPageContent() {
   const [tweetTitle, setTweetTitle] = useState('');
   const [tweetText, setTweetText] = useState('');
   const [tweetMediaUrns, setTweetMediaUrns] = useState<string[]>([]);
+  const [tweetMediaPreview, setTweetMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingTweetMedia, setUploadingTweetMedia] = useState(false);
   const [tweetPosting, setTweetPosting] = useState(false);
   const [twitterTestMode, setTwitterTestMode] = useState(true); // Default to test mode for safety
@@ -725,12 +726,17 @@ function AutomationPageContent() {
         setTweetTitle('');
         setTweetText('');
         setTweetMediaUrns([]);
+        if (tweetMediaPreview) {
+          URL.revokeObjectURL(tweetMediaPreview.url);
+          setTweetMediaPreview(null);
+        }
         setShowTwitterComposeModal(false);
       } else {
         // Real mode - post to Twitter
         const response = await apiClient.post('/automation/twitter/post/', {
+          title: tweetTitle.trim() || undefined,
           text: tweetText,
-          media_urns: tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined,
+          media_ids: tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined,
         });
 
         if (response.ok) {
@@ -742,7 +748,13 @@ function AutomationPageContent() {
           setTweetTitle('');
           setTweetText('');
           setTweetMediaUrns([]);
+          if (tweetMediaPreview) {
+            URL.revokeObjectURL(tweetMediaPreview.url);
+            setTweetMediaPreview(null);
+          }
           setShowTwitterComposeModal(false);
+          // Refresh published posts to show the new tweet
+          fetchPublishedPosts();
         } else {
           const error = await response.json();
           setMessage({
@@ -1712,6 +1724,11 @@ function AutomationPageContent() {
                 setShowTwitterComposeModal(false);
                 setTweetTitle('');
                 setTweetText('');
+                setTweetMediaUrns([]);
+                if (tweetMediaPreview) {
+                  URL.revokeObjectURL(tweetMediaPreview.url);
+                  setTweetMediaPreview(null);
+                }
               }}
               className="absolute top-4 right-4 text-brand-silver hover:text-white"
             >
@@ -1823,6 +1840,10 @@ function AutomationPageContent() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setTweetMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
                           handleMediaUpload(file, setTweetMediaUrns, setUploadingTweetMedia, ['twitter']);
                         }
                         e.target.value = '';
@@ -1836,7 +1857,13 @@ function AutomationPageContent() {
                       </svg>
                       {tweetMediaUrns.length} file{tweetMediaUrns.length > 1 ? 's' : ''} attached
                       <button
-                        onClick={() => setTweetMediaUrns([])}
+                        onClick={() => {
+                          setTweetMediaUrns([]);
+                          if (tweetMediaPreview) {
+                            URL.revokeObjectURL(tweetMediaPreview.url);
+                            setTweetMediaPreview(null);
+                          }
+                        }}
                         className="text-red-400 hover:text-red-300 ml-2"
                         title="Remove media"
                       >
@@ -1847,6 +1874,35 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
+                {/* Media Preview */}
+                {tweetMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {tweetMediaPreview.type === 'video' ? (
+                      <video 
+                        src={tweetMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={tweetMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingTweetMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['twitter'])}</p>
               </div>
             </div>
@@ -1859,6 +1915,10 @@ function AutomationPageContent() {
                   setTweetTitle('');
                   setTweetText('');
                   setTweetMediaUrns([]);
+                  if (tweetMediaPreview) {
+                    URL.revokeObjectURL(tweetMediaPreview.url);
+                    setTweetMediaPreview(null);
+                  }
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
