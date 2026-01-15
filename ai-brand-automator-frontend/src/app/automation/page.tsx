@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api';
@@ -80,7 +80,25 @@ interface ScheduledPost {
   status_display: string;
 }
 
+// Loading fallback for Suspense
+function AutomationLoading() {
+  return (
+    <div className="min-h-screen bg-brand-midnight flex items-center justify-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand-electric"></div>
+    </div>
+  );
+}
+
+// Main page wrapper with Suspense
 export default function AutomationPage() {
+  return (
+    <Suspense fallback={<AutomationLoading />}>
+      <AutomationPageContent />
+    </Suspense>
+  );
+}
+
+function AutomationPageContent() {
   useAuth();
   const searchParams = useSearchParams();
   
@@ -165,18 +183,8 @@ export default function AutomationPage() {
     fetchData();
   }, []);
 
-  // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchScheduledPosts();
-      fetchPublishedPosts();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
   // Fetch scheduled posts function (for refresh after actions)
-  const fetchScheduledPosts = async () => {
+  const fetchScheduledPosts = useCallback(async () => {
     try {
       const response = await apiClient.get('/automation/content-calendar/upcoming/');
       if (response.ok) {
@@ -186,10 +194,10 @@ export default function AutomationPage() {
     } catch (error) {
       console.error('Failed to fetch scheduled posts:', error);
     }
-  };
+  }, []);
 
   // Fetch published posts
-  const fetchPublishedPosts = async (limit?: number) => {
+  const fetchPublishedPosts = useCallback(async (limit?: number) => {
     try {
       const queryLimit = limit ?? publishedPostsLimit;
       const response = await apiClient.get(`/automation/content-calendar/?status=published&limit=${queryLimit}`);
@@ -206,7 +214,17 @@ export default function AutomationPage() {
     } catch (error) {
       console.error('Failed to fetch published posts:', error);
     }
-  };
+  }, [publishedPostsLimit]);
+
+  // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchScheduledPosts();
+      fetchPublishedPosts();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchScheduledPosts, fetchPublishedPosts]);
 
   const handleConnect = async (platform: string) => {
     if (platform !== 'linkedin') {
