@@ -283,8 +283,6 @@ function AutomationPageContent() {
   const [tweetMediaPreview, setTweetMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingTweetMedia, setUploadingTweetMedia] = useState(false);
   const [tweetPosting, setTweetPosting] = useState(false);
-  const [twitterTestMode, setTwitterTestMode] = useState(true); // Default to test mode for safety
-  const [testTweets, setTestTweets] = useState<Array<{ id: string; title: string; text: string; created_at: string }>>([]);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -710,18 +708,21 @@ function AutomationPageContent() {
 
     setTweetPosting(true);
     try {
-      if (twitterTestMode) {
-        // In test mode, simulate the tweet locally
-        const testTweet = {
-          id: `test_${Date.now()}`,
-          title: tweetTitle,
-          text: tweetText,
-          created_at: new Date().toISOString(),
-        };
-        setTestTweets(prev => [testTweet, ...prev]);
+      // Always call the backend - test mode is handled by the backend based on Twitter profile settings
+      const response = await apiClient.post('/automation/twitter/post/', {
+        title: tweetTitle.trim() || undefined,
+        text: tweetText,
+        media_ids: tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const isTestMode = data.test_mode === true;
         setMessage({
           type: 'success',
-          text: '🧪 Test tweet simulated! (Not posted to Twitter)',
+          text: isTestMode 
+            ? '🧪 Tweet simulated (Test Mode - saved to history)' 
+            : `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
         });
         setTweetTitle('');
         setTweetText('');
@@ -731,37 +732,14 @@ function AutomationPageContent() {
           setTweetMediaPreview(null);
         }
         setShowTwitterComposeModal(false);
+        // Refresh published posts to show the new tweet
+        fetchPublishedPosts();
       } else {
-        // Real mode - post to Twitter
-        const response = await apiClient.post('/automation/twitter/post/', {
-          title: tweetTitle.trim() || undefined,
-          text: tweetText,
-          media_ids: tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined,
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to post tweet',
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          setMessage({
-            type: 'success',
-            text: `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
-          });
-          setTweetTitle('');
-          setTweetText('');
-          setTweetMediaUrns([]);
-          if (tweetMediaPreview) {
-            URL.revokeObjectURL(tweetMediaPreview.url);
-            setTweetMediaPreview(null);
-          }
-          setShowTwitterComposeModal(false);
-          // Refresh published posts to show the new tweet
-          fetchPublishedPosts();
-        } else {
-          const error = await response.json();
-          setMessage({
-            type: 'error',
-            text: error.error || 'Failed to post tweet',
-          });
-        }
       }
     } catch (error) {
       console.error('Failed to post tweet:', error);
@@ -1328,58 +1306,9 @@ function AutomationPageContent() {
             </div>
           </div>
           
-          {/* Combined list of published posts and test tweets */}
-          {(publishedPosts.length > 0 || testTweets.length > 0) ? (
+          {/* Combined list of published posts */}
+          {publishedPosts.length > 0 ? (
             <div className="space-y-4">
-              {/* Test Tweets (if any) */}
-              {testTweets.map((tweet) => (
-                <div
-                  key={`tweet-${tweet.id}`}
-                  className="glass-card p-4 border border-yellow-500/20"
-                >
-                  <div className="flex items-start gap-3">
-                    {/* Twitter Icon */}
-                    <div className="p-1.5 rounded bg-black flex-shrink-0">
-                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-white font-medium">{tweet.title}</h4>
-                        <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
-                          🧪 Test Mode
-                        </span>
-                      </div>
-                      <p className="mt-1 text-brand-silver/70 text-sm whitespace-pre-wrap break-words line-clamp-2">{tweet.text}</p>
-                      <div className="flex items-center gap-4 mt-3">
-                        <span className="text-xs text-yellow-400 flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          {new Date(tweet.created_at).toLocaleString(undefined, {
-                            weekday: 'short',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setTestTweets(prev => prev.filter(t => t.id !== tweet.id))}
-                      className="text-red-400 hover:text-red-300 p-1"
-                      title="Remove"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
-              
               {/* Published Posts */}
               {publishedPosts.map((post) => (
                 <div key={`post-${post.id}`} className="glass-card p-4 border border-green-500/20">
@@ -1444,21 +1373,6 @@ function AutomationPageContent() {
               <p className="text-brand-silver/70 max-w-md mx-auto">
                 Once you post or schedule content, it will appear here.
               </p>
-            </div>
-          )}
-          
-          {/* Clear Test Tweets Button */}
-          {testTweets.length > 0 && (
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setTestTweets([])}
-                className="text-sm text-red-400 hover:text-red-300 flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Clear Test Tweets
-              </button>
             </div>
           )}
         </div>
@@ -1752,35 +1666,12 @@ function AutomationPageContent() {
               </div>
             </div>
 
-            {/* Test Mode Toggle */}
-            <div className="mb-4 p-3 rounded-lg bg-white/5 border border-brand-ghost/20">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-sm font-medium text-white">Test Mode</span>
-                  <p className="text-xs text-brand-silver/70">Simulates tweets without posting to Twitter</p>
-                </div>
-                <button
-                  onClick={() => setTwitterTestMode(!twitterTestMode)}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
-                    twitterTestMode ? 'bg-green-600' : 'bg-gray-600'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                      twitterTestMode ? 'translate-x-7' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
+            {/* Info about test mode */}
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <p className="text-blue-400 text-sm">
+                ℹ️ Test mode is automatically enabled when using test credentials. Connect real Twitter API credentials to post live tweets.
+              </p>
             </div>
-
-            {!twitterTestMode && (
-              <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-                <p className="text-yellow-400 text-sm">
-                  ⚠️ <strong>Live Mode Active!</strong> Tweets will be posted to your real Twitter account.
-                </p>
-              </div>
-            )}
 
             {/* Form Fields */}
             <div className="space-y-4 mb-6">
@@ -1815,11 +1706,6 @@ function AutomationPageContent() {
                   }`}>
                     {tweetText.length} / {TWITTER_MAX_LENGTH} characters
                   </span>
-                  {twitterTestMode && (
-                    <span className="text-green-400 flex items-center gap-1">
-                      <span>🧪</span> Test Mode
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -1927,11 +1813,7 @@ function AutomationPageContent() {
               <button
                 onClick={handleTwitterPost}
                 disabled={tweetPosting || uploadingTweetMedia || !tweetTitle.trim() || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
-                className={`px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
-                  twitterTestMode 
-                    ? 'bg-green-600 hover:bg-green-700' 
-                    : 'bg-black hover:bg-gray-800'
-                }`}
+                className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-black hover:bg-gray-800"
               >
                 {tweetPosting ? (
                   <>
@@ -1939,10 +1821,10 @@ function AutomationPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    {twitterTestMode ? 'Simulating...' : 'Posting...'}
+                    Posting...
                   </>
                 ) : (
-                  twitterTestMode ? '🧪 Test Tweet' : 'Post Tweet'
+                  'Post Tweet'
                 )}
               </button>
             </div>
