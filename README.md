@@ -15,6 +15,9 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 - 📁 **File Upload** - Multi-file drag-and-drop with GCS integration
 - 💳 **Stripe Integration** - Subscription plans with checkout and billing portal
 - 📱 **Mobile Ready** - Responsive design with network testing support
+- 🔗 **LinkedIn Integration** - OAuth 2.0 with posting and scheduling
+- 📅 **Content Calendar** - Schedule and manage social media posts
+- ⚡ **Celery Automation** - Background task processing for scheduled posts
 
 ## Tech Stack
 
@@ -23,6 +26,7 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 - **PostgreSQL** (Neon hosted) with multi-tenancy
 - **Google Gemini 2.0 Flash** for AI content generation
 - **Stripe** for subscription management
+- **Celery 5.6** + Redis for background task processing
 - **JWT Authentication** with token refresh
 
 ### Frontend
@@ -37,21 +41,29 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 .
 ├── ai-brand-automator/          # Django backend
 │   ├── ai_services/             # AI integration & chat
-│   ├── automation/              # Background tasks (future)
+│   ├── automation/              # Social media automation & LinkedIn
+│   │   ├── docs/                # Integration documentation
+│   │   ├── models.py            # SocialProfile, ContentCalendar
+│   │   ├── services.py          # LinkedIn API service
+│   │   ├── tasks.py             # Celery background tasks
+│   │   └── views.py             # OAuth & posting endpoints
 │   ├── files/                   # File upload service
 │   ├── onboarding/              # Company onboarding
 │   ├── subscriptions/           # Stripe subscription management
 │   ├── tenants/                 # Multi-tenancy models
-│   └── brand_automator/         # Django settings
+│   └── brand_automator/         # Django settings & Celery config
 │
 ├── ai-brand-automator-frontend/ # Next.js frontend
 │   └── src/
 │       ├── app/                 # Next.js pages
+│       │   ├── automation/      # Social media automation page
+│       │   ├── dashboard/       # Main dashboard
+│       │   └── subscription/    # Billing management
 │       ├── components/          # React components
 │       ├── hooks/               # Custom hooks (useAuth)
 │       └── lib/                 # API client & utilities
 │
-└── plans/                       # Architecture documentation
+└── docs/                        # Architecture documentation
 ```
 
 ## Quick Start
@@ -128,6 +140,20 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
    python manage.py runserver 0.0.0.0:8000
    ```
 
+7. **Start Celery for background tasks** (optional, for scheduled posting):
+   ```bash
+   # Terminal 1 - Start Redis (macOS)
+   brew services start redis
+   
+   # Terminal 2 - Celery Worker
+   cd ai-brand-automator
+   ../.venv/bin/python -m celery -A brand_automator worker -l info
+   
+   # Terminal 3 - Celery Beat (scheduler)
+   cd ai-brand-automator
+   ../.venv/bin/python -m celery -A brand_automator beat -l info
+   ```
+
 ### Frontend Setup
 
 1. **Install dependencies**:
@@ -188,6 +214,20 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 - `POST /api/v1/subscriptions/create-portal-session/` - Customer billing portal
 - `POST /api/v1/subscriptions/cancel/` - Cancel subscription
 
+### Social Media Automation
+- `GET /api/v1/automation/social-profiles/` - List connected profiles
+- `GET /api/v1/automation/social-profiles/status/` - Platform connection status
+- `GET /api/v1/automation/linkedin/connect/` - Initiate LinkedIn OAuth
+- `GET /api/v1/automation/linkedin/callback/` - OAuth callback handler
+- `POST /api/v1/automation/linkedin/test-connect/` - Test mode connection (DEBUG only)
+- `POST /api/v1/automation/linkedin/disconnect/` - Disconnect LinkedIn account
+- `POST /api/v1/automation/linkedin/post/` - Post to LinkedIn immediately
+- `GET /api/v1/automation/content-calendar/` - List scheduled posts
+- `POST /api/v1/automation/content-calendar/` - Create scheduled post
+- `GET /api/v1/automation/content-calendar/upcoming/` - Get upcoming posts
+- `POST /api/v1/automation/content-calendar/{id}/publish/` - Publish post now
+- `POST /api/v1/automation/content-calendar/{id}/cancel/` - Cancel scheduled post
+
 ## User Flow
 
 1. **Registration** → Create account + tenant
@@ -198,6 +238,7 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 6. **Onboarding Step 5** → Review & generate brand strategy with AI
 7. **Dashboard** → View metrics and recent activity
 8. **Chat** → Interact with AI for brand guidance
+9. **Automation** → Connect LinkedIn, create and schedule posts
 
 ## Development
 
@@ -279,6 +320,11 @@ tenant = Tenant.objects.create(
 | `STRIPE_PRICE_BASIC` | ✅ Yes | Basic plan price ID | `price_...` |
 | `STRIPE_PRICE_PRO` | ✅ Yes | Pro plan price ID | `price_...` |
 | `STRIPE_PRICE_ENTERPRISE` | ✅ Yes | Enterprise price ID | `price_...` |
+| `LINKEDIN_CLIENT_ID` | ⚠️ Optional | LinkedIn OAuth app ID | `77xxx...` |
+| `LINKEDIN_CLIENT_SECRET` | ⚠️ Optional | LinkedIn OAuth secret | `WPLxxx...` |
+| `LINKEDIN_REDIRECT_URI` | ⚠️ Optional | OAuth callback URL | `http://localhost:8000/api/v1/automation/linkedin/callback/` |
+| `CELERY_BROKER_URL` | ⚠️ Optional | Redis broker URL | `redis://localhost:6379/0` |
+| `CELERY_RESULT_BACKEND` | ⚠️ Optional | Redis result backend | `redis://localhost:6379/0` |
 
 ### Frontend (.env.local)
 
@@ -351,9 +397,9 @@ See [LICENSE.md](LICENSE.md)
 
 ## Status
 
-**Current Version**: MVP 1.1  
+**Current Version**: MVP 1.2  
 **Status**: ✅ Production Ready  
-**Last Updated**: January 14, 2026
+**Last Updated**: January 15, 2026
 
 ### Completed Features
 - ✅ Multi-tenant authentication
@@ -368,9 +414,17 @@ See [LICENSE.md](LICENSE.md)
 - ✅ Stripe subscription management
 - ✅ Checkout flow with plan sync
 - ✅ Mobile/network testing support
+- ✅ LinkedIn OAuth integration with token encryption
+- ✅ Immediate LinkedIn posting
+- ✅ Content Calendar with scheduling
+- ✅ Celery-based automatic publishing (every 60 seconds)
+- ✅ Published posts history with configurable limit
+- ✅ Test mode for LinkedIn development
 
 ### Pending Features (Post-MVP)
-- ⏳ Social media automation
-- ⏳ Content scheduling
+- ⏳ Twitter/X integration
+- ⏳ Instagram integration
+- ⏳ Facebook integration
+- ⏳ Media attachments in posts
 - ⏳ Advanced analytics
 - ⏳ Team member invites

@@ -298,7 +298,7 @@ export function OnboardingReview() {
           <button
             type="button"
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-2 bg-brand-mint text-brand-midnight rounded-lg hover:bg-brand-mint/80 font-medium transition-colors"
+            className="btn-primary"
           >
             Complete & Go to Dashboard
           </button>

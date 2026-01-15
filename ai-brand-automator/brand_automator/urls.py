@@ -73,6 +73,8 @@ urlpatterns = [
                 path("ai/", include("ai_services.urls")),
                 # Subscriptions
                 path("subscriptions/", include("subscriptions.urls")),
+                # Automation (LinkedIn, social media, content scheduling)
+                path("automation/", include("automation.urls")),
             ]
         ),
     ),

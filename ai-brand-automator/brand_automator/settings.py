@@ -85,16 +85,17 @@ SHARED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
     "corsheaders",
+    "django_celery_beat",  # Celery periodic tasks
     # Our shared apps
     "ai_services",  # AI integration (shared for logging)
     "onboarding",  # Company data (has FK to Tenant)
     "subscriptions",  # Stripe payment integration
+    "automation",  # Social media automation (shared - models reference User)
 ]
 
 TENANT_APPS = [
     # Our apps
     "files",  # file management
-    "automation",  # automation features
     # Django apps that must be in each tenant
     "django.contrib.contenttypes",
     "django.contrib.auth",
@@ -415,3 +416,34 @@ STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
 STRIPE_PRICE_BASIC = config("STRIPE_PRICE_BASIC", default="")
 STRIPE_PRICE_PRO = config("STRIPE_PRICE_PRO", default="")
 STRIPE_PRICE_ENTERPRISE = config("STRIPE_PRICE_ENTERPRISE", default="")
+
+# LinkedIn OAuth Configuration
+LINKEDIN_CLIENT_ID = config("LINKEDIN_CLIENT_ID", default="")
+LINKEDIN_CLIENT_SECRET = config("LINKEDIN_CLIENT_SECRET", default="")
+LINKEDIN_REDIRECT_URI = config(
+    "LINKEDIN_REDIRECT_URI",
+    default="http://localhost:8000/api/v1/automation/linkedin/callback/",
+)
+
+# Frontend URL for OAuth redirects
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
+
+# Celery Configuration
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
+)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+CELERY_ENABLE_UTC = True
+
+# Celery Beat Configuration (for periodic tasks)
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULE = {
+    "publish-scheduled-posts": {
+        "task": "automation.publish_scheduled_posts",
+        "schedule": 300.0,  # Run every 5 minutes (reduced from 60s for efficiency)
+    },
+}
