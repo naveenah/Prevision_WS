@@ -169,9 +169,28 @@ CELERY_BEAT_SCHEDULE = {
   - Frontend: Media upload UI in Compose, Schedule, and Edit modals
   - Supports file upload and URL-based upload
   - Test mode simulation for development
-  - **Image Support:** Max 8MB, supports JPEG/PNG/GIF (per LinkedIn standards)
-  - **Video Support:** Max 500MB, MP4 only (per LinkedIn standards), async processing
-  - **LinkedIn Video Specs:** Duration 3s-30min, file size 75KB-500MB, MP4 format only
+
+### Media Upload Specifications (LinkedIn Standards Compliant)
+
+| Media Type | Specification | LinkedIn Standard | Our Implementation |
+|------------|---------------|-------------------|-------------------|
+| **Image** | Max File Size | 8MB | ✅ 8MB |
+| **Image** | Formats | JPEG, PNG, GIF | ✅ JPEG, PNG, GIF |
+| **Image** | Aspect Ratio | 1.91:1 to 1:1.91 | ✅ Any (LinkedIn auto-crops) |
+| **Video** | Max File Size | 500MB (organic posts) | ✅ 500MB |
+| **Video** | Min File Size | 75KB | ✅ Validated |
+| **Video** | Format | MP4 only | ✅ MP4 only |
+| **Video** | Duration | 3 seconds - 30 minutes | ⚠️ Not validated (LinkedIn handles) |
+| **Video** | Processing | Async (PROCESSING → AVAILABLE) | ✅ Status polling endpoint |
+
+**Implementation Files:**
+- Backend validation: `automation/views.py` - `LinkedInMediaUploadView.IMAGE_TYPES`, `VIDEO_TYPES`, `MAX_IMAGE_SIZE`, `MAX_VIDEO_SIZE`
+- Frontend validation: `src/app/automation/page.tsx` - `handleMediaUpload()` function
+- Video status: `automation/views.py` - `LinkedInVideoStatusView`
+
+**API Endpoints:**
+- `POST /api/v1/automation/linkedin/media/upload/` - Upload image or video
+- `GET /api/v1/automation/linkedin/video/status/<asset_urn>/` - Check video processing status
 
 ---
 
