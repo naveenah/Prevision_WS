@@ -509,6 +509,34 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
             if linkedin_profile:
                 instance.social_profiles.add(linkedin_profile)
 
+    def update(self, request, *args, **kwargs):
+        """Update a scheduled post. Only draft/scheduled posts can be edited."""
+        instance = self.get_object()
+
+        # Prevent editing published, failed, or cancelled posts
+        if instance.status not in ["draft", "scheduled"]:
+            return Response(
+                {"error": f"Cannot edit a post with status '{instance.status}'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        """Handle platform changes when updating a post."""
+        instance = serializer.save()
+
+        # Re-link LinkedIn profile if platforms changed
+        if "linkedin" in instance.platforms:
+            linkedin_profile = SocialProfile.objects.filter(
+                user=self.request.user, platform="linkedin", status="connected"
+            ).first()
+            if (
+                linkedin_profile
+                and linkedin_profile not in instance.social_profiles.all()
+            ):
+                instance.social_profiles.add(linkedin_profile)
+
     @action(detail=False, methods=["get"])
     def upcoming(self, request):
         """Get all scheduled posts (pending and overdue) ordered by date."""

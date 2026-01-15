@@ -1,6 +1,6 @@
 # LinkedIn Integration - Complete Implementation Report
 
-**Last Updated:** January 14, 2026  
+**Last Updated:** January 15, 2026  
 **Status:** MVP Complete ✅
 
 ---
@@ -63,12 +63,14 @@ The LinkedIn integration is **fully implemented** for MVP functionality includin
 |---------|--------|---------|
 | Immediate Post | ✅ Complete | POST to `/linkedin/post/` with title (optional) + content |
 | Scheduled Post | ✅ Complete | Content Calendar with date/time picker |
+| Edit Scheduled Post | ✅ Complete | PUT endpoint + Edit modal with pre-filled fields |
 | Cancel Scheduled | ✅ Complete | `/content-calendar/{id}/cancel/` endpoint |
 | Publish Now | ✅ Complete | `/content-calendar/{id}/publish/` for manual publish |
 
 **Endpoints:**
 - `POST /api/v1/automation/linkedin/post/` - Post immediately
 - `POST /api/v1/automation/content-calendar/` - Create scheduled post
+- `PUT /api/v1/automation/content-calendar/{id}/` - Edit scheduled post
 - `POST /api/v1/automation/content-calendar/{id}/publish/` - Publish now
 - `POST /api/v1/automation/content-calendar/{id}/cancel/` - Cancel scheduled
 
@@ -108,7 +110,7 @@ class ContentCalendar(models.Model):
 
 | Feature | Status | Details |
 |---------|--------|---------|
-| Periodic Task | ✅ Complete | `publish_scheduled_posts` runs every 60 seconds |
+| Periodic Task | ✅ Complete | `publish_scheduled_posts` runs every 5 minutes |
 | On-demand Task | ✅ Complete | `publish_single_post(content_id)` |
 | Test Mode Handling | ✅ Complete | Simulates publish without real API |
 | Status Updates | ✅ Complete | Updates to `published` or `failed` |
@@ -123,7 +125,7 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_BEAT_SCHEDULE = {
     'publish-scheduled-posts': {
         'task': 'automation.publish_scheduled_posts',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 300.0,  # Every 5 minutes
     },
 }
 ```
@@ -140,7 +142,8 @@ CELERY_BEAT_SCHEDULE = {
 | Platform Cards | ✅ Complete | LinkedIn active, others "Coming Soon" |
 | Compose Post Modal | ✅ Complete | Title + Content fields, character counter |
 | Schedule Post Modal | ✅ Complete | Title, Content, Date, Time pickers |
-| Scheduled Posts List | ✅ Complete | Overdue indicator, Publish/Cancel buttons |
+| Edit Post Modal | ✅ Complete | Pre-filled fields, update scheduled posts |
+| Scheduled Posts List | ✅ Complete | Overdue indicator, Edit/Publish/Cancel buttons |
 | Published Posts List | ✅ Complete | Configurable limit (3/6/10), Test Mode badge |
 | Auto-Refresh | ✅ Complete | 30-second polling for Celery updates |
 | Button Styling | ✅ Complete | Consistent brand palette across all buttons |
@@ -155,21 +158,14 @@ CELERY_BEAT_SCHEDULE = {
 | Feature | Status | Notes | Priority |
 |---------|--------|-------|----------|
 | Media Attachments | 🟡 Stubbed | Model has `media_urls` field, not processed in API | MEDIUM |
-| Edit Scheduled Post | 🟡 Missing | Only create/publish/cancel - no edit endpoint | LOW |
 | Automation Tasks View | 🟡 Placeholder | UI section exists, no task management | LOW |
 
 ### Implementation Notes:
 
 **Media Attachments:**
 - `ContentCalendar.media_urls` field exists (JSONField)
-- `LinkedInService.create_share()` accepts `media_urls` parameter but doesn't process
 - LinkedIn API supports image/video uploads via separate endpoint
 - Requires: Register media asset → Upload binary → Get asset URN → Include in share
-
-**Edit Scheduled Post:**
-- Current flow: Create → View → Publish/Cancel
-- Need: PUT/PATCH endpoint on ContentCalendarViewSet
-- Frontend: Edit modal with pre-filled fields
 
 ---
 
@@ -353,6 +349,9 @@ curl -X POST http://localhost:8000/api/v1/automation/content-calendar/ \
 
 | Date | Changes |
 |------|---------|
+| 2026-01-15 | Added Edit Scheduled Post feature (backend + frontend) |
+| 2026-01-15 | Changed Celery schedule from 60s to 5 minutes for efficiency |
+| 2026-01-15 | Addressed PR review: constants, encryption security, version bounds |
 | 2026-01-14 | Initial MVP complete - OAuth, posting, scheduling, Celery |
 | 2026-01-14 | Added token encryption, auto-refresh |
 | 2026-01-14 | Added title field to Compose Post modal |

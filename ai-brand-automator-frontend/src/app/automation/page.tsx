@@ -124,6 +124,15 @@ function AutomationPageContent() {
   const [publishedPosts, setPublishedPosts] = useState<ScheduledPost[]>([]);
   const [publishedPostsLimit, setPublishedPostsLimit] = useState<number>(6);
 
+  // Edit post state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editing, setEditing] = useState(false);
+
   // Check for OAuth callback results
   useEffect(() => {
     const success = searchParams.get('success');
@@ -482,6 +491,60 @@ function AutomationPageContent() {
     }
   };
 
+  // Open edit modal with post data
+  const openEditModal = (post: ScheduledPost) => {
+    setEditingPost(post);
+    setEditTitle(post.title);
+    setEditContent(post.content);
+    // Parse the scheduled date/time
+    const date = new Date(post.scheduled_date);
+    setEditDate(date.toISOString().split('T')[0]);
+    setEditTime(date.toTimeString().slice(0, 5));
+    setShowEditModal(true);
+  };
+
+  // Handle updating a scheduled post
+  const handleEditPost = async () => {
+    if (!editingPost) return;
+    
+    setEditing(true);
+    try {
+      const scheduledDate = new Date(`${editDate}T${editTime}`);
+      
+      const response = await apiClient.put(`/automation/content-calendar/${editingPost.id}/`, {
+        title: editTitle,
+        content: editContent,
+        platforms: editingPost.platforms,
+        scheduled_date: scheduledDate.toISOString(),
+        status: 'scheduled',
+      });
+
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'Post updated successfully!',
+        });
+        setShowEditModal(false);
+        setEditingPost(null);
+        fetchScheduledPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to update post',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update post:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to update post. Please try again.',
+      });
+    } finally {
+      setEditing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-brand-midnight">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -699,6 +762,15 @@ function AutomationPageContent() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-4">
+                      <button
+                        onClick={() => openEditModal(post)}
+                        className="px-3 py-1.5 text-xs rounded border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+                        title="Edit post"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
                       <button
                         onClick={() => handlePublishNow(post.id)}
                         className="px-3 py-1.5 text-xs rounded bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
@@ -1077,6 +1149,143 @@ function AutomationPageContent() {
                   </>
                 ) : (
                   'Schedule Post'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Post Modal */}
+      {showEditModal && editingPost && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingPost(null);
+                setEditTitle('');
+                setEditContent('');
+                setEditDate('');
+                setEditTime('');
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-brand-electric text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Edit Scheduled Post</h2>
+                <p className="text-sm text-brand-silver/70">
+                  Update your scheduled post details
+                </p>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Give your post a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  placeholder="What do you want to share?"
+                  rows={4}
+                  maxLength={3000}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="text-xs text-brand-silver/50 mt-1">
+                  {editContent.length} / 3,000 characters
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                  />
+                </div>
+              </div>
+              
+              <div className="p-3 bg-white/5 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded bg-[#0A66C2]">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                    </svg>
+                  </div>
+                  <span className="text-sm text-white">LinkedIn</span>
+                  <span className="text-xs text-brand-silver/50 ml-auto">
+                    {editingPost.platforms.join(', ')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingPost(null);
+                  setEditTitle('');
+                  setEditContent('');
+                  setEditDate('');
+                  setEditTime('');
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditPost}
+                disabled={editing || !editTitle.trim() || !editContent.trim() || !editDate || !editTime}
+                className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {editing ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
                 )}
               </button>
             </div>
