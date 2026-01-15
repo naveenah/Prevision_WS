@@ -169,8 +169,9 @@ CELERY_BEAT_SCHEDULE = {
   - Frontend: Media upload UI in Compose, Schedule, and Edit modals
   - Supports file upload and URL-based upload
   - Test mode simulation for development
-  - **Image Support:** Max 8MB, supports JPEG/PNG/GIF
-  - **Video Support:** Max 200MB, supports MP4/MOV/AVI/WebM (async processing)
+  - **Image Support:** Max 8MB, supports JPEG/PNG/GIF (per LinkedIn standards)
+  - **Video Support:** Max 500MB, MP4 only (per LinkedIn standards), async processing
+  - **LinkedIn Video Specs:** Duration 3s-30min, file size 75KB-500MB, MP4 format only
 
 ---
 
