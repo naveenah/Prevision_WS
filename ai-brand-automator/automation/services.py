@@ -186,7 +186,14 @@ class LinkedInService:
             logger.error(f"LinkedIn profile fetch failed: {e}")
             raise Exception(f"Failed to fetch profile: {str(e)}")
 
-    def create_share(self, access_token: str, user_urn: str, text: str, image_urns: list = None, video_urn: str = None) -> dict:
+    def create_share(
+        self,
+        access_token: str,
+        user_urn: str,
+        text: str,
+        image_urns: list = None,
+        video_urn: str = None,
+    ) -> dict:
         """
         Create a share (post) on LinkedIn.
 
@@ -233,11 +240,13 @@ class LinkedInService:
             # Build media array for the share
             media_items = []
             for urn in image_urns:
-                media_items.append({
-                    "status": "READY",
-                    "media": urn,
-                })
-            
+                media_items.append(
+                    {
+                        "status": "READY",
+                        "media": urn,
+                    }
+                )
+
             payload = {
                 "author": author_urn,
                 "lifecycleState": "PUBLISHED",
@@ -343,7 +352,9 @@ class LinkedInService:
             logger.error(f"LinkedIn image registration failed: {e}")
             raise Exception(f"Failed to register image upload: {str(e)}")
 
-    def upload_image(self, upload_url: str, image_data: bytes, content_type: str = "image/jpeg") -> bool:
+    def upload_image(
+        self, upload_url: str, image_data: bytes, content_type: str = "image/jpeg"
+    ) -> bool:
         """
         Upload image binary data to LinkedIn's upload URL.
 
@@ -371,7 +382,9 @@ class LinkedInService:
             logger.error(f"LinkedIn image upload failed: {e}")
             raise Exception(f"Failed to upload image: {str(e)}")
 
-    def upload_image_from_url(self, access_token: str, user_urn: str, image_url: str) -> str:
+    def upload_image_from_url(
+        self, access_token: str, user_urn: str, image_url: str
+    ) -> str:
         """
         Upload an image from a URL to LinkedIn.
 
@@ -408,7 +421,9 @@ class LinkedInService:
 
     # ==================== VIDEO UPLOAD METHODS ====================
 
-    def register_video_upload(self, access_token: str, user_urn: str, file_size: int) -> dict:
+    def register_video_upload(
+        self, access_token: str, user_urn: str, file_size: int
+    ) -> dict:
         """
         Register a video upload with LinkedIn to get upload instructions.
 
@@ -472,7 +487,9 @@ class LinkedInService:
             logger.error(f"LinkedIn video registration failed: {e}")
             raise Exception(f"Failed to register video upload: {str(e)}")
 
-    def upload_video(self, upload_url: str, video_data: bytes, content_type: str = "video/mp4") -> bool:
+    def upload_video(
+        self, upload_url: str, video_data: bytes, content_type: str = "video/mp4"
+    ) -> bool:
         """
         Upload video binary data to LinkedIn's upload URL.
 
@@ -529,7 +546,7 @@ class LinkedInService:
 
             recipes = data.get("recipes", [])
             status = "PROCESSING"
-            
+
             for recipe in recipes:
                 recipe_status = recipe.get("status")
                 if recipe_status == "AVAILABLE":
@@ -551,7 +568,13 @@ class LinkedInService:
             logger.error(f"LinkedIn video status check failed: {e}")
             raise Exception(f"Failed to check video status: {str(e)}")
 
-    def upload_video_file(self, access_token: str, user_urn: str, video_data: bytes, content_type: str = "video/mp4") -> dict:
+    def upload_video_file(
+        self,
+        access_token: str,
+        user_urn: str,
+        video_data: bytes,
+        content_type: str = "video/mp4",
+    ) -> dict:
         """
         Upload a video file to LinkedIn.
 
@@ -565,7 +588,7 @@ class LinkedInService:
             Dictionary with asset_urn and initial status
         """
         file_size = len(video_data)
-        
+
         # Register the upload
         upload_info = self.register_video_upload(access_token, user_urn, file_size)
         upload_url = upload_info.get("upload_url")
@@ -637,7 +660,9 @@ class LinkedInService:
             logger.error(f"LinkedIn document registration failed: {e}")
             raise Exception(f"Failed to register document upload: {str(e)}")
 
-    def upload_document(self, upload_url: str, document_data: bytes, content_type: str) -> bool:
+    def upload_document(
+        self, upload_url: str, document_data: bytes, content_type: str
+    ) -> bool:
         """
         Upload document binary data to LinkedIn's upload URL.
 
@@ -706,7 +731,14 @@ class LinkedInService:
             logger.error(f"LinkedIn document status check failed: {e}")
             raise Exception(f"Failed to check document status: {str(e)}")
 
-    def upload_document_file(self, access_token: str, user_urn: str, document_data: bytes, content_type: str, filename: str = None) -> dict:
+    def upload_document_file(
+        self,
+        access_token: str,
+        user_urn: str,
+        document_data: bytes,
+        content_type: str,
+        filename: str = None,
+    ) -> dict:
         """
         Upload a document file to LinkedIn.
 
