@@ -1145,10 +1145,10 @@ function AutomationPageContent() {
           )}
         </div>
 
-        {/* Published Posts Section */}
+        {/* Recent Activity Section - Combined LinkedIn posts and Tweets */}
         <div className="mt-12">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-heading font-bold text-white">Published Posts</h2>
+            <h2 className="text-2xl font-heading font-bold text-white">Recent Activity</h2>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="text-sm text-brand-silver">Show:</label>
@@ -1175,16 +1175,85 @@ function AutomationPageContent() {
                 </svg>
                 Refresh
               </button>
+              <Link
+                href="/automation/history"
+                className="text-sm text-brand-electric hover:text-brand-electric/80 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                View All History
+              </Link>
             </div>
           </div>
           
-          {publishedPosts.length > 0 ? (
+          {/* Combined list of published posts and test tweets */}
+          {(publishedPosts.length > 0 || testTweets.length > 0) ? (
             <div className="space-y-4">
+              {/* Test Tweets (if any) */}
+              {testTweets.map((tweet) => (
+                <div
+                  key={`tweet-${tweet.id}`}
+                  className="glass-card p-4 border border-yellow-500/20"
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Twitter Icon */}
+                    <div className="p-1.5 rounded bg-black flex-shrink-0">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-medium">Tweet</span>
+                        <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                          🧪 Test Mode
+                        </span>
+                        <span className="text-brand-silver/50 text-xs ml-auto">
+                          {new Date(tweet.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-brand-silver/70 text-sm whitespace-pre-wrap break-words line-clamp-2">{tweet.text}</p>
+                      <div className="mt-2 text-xs text-brand-silver/40">
+                        Simulated • ID: {tweet.id}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setTestTweets(prev => prev.filter(t => t.id !== tweet.id))}
+                      className="text-red-400 hover:text-red-300 p-1"
+                      title="Remove"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Published Posts */}
               {publishedPosts.map((post) => (
-                <div key={post.id} className="glass-card p-4 border border-green-500/20">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
+                <div key={`post-${post.id}`} className="glass-card p-4 border border-green-500/20">
+                  <div className="flex items-start gap-3">
+                    {/* Platform Icons */}
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      {post.platforms.includes('linkedin') && (
+                        <div className="p-1.5 rounded bg-[#0A66C2]" title="LinkedIn">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                          </svg>
+                        </div>
+                      )}
+                      {post.platforms.includes('twitter') && (
+                        <div className="p-1.5 rounded bg-black" title="Twitter/X">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-white font-medium">{post.title}</h4>
                         <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
                           Published
@@ -1209,9 +1278,6 @@ function AutomationPageContent() {
                             minute: '2-digit'
                           })}
                         </span>
-                        <span className="text-xs text-brand-silver/50">
-                          {post.platforms.join(', ')}
-                        </span>
                       </div>
                     </div>
                   </div>
@@ -1221,29 +1287,20 @@ function AutomationPageContent() {
           ) : (
             <div className="glass-card p-8 text-center">
               <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg className="w-8 h-8 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-white mb-2">No Published Posts Yet</h3>
+              <h3 className="text-lg font-medium text-white mb-2">No Recent Activity</h3>
               <p className="text-brand-silver/70 max-w-md mx-auto">
-                Once your scheduled posts are published (automatically or manually), they&apos;ll appear here.
+                Once you post or schedule content, it will appear here.
               </p>
             </div>
           )}
-        </div>
-
-        {/* Twitter Test Tweets Section */}
-        {testTweets.length > 0 && (
-          <div className="mt-12">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-heading font-bold text-white flex items-center gap-3">
-                <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                </svg>
-                Test Tweets
-                <span className="text-sm font-normal text-green-400 bg-green-400/10 px-2 py-0.5 rounded">🧪 Simulated</span>
-              </h2>
+          
+          {/* Clear Test Tweets Button */}
+          {testTweets.length > 0 && (
+            <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setTestTweets([])}
                 className="text-sm text-red-400 hover:text-red-300 flex items-center gap-1"
@@ -1251,62 +1308,11 @@ function AutomationPageContent() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Clear All
+                Clear Test Tweets
               </button>
             </div>
-            <p className="text-sm text-brand-silver/70 mb-4">
-              These tweets were simulated in Test Mode and were NOT posted to Twitter. Use this to preview before going live.
-            </p>
-            <div className="space-y-4">
-              {testTweets.map((tweet) => (
-                <div
-                  key={tweet.id}
-                  className="glass-card p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
-                      <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-white">Test User</span>
-                        <span className="text-brand-silver/50 text-sm">@testuser</span>
-                        <span className="text-brand-silver/50 text-sm">·</span>
-                        <span className="text-brand-silver/50 text-sm">
-                          {new Date(tweet.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-white whitespace-pre-wrap break-words">{tweet.text}</p>
-                      <div className="mt-3 flex items-center gap-4 text-brand-silver/50 text-sm">
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                          </svg>
-                          0
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          0
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                          </svg>
-                          0
-                        </span>
-                        <span className="text-green-400 ml-auto">✓ Simulated (ID: {tweet.id})</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Automation Tasks Section */}
         <div className="mt-12">
