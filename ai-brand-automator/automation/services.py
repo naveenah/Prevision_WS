@@ -3,6 +3,7 @@ LinkedIn OAuth and API service.
 """
 import requests
 import logging
+from typing import Optional, List
 from datetime import timedelta
 from urllib.parse import urlencode
 from django.conf import settings
@@ -191,8 +192,8 @@ class LinkedInService:
         access_token: str,
         user_urn: str,
         text: str,
-        image_urns: list = None,
-        video_urn: str = None,
+        image_urns: Optional[List[str]] = None,
+        video_urn: Optional[str] = None,
     ) -> dict:
         """
         Create a share (post) on LinkedIn.

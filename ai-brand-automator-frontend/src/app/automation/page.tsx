@@ -96,6 +96,28 @@ interface AutomationTask {
   created_at: string;
 }
 
+// Media upload constants (LinkedIn standards)
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif'] as const;
+const VIDEO_TYPES = ['video/mp4'] as const;
+const DOCUMENT_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+] as const;
+
+const MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
+const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
+
+// File input accept attribute - all supported media types
+const ACCEPTED_FILE_TYPES = [
+  ...IMAGE_TYPES,
+  ...VIDEO_TYPES,
+  ...DOCUMENT_TYPES,
+].join(',');
+
 // Loading fallback for Suspense
 function AutomationLoading() {
   return (
@@ -395,19 +417,10 @@ function AutomationPageContent() {
     setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
     setUploading: React.Dispatch<React.SetStateAction<boolean>>
   ) => {
-    // Validate file type (LinkedIn standards)
-    const imageTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    const videoTypes = ['video/mp4'];  // LinkedIn officially supports MP4 only
-    const documentTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  // docx
-      'application/vnd.ms-powerpoint',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',  // pptx
-    ];
-    const isImage = imageTypes.includes(file.type);
-    const isVideo = videoTypes.includes(file.type);
-    const isDocument = documentTypes.includes(file.type);
+    // Validate file type using constants
+    const isImage = (IMAGE_TYPES as readonly string[]).includes(file.type);
+    const isVideo = (VIDEO_TYPES as readonly string[]).includes(file.type);
+    const isDocument = (DOCUMENT_TYPES as readonly string[]).includes(file.type);
 
     if (!isImage && !isVideo && !isDocument) {
       setMessage({
@@ -417,17 +430,17 @@ function AutomationPageContent() {
       return;
     }
 
-    // Validate file size (LinkedIn standards: 8MB for images, 500MB for videos, 100MB for documents)
+    // Validate file size using constants
     let maxSize: number;
     let sizeLabel: string;
     if (isVideo) {
-      maxSize = 500 * 1024 * 1024;
+      maxSize = MAX_VIDEO_SIZE;
       sizeLabel = '500MB';
     } else if (isDocument) {
-      maxSize = 100 * 1024 * 1024;
+      maxSize = MAX_DOCUMENT_SIZE;
       sizeLabel = '100MB';
     } else {
-      maxSize = 8 * 1024 * 1024;
+      maxSize = MAX_IMAGE_SIZE;
       sizeLabel = '8MB';
     }
     
@@ -649,10 +662,19 @@ function AutomationPageContent() {
     setEditingPost(post);
     setEditTitle(post.title);
     setEditContent(post.content);
-    // Parse the scheduled date/time
+    // Parse the scheduled date/time using consistent local timezone handling
     const date = new Date(post.scheduled_date);
-    setEditDate(date.toISOString().split('T')[0]);
-    setEditTime(date.toTimeString().slice(0, 5));
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    setEditDate(`${year}-${month}-${day}`);
+    setEditTime(
+      date.toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    );
     // Load existing media if any
     setEditMediaUrns(post.media_urls || []);
     setShowEditModal(true);
@@ -672,13 +694,13 @@ function AutomationPageContent() {
         media_urls: editMediaUrns,
         platforms: editingPost.platforms,
         scheduled_date: scheduledDate.toISOString(),
-        status: 'scheduled',
+        status: editingPost.status,  // Preserve original status
       });
 
       if (response.ok) {
         setMessage({
           type: 'success',
-          text: `Post updated successfully!${editMediaUrns.length > 0 ? ' (with image)' : ''}`,
+          text: `Post updated successfully!${editMediaUrns.length > 0 ? ' (with media)' : ''}`,
         });
         setShowEditModal(false);
         setEditingPost(null);
@@ -1241,7 +1263,7 @@ function AutomationPageContent() {
                     {uploadingMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                      accept={ACCEPTED_FILE_TYPES}
                       className="hidden"
                       disabled={uploadingMedia}
                       onChange={(e) => {
@@ -1418,7 +1440,7 @@ function AutomationPageContent() {
                     {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                      accept={ACCEPTED_FILE_TYPES}
                       className="hidden"
                       disabled={uploadingScheduleMedia}
                       onChange={(e) => {
@@ -1600,7 +1622,7 @@ function AutomationPageContent() {
                     {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                      accept={ACCEPTED_FILE_TYPES}
                       className="hidden"
                       disabled={uploadingEditMedia}
                       onChange={(e) => {

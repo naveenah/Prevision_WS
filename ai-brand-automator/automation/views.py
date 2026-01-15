@@ -20,7 +20,18 @@ from .serializers import (
     ContentCalendarSerializer,
 )
 from .services import linkedin_service
-from .constants import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN, LINKEDIN_TITLE_MAX_LENGTH
+from .constants import (
+    TEST_ACCESS_TOKEN,
+    TEST_REFRESH_TOKEN,
+    LINKEDIN_TITLE_MAX_LENGTH,
+    EDITABLE_STATUSES,
+    IMAGE_TYPES,
+    VIDEO_TYPES,
+    DOCUMENT_TYPES,
+    MAX_IMAGE_SIZE,
+    MAX_VIDEO_SIZE,
+    MAX_DOCUMENT_SIZE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -475,24 +486,6 @@ class LinkedInMediaUploadView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    # Supported media types (LinkedIn officially supports MP4 only for video)
-    IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif"]
-    VIDEO_TYPES = ["video/mp4"]  # LinkedIn standard: MP4 only
-    DOCUMENT_TYPES = [
-        "application/pdf",
-        "application/msword",
-        # docx
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.ms-powerpoint",
-        # pptx
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ]
-
-    # Size limits (LinkedIn standards: images 8MB, videos 75KB-500MB, documents 100MB)
-    MAX_IMAGE_SIZE = 8 * 1024 * 1024  # 8MB
-    MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB (LinkedIn max for organic posts)
-    MAX_DOCUMENT_SIZE = 100 * 1024 * 1024  # 100MB (LinkedIn max for documents)
-
     def post(self, request):
         """
         Upload an image or video to LinkedIn.
@@ -519,9 +512,9 @@ class LinkedInMediaUploadView(APIView):
 
         if media_file:
             content_type = media_file.content_type
-            is_video = content_type in self.VIDEO_TYPES
-            is_image = content_type in self.IMAGE_TYPES
-            is_document = content_type in self.DOCUMENT_TYPES
+            is_video = content_type in VIDEO_TYPES
+            is_image = content_type in IMAGE_TYPES
+            is_document = content_type in DOCUMENT_TYPES
 
             if not is_video and not is_image and not is_document:
                 allowed = "JPEG, PNG, GIF, MP4, PDF, DOC, DOCX, PPT, PPTX"
@@ -532,13 +525,13 @@ class LinkedInMediaUploadView(APIView):
 
             # Validate file size
             if is_video:
-                max_size = self.MAX_VIDEO_SIZE
+                max_size = MAX_VIDEO_SIZE
                 size_label = "500MB"
             elif is_document:
-                max_size = self.MAX_DOCUMENT_SIZE
+                max_size = MAX_DOCUMENT_SIZE
                 size_label = "100MB"
             else:
-                max_size = self.MAX_IMAGE_SIZE
+                max_size = MAX_IMAGE_SIZE
                 size_label = "8MB"
 
             if media_file.size > max_size:
@@ -876,23 +869,45 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
 
         return queryset
 
-    def perform_create(self, serializer):
-        # Auto-link LinkedIn profile if platform is selected
-        instance = serializer.save(user=self.request.user)
+    def _sync_platform_profiles(self, instance):
+        """
+        Sync social profiles with selected platforms.
+
+        Adds or removes social profiles based on the platforms list.
+        """
+        # Handle LinkedIn platform
+        linkedin_profiles_on_instance = instance.social_profiles.filter(
+            platform="linkedin"
+        )
 
         if "linkedin" in instance.platforms:
+            # Ensure the user's connected LinkedIn profile is attached
             linkedin_profile = SocialProfile.objects.filter(
                 user=self.request.user, platform="linkedin", status="connected"
             ).first()
+
             if linkedin_profile:
-                instance.social_profiles.add(linkedin_profile)
+                # Add if not already linked
+                if not linkedin_profiles_on_instance.filter(
+                    id=linkedin_profile.id
+                ).exists():
+                    instance.social_profiles.add(linkedin_profile)
+        else:
+            # LinkedIn removed from platforms - remove any LinkedIn profiles
+            if linkedin_profiles_on_instance.exists():
+                instance.social_profiles.remove(*linkedin_profiles_on_instance)
+
+    def perform_create(self, serializer):
+        """Auto-link social profiles based on selected platforms."""
+        instance = serializer.save(user=self.request.user)
+        self._sync_platform_profiles(instance)
 
     def update(self, request, *args, **kwargs):
         """Update a scheduled post. Only draft/scheduled posts can be edited."""
         instance = self.get_object()
 
         # Prevent editing published, failed, or cancelled posts
-        if instance.status not in ["draft", "scheduled"]:
+        if instance.status not in EDITABLE_STATUSES:
             return Response(
                 {"error": f"Cannot edit a post with status '{instance.status}'"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -903,17 +918,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         """Handle platform changes when updating a post."""
         instance = serializer.save()
-
-        # Re-link LinkedIn profile if platforms changed
-        if "linkedin" in instance.platforms:
-            linkedin_profile = SocialProfile.objects.filter(
-                user=self.request.user, platform="linkedin", status="connected"
-            ).first()
-            if (
-                linkedin_profile
-                and linkedin_profile not in instance.social_profiles.all()
-            ):
-                instance.social_profiles.add(linkedin_profile)
+        self._sync_platform_profiles(instance)
 
     @action(detail=False, methods=["get"])
     def upcoming(self, request):
