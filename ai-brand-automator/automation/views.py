@@ -31,51 +31,52 @@ class SocialProfileViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing social media profiles.
     """
+
     serializer_class = SocialProfileSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
         return SocialProfile.objects.filter(user=self.request.user)
-    
-    @action(detail=True, methods=['post'])
+
+    @action(detail=True, methods=["post"])
     def disconnect(self, request, pk=None):
         """Disconnect a social profile."""
         profile = self.get_object()
         profile.disconnect()
-        return Response({
-            'message': f'{profile.get_platform_display()} disconnected successfully'
-        })
-    
-    @action(detail=False, methods=['get'])
+        return Response(
+            {"message": f"{profile.get_platform_display()} disconnected successfully"}
+        )
+
+    @action(detail=False, methods=["get"])
     def status(self, request):
         """Get connection status for all platforms."""
         profiles = self.get_queryset()
-        
+
         # Build status for each supported platform
-        platforms = ['linkedin', 'twitter', 'instagram', 'facebook']
+        platforms = ["linkedin", "twitter", "instagram", "facebook"]
         status_dict = {}
-        
+
         for platform in platforms:
             profile = profiles.filter(platform=platform).first()
             if profile:
                 status_dict[platform] = {
-                    'connected': profile.status == 'connected',
-                    'profile_name': profile.profile_name,
-                    'profile_url': profile.profile_url,
-                    'profile_image_url': profile.profile_image_url,
-                    'status': profile.status,
-                    'is_token_valid': profile.is_token_valid,
+                    "connected": profile.status == "connected",
+                    "profile_name": profile.profile_name,
+                    "profile_url": profile.profile_url,
+                    "profile_image_url": profile.profile_image_url,
+                    "status": profile.status,
+                    "is_token_valid": profile.is_token_valid,
                 }
             else:
                 status_dict[platform] = {
-                    'connected': False,
-                    'profile_name': None,
-                    'profile_url': None,
-                    'profile_image_url': None,
-                    'status': 'disconnected',
-                    'is_token_valid': False,
+                    "connected": False,
+                    "profile_name": None,
+                    "profile_url": None,
+                    "profile_image_url": None,
+                    "status": "disconnected",
+                    "is_token_valid": False,
                 }
-        
+
         return Response(status_dict)
 
 
@@ -83,78 +84,72 @@ class LinkedInConnectView(APIView):
     """
     Initiates LinkedIn OAuth flow.
     """
+
     permission_classes = [IsAuthenticated]
-    
+
     def get(self, request):
         """Redirect user to LinkedIn authorization page."""
         if not linkedin_service.is_configured:
             return Response(
-                {'error': 'LinkedIn integration not configured'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                {"error": "LinkedIn integration not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        
+
         # Generate a unique state token and store it in database
         # This is more reliable than sessions for JWT-based apps
         state = str(uuid.uuid4())
-        
+
         # Clean up any old states for this user/platform
-        OAuthState.objects.filter(user=request.user, platform='linkedin').delete()
-        
+        OAuthState.objects.filter(user=request.user, platform="linkedin").delete()
+
         # Create new state
-        OAuthState.objects.create(
-            state=state,
-            user=request.user,
-            platform='linkedin'
-        )
-        
+        OAuthState.objects.create(state=state, user=request.user, platform="linkedin")
+
         # Get the authorization URL
         auth_url = linkedin_service.get_authorization_url(state)
-        
-        return Response({
-            'authorization_url': auth_url
-        })
+
+        return Response({"authorization_url": auth_url})
 
 
 class LinkedInCallbackView(APIView):
     """
     Handles LinkedIn OAuth callback.
     """
+
     # No authentication required - this is called by LinkedIn redirect
     permission_classes = []
-    
+
     def get(self, request):
         """Handle the OAuth callback from LinkedIn."""
-        code = request.query_params.get('code')
-        state = request.query_params.get('state')
-        error = request.query_params.get('error')
-        error_description = request.query_params.get('error_description')
-        
+        code = request.query_params.get("code")
+        state = request.query_params.get("state")
+        error = request.query_params.get("error")
+        error_description = request.query_params.get("error_description")
+
         # Debug logging
-        logger.info(f"LinkedIn callback received - code: {bool(code)}, state: {state}, error: {error}")
-        
-        # Get frontend URL for redirects
-        frontend_url = getattr(
-            settings,
-            'FRONTEND_URL',
-            'http://localhost:3000'
+        logger.info(
+            f"LinkedIn callback received - code: {bool(code)}, state: {state}, error: {error}"
         )
-        
+
+        # Get frontend URL for redirects
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
         # Handle errors from LinkedIn
         if error:
             logger.error(f"LinkedIn OAuth error: {error} - {error_description}")
             return HttpResponseRedirect(
                 f"{frontend_url}/automation?error={error}&message={error_description}"
             )
-        
+
         # Validate state token from database (more reliable than sessions for JWT apps)
         try:
-            oauth_state = OAuthState.objects.get(state=state, platform='linkedin')
+            oauth_state = OAuthState.objects.get(state=state, platform="linkedin")
         except OAuthState.DoesNotExist:
             logger.error(f"LinkedIn OAuth state not found: {state}")
             return HttpResponseRedirect(
                 f"{frontend_url}/automation?error=invalid_state&message=State+token+not+found+or+expired"
             )
-        
+
         # Check if state is expired (10 min limit)
         if oauth_state.is_expired():
             oauth_state.delete()
@@ -162,43 +157,43 @@ class LinkedInCallbackView(APIView):
             return HttpResponseRedirect(
                 f"{frontend_url}/automation?error=state_expired&message=Authorization+timed+out"
             )
-        
+
         user = oauth_state.user
-        
+
         try:
             # Exchange code for tokens
             token_data = linkedin_service.exchange_code_for_token(code)
-            access_token = token_data.get('access_token')
-            refresh_token = token_data.get('refresh_token')
-            expires_at = token_data.get('expires_at')
-            
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token")
+            expires_at = token_data.get("expires_at")
+
             # Get user profile from LinkedIn
             profile_data = linkedin_service.get_user_profile(access_token)
-            
+
             social_profile, created = SocialProfile.objects.update_or_create(
                 user=user,
-                platform='linkedin',
+                platform="linkedin",
                 defaults={
-                    'access_token': access_token,
-                    'refresh_token': refresh_token,
-                    'token_expires_at': expires_at,
-                    'profile_id': profile_data.get('id'),
-                    'profile_name': profile_data.get('name'),
-                    'profile_url': f"https://www.linkedin.com/in/{profile_data.get('id')}",
-                    'profile_image_url': profile_data.get('picture'),
-                    'status': 'connected',
-                }
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_expires_at": expires_at,
+                    "profile_id": profile_data.get("id"),
+                    "profile_name": profile_data.get("name"),
+                    "profile_url": f"https://www.linkedin.com/in/{profile_data.get('id')}",
+                    "profile_image_url": profile_data.get("picture"),
+                    "status": "connected",
+                },
             )
-            
+
             # Clean up the OAuth state
             oauth_state.delete()
-            
+
             logger.info(f"LinkedIn connected for user {user.email}")
-            
+
             return HttpResponseRedirect(
                 f"{frontend_url}/automation?success=linkedin&name={profile_data.get('name', '')}"
             )
-            
+
         except Exception as e:
             logger.error(f"LinkedIn OAuth callback error: {e}")
             # Clean up the OAuth state even on error
@@ -214,66 +209,66 @@ class LinkedInTestConnectView(APIView):
     This bypasses OAuth and creates a mock profile - NO real LinkedIn data is used.
     Only available in DEBUG mode.
     """
+
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request):
         """Create a test LinkedIn connection."""
         if not settings.DEBUG:
             return Response(
-                {'error': 'Test connections only available in DEBUG mode'},
-                status=status.HTTP_403_FORBIDDEN
+                {"error": "Test connections only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
             )
-        
+
         # Create a mock LinkedIn profile
         from django.utils import timezone
         from datetime import timedelta
-        
+
         social_profile, created = SocialProfile.objects.update_or_create(
             user=request.user,
-            platform='linkedin',
+            platform="linkedin",
             defaults={
-                'access_token': 'test_access_token_not_real',
-                'refresh_token': 'test_refresh_token_not_real',
-                'token_expires_at': timezone.now() + timedelta(days=60),
-                'profile_id': f'test_user_{request.user.id}',
-                'profile_name': request.user.get_full_name() or request.user.email.split('@')[0],
-                'profile_url': 'https://www.linkedin.com/in/test-profile',
-                'profile_image_url': None,
-                'status': 'connected',
+                "access_token": "test_access_token_not_real",
+                "refresh_token": "test_refresh_token_not_real",
+                "token_expires_at": timezone.now() + timedelta(days=60),
+                "profile_id": f"test_user_{request.user.id}",
+                "profile_name": request.user.get_full_name()
+                or request.user.email.split("@")[0],
+                "profile_url": "https://www.linkedin.com/in/test-profile",
+                "profile_image_url": None,
+                "status": "connected",
+            },
+        )
+
+        action = "created" if created else "updated"
+        logger.info(f"Test LinkedIn profile {action} for user {request.user.email}")
+
+        return Response(
+            {
+                "message": f"Test LinkedIn connection {action} successfully",
+                "profile_name": social_profile.profile_name,
+                "is_test": True,
             }
         )
-        
-        action = 'created' if created else 'updated'
-        logger.info(f"Test LinkedIn profile {action} for user {request.user.email}")
-        
-        return Response({
-            'message': f'Test LinkedIn connection {action} successfully',
-            'profile_name': social_profile.profile_name,
-            'is_test': True,
-        })
 
 
 class LinkedInDisconnectView(APIView):
     """
     Disconnects LinkedIn account.
     """
+
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request):
         """Disconnect LinkedIn account."""
         try:
-            profile = SocialProfile.objects.get(
-                user=request.user,
-                platform='linkedin'
-            )
+            profile = SocialProfile.objects.get(user=request.user, platform="linkedin")
             profile.disconnect()
-            return Response({
-                'message': 'LinkedIn disconnected successfully'
-            })
+            return Response({"message": "LinkedIn disconnected successfully"})
         except SocialProfile.DoesNotExist:
             return Response(
-                {'error': 'LinkedIn account not connected'},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
 
@@ -281,135 +276,143 @@ class LinkedInPostView(APIView):
     """
     Create a post on LinkedIn.
     """
+
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request):
         """Create a LinkedIn post."""
-        title = request.data.get('title', '').strip()
-        text = request.data.get('text', '').strip()
-        
+        title = request.data.get("title", "").strip()
+        text = request.data.get("text", "").strip()
+
         if not text:
             return Response(
-                {'error': 'Post text is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "Post text is required"}, status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         if len(text) > 3000:
             return Response(
-                {'error': 'Post text cannot exceed 3000 characters'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "Post text cannot exceed 3000 characters"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         try:
             profile = SocialProfile.objects.get(
-                user=request.user,
-                platform='linkedin',
-                status='connected'
+                user=request.user, platform="linkedin", status="connected"
             )
         except SocialProfile.DoesNotExist:
             return Response(
-                {'error': 'LinkedIn account not connected'},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
             )
-        
+
         # Check if this is a test profile
-        if profile.access_token == 'test_access_token_not_real':
+        if profile.access_token == "test_access_token_not_real":
             # Simulate posting for test mode
             logger.info(f"Test LinkedIn post by {request.user.email}: {text[:50]}...")
-            
+
             # Create a ContentCalendar entry for the published post
-            post_title = title if title else f"LinkedIn Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            post_title = (
+                title
+                if title
+                else f"LinkedIn Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            )
             content = ContentCalendar.objects.create(
                 user=request.user,
                 title=post_title,
                 content=text,
-                platforms=['linkedin'],
+                platforms=["linkedin"],
                 scheduled_date=timezone.now(),
                 published_at=timezone.now(),
-                status='published',
-                post_results={'test_mode': True, 'message': 'Post simulated in test mode'}
+                status="published",
+                post_results={
+                    "test_mode": True,
+                    "message": "Post simulated in test mode",
+                },
             )
             content.social_profiles.add(profile)
-            
+
             # Create an automation task record
             task = AutomationTask.objects.create(
                 user=request.user,
-                task_type='social_post',
-                status='completed',
-                payload={'text': text, 'platform': 'linkedin'},
-                result={'test_mode': True, 'message': 'Post simulated in test mode'}
+                task_type="social_post",
+                status="completed",
+                payload={"text": text, "platform": "linkedin"},
+                result={"test_mode": True, "message": "Post simulated in test mode"},
             )
-            
-            return Response({
-                'message': 'Post created successfully (Test Mode)',
-                'test_mode': True,
-                'task_id': task.id,
-                'content_id': content.id,
-            })
-        
+
+            return Response(
+                {
+                    "message": "Post created successfully (Test Mode)",
+                    "test_mode": True,
+                    "task_id": task.id,
+                    "content_id": content.id,
+                }
+            )
+
         try:
             # Get valid access token (auto-refresh if needed)
             access_token = profile.get_valid_access_token()
-            
+
             # Create the post
             result = linkedin_service.create_share(
-                access_token=access_token,
-                user_urn=profile.profile_id,
-                text=text
+                access_token=access_token, user_urn=profile.profile_id, text=text
             )
-            
+
             # Create a ContentCalendar entry for the published post
-            post_title = title if title else f"LinkedIn Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            post_title = (
+                title
+                if title
+                else f"LinkedIn Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            )
             content = ContentCalendar.objects.create(
                 user=request.user,
                 title=post_title,
                 content=text,
-                platforms=['linkedin'],
+                platforms=["linkedin"],
                 scheduled_date=timezone.now(),
                 published_at=timezone.now(),
-                status='published',
-                post_results=result
+                status="published",
+                post_results=result,
             )
             content.social_profiles.add(profile)
-            
+
             # Create an automation task record
             task = AutomationTask.objects.create(
                 user=request.user,
-                task_type='social_post',
-                status='completed',
-                payload={'text': text, 'platform': 'linkedin'},
-                result=result
+                task_type="social_post",
+                status="completed",
+                payload={"text": text, "platform": "linkedin"},
+                result=result,
             )
-            
+
             logger.info(f"LinkedIn post created by {request.user.email}")
-            
-            return Response({
-                'message': 'Post created successfully',
-                'post_id': result.get('id'),
-                'task_id': task.id,
-                'content_id': content.id,
-            })
-            
-        except ValueError as e:
+
             return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "message": "Post created successfully",
+                    "post_id": result.get("id"),
+                    "task_id": task.id,
+                    "content_id": content.id,
+                }
             )
+
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"LinkedIn post failed: {e}")
-            
+
             # Create a failed task record
             AutomationTask.objects.create(
                 user=request.user,
-                task_type='social_post',
-                status='failed',
-                payload={'text': text, 'platform': 'linkedin'},
-                result={'error': str(e)}
+                task_type="social_post",
+                status="failed",
+                payload={"text": text, "platform": "linkedin"},
+                result={"error": str(e)},
             )
-            
+
             return Response(
-                {'error': f'Failed to create post: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": f"Failed to create post: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
@@ -417,12 +420,13 @@ class AutomationTaskViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing automation tasks.
     """
+
     serializer_class = AutomationTaskSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
         return AutomationTask.objects.filter(user=self.request.user)
-    
+
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
@@ -431,34 +435,35 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing content calendar.
     """
+
     serializer_class = ContentCalendarSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
         queryset = ContentCalendar.objects.filter(user=self.request.user)
-        
+
         # Filter by status
-        status_filter = self.request.query_params.get('status')
+        status_filter = self.request.query_params.get("status")
         if status_filter:
             queryset = queryset.filter(status=status_filter)
-        
+
         # Filter by platform
-        platform = self.request.query_params.get('platform')
+        platform = self.request.query_params.get("platform")
         if platform:
             queryset = queryset.filter(platforms__contains=[platform])
-        
+
         # Filter by date range
-        start_date = self.request.query_params.get('start_date')
-        end_date = self.request.query_params.get('end_date')
+        start_date = self.request.query_params.get("start_date")
+        end_date = self.request.query_params.get("end_date")
         if start_date:
             queryset = queryset.filter(scheduled_date__gte=start_date)
         if end_date:
             queryset = queryset.filter(scheduled_date__lte=end_date)
-        
-        queryset = queryset.order_by('-updated_at')
-        
+
+        queryset = queryset.order_by("-updated_at")
+
         # Apply limit if specified
-        limit = self.request.query_params.get('limit')
+        limit = self.request.query_params.get("limit")
         if limit:
             try:
                 limit_int = int(limit)
@@ -466,60 +471,59 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                     queryset = queryset[:limit_int]
             except ValueError:
                 pass
-        
+
         return queryset
-    
+
     def perform_create(self, serializer):
         # Auto-link LinkedIn profile if platform is selected
         instance = serializer.save(user=self.request.user)
-        
-        if 'linkedin' in instance.platforms:
+
+        if "linkedin" in instance.platforms:
             linkedin_profile = SocialProfile.objects.filter(
-                user=self.request.user,
-                platform='linkedin',
-                status='connected'
+                user=self.request.user, platform="linkedin", status="connected"
             ).first()
             if linkedin_profile:
                 instance.social_profiles.add(linkedin_profile)
-    
-    @action(detail=False, methods=['get'])
+
+    @action(detail=False, methods=["get"])
     def upcoming(self, request):
         """Get all scheduled posts (pending and overdue) ordered by date."""
         from datetime import timedelta
+
         now = timezone.now()
-        
+
         # Show all scheduled posts - both upcoming and overdue ones that haven't been published
         upcoming = ContentCalendar.objects.filter(
             user=request.user,
-            status='scheduled',
-        ).order_by('scheduled_date')
-        
+            status="scheduled",
+        ).order_by("scheduled_date")
+
         serializer = self.get_serializer(upcoming, many=True)
         return Response(serializer.data)
-    
-    @action(detail=True, methods=['post'])
+
+    @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         """Manually publish a scheduled post immediately."""
         content = self.get_object()
-        
-        if content.status == 'published':
+
+        if content.status == "published":
             return Response(
-                {'error': 'Content already published'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "Content already published"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         results = {}
         errors = []
-        
+
         # Publish to each connected platform
         for profile in content.social_profiles.all():
-            if profile.platform == 'linkedin' and profile.status == 'connected':
+            if profile.platform == "linkedin" and profile.status == "connected":
                 try:
                     # Check if test mode
-                    if profile.access_token == 'test_access_token_not_real':
-                        results['linkedin'] = {
-                            'test_mode': True,
-                            'message': 'Post simulated in test mode'
+                    if profile.access_token == "test_access_token_not_real":
+                        results["linkedin"] = {
+                            "test_mode": True,
+                            "message": "Post simulated in test mode",
                         }
                         logger.info(f"Test publish to LinkedIn: {content.title}")
                     else:
@@ -527,46 +531,49 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                         result = linkedin_service.create_share(
                             access_token=access_token,
                             user_urn=profile.profile_id,
-                            text=content.content
+                            text=content.content,
                         )
-                        results['linkedin'] = result
+                        results["linkedin"] = result
                 except Exception as e:
                     errors.append(f"LinkedIn: {str(e)}")
                     logger.error(f"Failed to publish to LinkedIn: {e}")
-        
+
         # Update content status
         if errors and not results:
-            content.status = 'failed'
-            content.post_results = {'errors': errors}
+            content.status = "failed"
+            content.post_results = {"errors": errors}
         else:
-            content.status = 'published'
+            content.status = "published"
             content.published_at = timezone.now()
             content.post_results = results
-        
+
         content.save()
-        
-        return Response({
-            'message': 'Publishing completed' if not errors else 'Publishing completed with some errors',
-            'status': content.status,
-            'results': results,
-            'errors': errors,
-        })
-    
-    @action(detail=True, methods=['post'])
+
+        return Response(
+            {
+                "message": "Publishing completed"
+                if not errors
+                else "Publishing completed with some errors",
+                "status": content.status,
+                "results": results,
+                "errors": errors,
+            }
+        )
+
+    @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         """Cancel a scheduled post."""
         content = self.get_object()
-        
-        if content.status == 'published':
+
+        if content.status == "published":
             return Response(
-                {'error': 'Cannot cancel a published post'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": "Cannot cancel a published post"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        
-        content.status = 'cancelled'
+
+        content.status = "cancelled"
         content.save()
-        
-        return Response({
-            'message': 'Post cancelled successfully',
-            'status': content.status
-        })
+
+        return Response(
+            {"message": "Post cancelled successfully", "status": content.status}
+        )

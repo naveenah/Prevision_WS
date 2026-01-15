@@ -422,7 +422,7 @@ LINKEDIN_CLIENT_ID = config("LINKEDIN_CLIENT_ID", default="")
 LINKEDIN_CLIENT_SECRET = config("LINKEDIN_CLIENT_SECRET", default="")
 LINKEDIN_REDIRECT_URI = config(
     "LINKEDIN_REDIRECT_URI",
-    default="http://localhost:8000/api/v1/automation/linkedin/callback/"
+    default="http://localhost:8000/api/v1/automation/linkedin/callback/",
 )
 
 # Frontend URL for OAuth redirects
@@ -430,18 +430,20 @@ FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
 
 # Celery Configuration
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
+)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
 CELERY_ENABLE_UTC = True
 
 # Celery Beat Configuration (for periodic tasks)
-CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
-    'publish-scheduled-posts': {
-        'task': 'automation.publish_scheduled_posts',
-        'schedule': 60.0,  # Run every 60 seconds
+    "publish-scheduled-posts": {
+        "task": "automation.publish_scheduled_posts",
+        "schedule": 60.0,  # Run every 60 seconds
     },
 }

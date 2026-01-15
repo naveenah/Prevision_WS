@@ -7,23 +7,23 @@ from .models import SocialProfile, AutomationTask, ContentCalendar
 
 @admin.register(SocialProfile)
 class SocialProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'platform', 'profile_name', 'status', 'created_at']
-    list_filter = ['platform', 'status']
-    search_fields = ['user__email', 'profile_name']
-    readonly_fields = ['created_at', 'updated_at', 'last_synced_at']
+    list_display = ["user", "platform", "profile_name", "status", "created_at"]
+    list_filter = ["platform", "status"]
+    search_fields = ["user__email", "profile_name"]
+    readonly_fields = ["created_at", "updated_at", "last_synced_at"]
 
 
 @admin.register(AutomationTask)
 class AutomationTaskAdmin(admin.ModelAdmin):
-    list_display = ['user', 'task_type', 'status', 'scheduled_at', 'created_at']
-    list_filter = ['task_type', 'status']
-    search_fields = ['user__email']
-    readonly_fields = ['created_at', 'updated_at', 'started_at', 'completed_at']
+    list_display = ["user", "task_type", "status", "scheduled_at", "created_at"]
+    list_filter = ["task_type", "status"]
+    search_fields = ["user__email"]
+    readonly_fields = ["created_at", "updated_at", "started_at", "completed_at"]
 
 
 @admin.register(ContentCalendar)
 class ContentCalendarAdmin(admin.ModelAdmin):
-    list_display = ['title', 'user', 'status', 'scheduled_date', 'created_at']
-    list_filter = ['status', 'platforms']
-    search_fields = ['title', 'user__email', 'content']
-    readonly_fields = ['created_at', 'updated_at', 'published_at']
+    list_display = ["title", "user", "status", "scheduled_date", "created_at"]
+    list_filter = ["status", "platforms"]
+    search_fields = ["title", "user__email", "content"]
+    readonly_fields = ["created_at", "updated_at", "published_at"]
