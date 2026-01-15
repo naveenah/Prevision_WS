@@ -267,6 +267,10 @@ class OAuthState(models.Model):
         User, on_delete=models.CASCADE, related_name="oauth_states"
     )
     platform = models.CharField(max_length=20)  # 'linkedin', 'twitter', etc.
+    code_verifier = models.CharField(
+        max_length=256, blank=True, null=True
+    )  # PKCE code verifier for Twitter
+    used = models.BooleanField(default=False)  # Mark as used after callback
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

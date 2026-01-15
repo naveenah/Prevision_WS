@@ -3,6 +3,7 @@ Views for the automation app - social media integrations and content scheduling.
 """
 import uuid
 import logging
+from datetime import timedelta
 from django.http import HttpResponseRedirect
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -19,7 +20,7 @@ from .serializers import (
     AutomationTaskSerializer,
     ContentCalendarSerializer,
 )
-from .services import linkedin_service
+from .services import linkedin_service, twitter_service
 from .constants import (
     TEST_ACCESS_TOKEN,
     TEST_REFRESH_TOKEN,
@@ -31,6 +32,9 @@ from .constants import (
     MAX_IMAGE_SIZE,
     MAX_VIDEO_SIZE,
     MAX_DOCUMENT_SIZE,
+    TWITTER_TEST_ACCESS_TOKEN,
+    TWITTER_TEST_REFRESH_TOKEN,
+    TWITTER_POST_MAX_LENGTH,
 )
 
 logger = logging.getLogger(__name__)
@@ -1014,3 +1018,319 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Post cancelled successfully", "status": content.status}
         )
+
+
+# =============================================================================
+# Twitter/X Integration Views
+# =============================================================================
+
+
+class TwitterConnectView(APIView):
+    """
+    Initiate Twitter OAuth 2.0 flow with PKCE.
+
+    Returns the authorization URL that the frontend should redirect to.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .services import twitter_service
+
+        if not twitter_service.is_configured:
+            return Response(
+                {"error": "Twitter OAuth not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # Generate PKCE code verifier and challenge
+        code_verifier, code_challenge = twitter_service.generate_pkce_pair()
+
+        # Generate unique state for CSRF protection
+        state = str(uuid.uuid4())
+
+        # Store state and code_verifier in session/database
+        OAuthState.objects.create(
+            user=request.user,
+            platform="twitter",
+            state=state,
+            code_verifier=code_verifier,  # Store for token exchange
+        )
+
+        try:
+            auth_url = twitter_service.get_authorization_url(state, code_challenge)
+            return Response({"authorization_url": auth_url})
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TwitterCallbackView(APIView):
+    """
+    Handle Twitter OAuth 2.0 callback.
+
+    Exchanges authorization code for tokens and creates/updates SocialProfile.
+    """
+
+    # No authentication required - this is a callback from Twitter
+    permission_classes = []
+
+    def get(self, request):
+        from .services import twitter_service
+
+        code = request.GET.get("code")
+        state = request.GET.get("state")
+        error = request.GET.get("error")
+
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+        if error:
+            logger.error(f"Twitter OAuth error: {error}")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=twitter_auth_failed"
+            )
+
+        if not code or not state:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=missing_params"
+            )
+
+        # Validate state and get code_verifier
+        try:
+            oauth_state = OAuthState.objects.get(
+                state=state,
+                platform="twitter",
+                used=False,
+            )
+        except OAuthState.DoesNotExist:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=invalid_state"
+            )
+
+        # Mark state as used
+        oauth_state.used = True
+        oauth_state.save()
+
+        # Check if state is expired (5 minutes)
+        if (timezone.now() - oauth_state.created_at).seconds > 300:
+            return HttpResponseRedirect(f"{frontend_url}/automation?error=state_expired")
+
+        try:
+            # Exchange code for tokens with PKCE verifier
+            token_data = twitter_service.exchange_code_for_token(
+                code, oauth_state.code_verifier
+            )
+
+            # Get user info
+            user_info = twitter_service.get_user_info(token_data["access_token"])
+
+            # Create or update social profile
+            profile, created = SocialProfile.objects.update_or_create(
+                user=oauth_state.user,
+                platform="twitter",
+                defaults={
+                    "access_token": token_data["access_token"],
+                    "refresh_token": token_data.get("refresh_token"),
+                    "token_expires_at": token_data.get("expires_at"),
+                    "profile_id": user_info.get("id"),
+                    "profile_name": user_info.get("name"),
+                    "profile_url": f"https://twitter.com/{user_info.get('username')}",
+                    "profile_image_url": user_info.get("profile_image_url"),
+                    "status": "connected",
+                },
+            )
+
+            logger.info(
+                f"Twitter connected for user {oauth_state.user.email}: "
+                f"@{user_info.get('username')}"
+            )
+
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?twitter_connected=true"
+            )
+
+        except Exception as e:
+            logger.error(f"Twitter OAuth callback failed: {e}")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=twitter_token_exchange_failed"
+            )
+
+
+class TwitterDisconnectView(APIView):
+    """Disconnect Twitter account."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .services import twitter_service
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter"
+            )
+
+            # Revoke token if possible
+            if profile.access_token:
+                try:
+                    twitter_service.revoke_token(profile.access_token)
+                except Exception as e:
+                    logger.warning(f"Failed to revoke Twitter token: {e}")
+
+            # Clear tokens and mark as disconnected
+            profile.access_token = None
+            profile.refresh_token = None
+            profile.token_expires_at = None
+            profile.status = "disconnected"
+            profile.save()
+
+            return Response({"message": "Twitter account disconnected successfully"})
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "No Twitter account connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class TwitterTestConnectView(APIView):
+    """
+    Create a mock Twitter connection for testing (DEBUG mode only).
+
+    This allows testing the Twitter integration without real OAuth.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not settings.DEBUG:
+            return Response(
+                {"error": "Test connect only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Create mock profile
+        profile, created = SocialProfile.objects.update_or_create(
+            user=request.user,
+            platform="twitter",
+            defaults={
+                "access_token": TWITTER_TEST_ACCESS_TOKEN,
+                "refresh_token": TWITTER_TEST_REFRESH_TOKEN,
+                "token_expires_at": timezone.now() + timedelta(days=60),
+                "profile_id": f"test_twitter_{request.user.id}",
+                "profile_name": f"Test User ({request.user.email})",
+                "profile_url": f"https://twitter.com/test_user_{request.user.id}",
+                "profile_image_url": None,
+                "status": "connected",
+            },
+        )
+
+        return Response(
+            {
+                "message": "Test Twitter connection created",
+                "profile_name": profile.profile_name,
+                "is_test_mode": True,
+            }
+        )
+
+
+class TwitterPostView(APIView):
+    """
+    Create a tweet on Twitter/X.
+
+    Requires a connected Twitter account.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .services import twitter_service
+        from .constants import TWITTER_POST_MAX_LENGTH
+
+        text = request.data.get("text", "").strip()
+
+        if not text:
+            return Response(
+                {"error": "Tweet text is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate length
+        validation = twitter_service.validate_tweet_length(text)
+        if not validation["is_valid"]:
+            return Response(
+                {
+                    "error": f"Tweet exceeds max length of {validation['max_length']} "
+                    f"characters (current: {validation['length']})"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode tweet: {text[:50]}...")
+            return Response(
+                {
+                    "message": "Tweet simulated (test mode)",
+                    "test_mode": True,
+                    "tweet": {
+                        "id": f"test_tweet_{uuid.uuid4().hex[:12]}",
+                        "text": text,
+                    },
+                }
+            )
+
+        try:
+            # Get valid access token (refresh if needed)
+            access_token = profile.get_valid_access_token()
+
+            # Create tweet
+            result = twitter_service.create_tweet(
+                access_token=access_token,
+                text=text,
+                reply_to_id=request.data.get("reply_to_id"),
+                quote_tweet_id=request.data.get("quote_tweet_id"),
+                media_ids=request.data.get("media_ids"),
+            )
+
+            return Response(
+                {
+                    "message": "Tweet posted successfully",
+                    "tweet": result,
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to post tweet: {e}")
+            return Response(
+                {"error": f"Failed to post tweet: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterValidateTweetView(APIView):
+    """
+    Validate tweet text without posting.
+
+    Used for real-time validation in the UI.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .services import twitter_service
+
+        text = request.data.get("text", "")
+        is_premium = request.data.get("is_premium", False)
+
+        validation = twitter_service.validate_tweet_length(text, is_premium)
+
+        return Response(validation)

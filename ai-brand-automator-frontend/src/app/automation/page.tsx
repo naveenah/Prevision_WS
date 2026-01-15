@@ -44,7 +44,7 @@ const PLATFORM_CONFIG = {
     ),
     color: 'bg-black',
     hoverColor: 'hover:bg-gray-800',
-    available: false, // Coming soon
+    available: true, // Twitter/X integration enabled
   },
   instagram: {
     name: 'Instagram',
@@ -306,7 +306,7 @@ function AutomationPageContent() {
   }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
 
   const handleConnect = async (platform: string) => {
-    if (platform !== 'linkedin') {
+    if (platform !== 'linkedin' && platform !== 'twitter') {
       setMessage({
         type: 'error',
         text: `${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} integration coming soon!`,
@@ -316,10 +316,10 @@ function AutomationPageContent() {
 
     setConnecting(platform);
     try {
-      const response = await apiClient.get('/automation/linkedin/connect/');
+      const response = await apiClient.get(`/automation/${platform}/connect/`);
       if (response.ok) {
         const data = await response.json();
-        // Redirect to LinkedIn authorization
+        // Redirect to platform authorization
         window.location.href = data.authorization_url;
       } else {
         const error = await response.json();
@@ -339,18 +339,18 @@ function AutomationPageContent() {
     }
   };
 
-  // Test connection (dev mode only - no real LinkedIn data)
+  // Test connection (dev mode only - no real platform data)
   const handleTestConnect = async (platform: string) => {
-    if (platform !== 'linkedin') return;
+    if (platform !== 'linkedin' && platform !== 'twitter') return;
 
     setConnecting(platform);
     try {
-      const response = await apiClient.post('/automation/linkedin/test-connect/', {});
+      const response = await apiClient.post(`/automation/${platform}/test-connect/`, {});
       if (response.ok) {
         const data = await response.json();
         setMessage({
           type: 'success',
-          text: `${data.message} (Test Mode - No real LinkedIn data)`,
+          text: `${data.message} (Test Mode - No real ${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} data)`,
         });
         // Refresh profiles
         const profilesResponse = await apiClient.get('/automation/social-profiles/status/');
@@ -377,15 +377,15 @@ function AutomationPageContent() {
   };
 
   const handleDisconnect = async (platform: string) => {
-    if (platform !== 'linkedin') return;
+    if (platform !== 'linkedin' && platform !== 'twitter') return;
 
     setConnecting(platform);
     try {
-      const response = await apiClient.post('/automation/linkedin/disconnect/', {});
+      const response = await apiClient.post(`/automation/${platform}/disconnect/`, {});
       if (response.ok) {
         setMessage({
           type: 'success',
-          text: 'LinkedIn disconnected successfully',
+          text: `${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} disconnected successfully`,
         });
         // Refresh profiles
         const profilesResponse = await apiClient.get('/automation/social-profiles/status/');

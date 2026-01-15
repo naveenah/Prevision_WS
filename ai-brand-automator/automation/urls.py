@@ -7,6 +7,7 @@ from .views import (
     SocialProfileViewSet,
     AutomationTaskViewSet,
     ContentCalendarViewSet,
+    # LinkedIn views
     LinkedInConnectView,
     LinkedInCallbackView,
     LinkedInDisconnectView,
@@ -15,6 +16,13 @@ from .views import (
     LinkedInMediaUploadView,
     LinkedInVideoStatusView,
     LinkedInDocumentStatusView,
+    # Twitter views
+    TwitterConnectView,
+    TwitterCallbackView,
+    TwitterDisconnectView,
+    TwitterTestConnectView,
+    TwitterPostView,
+    TwitterValidateTweetView,
 )
 
 router = DefaultRouter()
@@ -55,6 +63,25 @@ urlpatterns = [
         "linkedin/document/status/<str:document_urn>/",
         LinkedInDocumentStatusView.as_view(),
         name="linkedin-document-status",
+    ),
+    # Twitter/X OAuth
+    path("twitter/connect/", TwitterConnectView.as_view(), name="twitter-connect"),
+    path("twitter/callback/", TwitterCallbackView.as_view(), name="twitter-callback"),
+    path(
+        "twitter/disconnect/",
+        TwitterDisconnectView.as_view(),
+        name="twitter-disconnect",
+    ),
+    path(
+        "twitter/test-connect/",
+        TwitterTestConnectView.as_view(),
+        name="twitter-test-connect",
+    ),
+    path("twitter/post/", TwitterPostView.as_view(), name="twitter-post"),
+    path(
+        "twitter/validate/",
+        TwitterValidateTweetView.as_view(),
+        name="twitter-validate",
     ),
     # Router URLs
     path("", include(router.urls)),

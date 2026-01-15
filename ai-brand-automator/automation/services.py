@@ -777,3 +777,368 @@ class LinkedInService:
 
 # Singleton instance
 linkedin_service = LinkedInService()
+
+
+class TwitterService:
+    """
+    Service for Twitter/X OAuth 2.0 authentication and API interactions.
+
+    Twitter API v2 with OAuth 2.0 + PKCE (Proof Key for Code Exchange)
+    Documentation:
+    https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code
+    """
+
+    AUTHORIZATION_URL = "https://twitter.com/i/oauth2/authorize"
+    TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
+    REVOKE_URL = "https://api.twitter.com/2/oauth2/revoke"
+    USER_INFO_URL = "https://api.twitter.com/2/users/me"
+    TWEET_URL = "https://api.twitter.com/2/tweets"
+
+    # Scopes for Twitter API v2
+    # tweet.read - View Tweets
+    # tweet.write - Post Tweets
+    # users.read - View user profile
+    # offline.access - Get refresh token
+    SCOPES = [
+        "tweet.read",
+        "tweet.write",
+        "users.read",
+        "offline.access",
+    ]
+
+    def __init__(self):
+        self.client_id = getattr(settings, "TWITTER_CLIENT_ID", None)
+        self.client_secret = getattr(settings, "TWITTER_CLIENT_SECRET", None)
+        self.redirect_uri = getattr(
+            settings,
+            "TWITTER_REDIRECT_URI",
+            "http://localhost:8000/api/v1/automation/twitter/callback/",
+        )
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if Twitter credentials are configured."""
+        return bool(self.client_id and self.client_secret)
+
+    def generate_pkce_pair(self) -> tuple:
+        """
+        Generate PKCE code verifier and code challenge.
+
+        Returns:
+            Tuple of (code_verifier, code_challenge)
+        """
+        import hashlib
+        import base64
+        import secrets
+
+        # Generate code verifier (43-128 characters, URL-safe)
+        code_verifier = secrets.token_urlsafe(64)[:128]
+
+        # Generate code challenge (SHA256 hash of verifier, base64url encoded)
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode()).digest()
+        ).decode().rstrip("=")
+
+        return code_verifier, code_challenge
+
+    def get_authorization_url(self, state: str, code_challenge: str) -> str:
+        """
+        Generate the Twitter OAuth 2.0 authorization URL with PKCE.
+
+        Args:
+            state: A unique state token to prevent CSRF attacks
+            code_challenge: PKCE code challenge
+
+        Returns:
+            The full authorization URL to redirect the user to
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        params = {
+            "response_type": "code",
+            "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "scope": " ".join(self.SCOPES),
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+
+        return f"{self.AUTHORIZATION_URL}?{urlencode(params)}"
+
+    def exchange_code_for_token(self, code: str, code_verifier: str) -> dict:
+        """
+        Exchange the authorization code for access and refresh tokens.
+
+        Args:
+            code: The authorization code from Twitter callback
+            code_verifier: The PKCE code verifier
+
+        Returns:
+            Dictionary with access_token, expires_in, refresh_token, etc.
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self.redirect_uri,
+            "code_verifier": code_verifier,
+        }
+
+        # Twitter requires Basic Auth with client_id:client_secret
+        import base64
+        credentials = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode()
+        ).decode()
+
+        try:
+            response = requests.post(
+                self.TOKEN_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Authorization": f"Basic {credentials}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            # Calculate token expiration time
+            expires_in = token_data.get("expires_in", 7200)  # Default 2 hours
+            token_data["expires_at"] = timezone.now() + timedelta(seconds=expires_in)
+
+            return token_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter token exchange failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to exchange code for token: {str(e)}")
+
+    def refresh_access_token(self, refresh_token: str) -> dict:
+        """
+        Refresh an expired access token.
+
+        Args:
+            refresh_token: The refresh token from the original OAuth flow
+
+        Returns:
+            Dictionary with new access_token, expires_in, etc.
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+
+        import base64
+        credentials = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode()
+        ).decode()
+
+        try:
+            response = requests.post(
+                self.TOKEN_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Authorization": f"Basic {credentials}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            # Calculate token expiration time
+            expires_in = token_data.get("expires_in", 7200)
+            token_data["expires_at"] = timezone.now() + timedelta(seconds=expires_in)
+
+            return token_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter token refresh failed: {e}")
+            raise Exception(f"Failed to refresh token: {str(e)}")
+
+    def revoke_token(self, token: str, token_type: str = "access_token") -> bool:
+        """
+        Revoke an access or refresh token.
+
+        Args:
+            token: The token to revoke
+            token_type: Either 'access_token' or 'refresh_token'
+
+        Returns:
+            True if revocation was successful
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        data = {
+            "token": token,
+            "token_type_hint": token_type,
+        }
+
+        import base64
+        credentials = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode()
+        ).decode()
+
+        try:
+            response = requests.post(
+                self.REVOKE_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Authorization": f"Basic {credentials}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter token revocation failed: {e}")
+            return False
+
+    def get_user_info(self, access_token: str) -> dict:
+        """
+        Get the authenticated user's profile information.
+
+        Args:
+            access_token: Valid Twitter access token
+
+        Returns:
+            Dictionary with user profile data (id, name, username, etc.)
+        """
+        try:
+            response = requests.get(
+                self.USER_INFO_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "user.fields": "id,name,username,profile_image_url,description",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", {})
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter user info fetch failed: {e}")
+            raise Exception(f"Failed to fetch user info: {str(e)}")
+
+    def create_tweet(
+        self,
+        access_token: str,
+        text: str,
+        reply_to_id: Optional[str] = None,
+        quote_tweet_id: Optional[str] = None,
+        media_ids: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Create a tweet (post) on Twitter/X.
+
+        Args:
+            access_token: Valid Twitter access token
+            text: The tweet content (max 280 chars for regular, 25000 for Premium)
+            reply_to_id: Optional tweet ID to reply to
+            quote_tweet_id: Optional tweet ID to quote
+            media_ids: Optional list of media IDs for attachments
+
+        Returns:
+            Dictionary with the created tweet information
+        """
+        payload = {"text": text}
+
+        # Add reply settings if replying to a tweet
+        if reply_to_id:
+            payload["reply"] = {"in_reply_to_tweet_id": reply_to_id}
+
+        # Add quote tweet settings
+        if quote_tweet_id:
+            payload["quote_tweet_id"] = quote_tweet_id
+
+        # Add media if provided
+        if media_ids:
+            payload["media"] = {"media_ids": media_ids}
+
+        try:
+            response = requests.post(
+                self.TWEET_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Tweet created successfully: {data.get('data', {})}")
+            return data.get("data", {})
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter tweet creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create tweet: {str(e)}")
+
+    def delete_tweet(self, access_token: str, tweet_id: str) -> bool:
+        """
+        Delete a tweet.
+
+        Args:
+            access_token: Valid Twitter access token
+            tweet_id: The ID of the tweet to delete
+
+        Returns:
+            True if deletion was successful
+        """
+        try:
+            response = requests.delete(
+                f"{self.TWEET_URL}/{tweet_id}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter tweet deletion failed: {e}")
+            return False
+
+    def validate_tweet_length(self, text: str, is_premium: bool = False) -> dict:
+        """
+        Validate tweet length against Twitter's limits.
+
+        Args:
+            text: The tweet text to validate
+            is_premium: Whether the user has Twitter/X Premium
+
+        Returns:
+            Dictionary with is_valid, length, max_length, remaining
+        """
+        max_length = 25000 if is_premium else 280
+        length = len(text)
+
+        return {
+            "is_valid": length <= max_length,
+            "length": length,
+            "max_length": max_length,
+            "remaining": max_length - length,
+        }
+
+
+# Singleton instance
+twitter_service = TwitterService()

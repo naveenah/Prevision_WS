@@ -425,6 +425,14 @@ LINKEDIN_REDIRECT_URI = config(
     default="http://localhost:8000/api/v1/automation/linkedin/callback/",
 )
 
+# Twitter/X OAuth 2.0 Configuration
+TWITTER_CLIENT_ID = config("TWITTER_CLIENT_ID", default="")
+TWITTER_CLIENT_SECRET = config("TWITTER_CLIENT_SECRET", default="")
+TWITTER_REDIRECT_URI = config(
+    "TWITTER_REDIRECT_URI",
+    default="http://localhost:8000/api/v1/automation/twitter/callback/",
+)
+
 # Frontend URL for OAuth redirects
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
 

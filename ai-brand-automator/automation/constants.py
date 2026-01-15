@@ -3,13 +3,29 @@ Constants for the automation app.
 """
 from typing import List
 
-# Test mode constants - used for development without real LinkedIn credentials
+# Test mode constants - used for development without real credentials
 TEST_ACCESS_TOKEN = "test_access_token_not_real"
 TEST_REFRESH_TOKEN = "test_refresh_token_not_real"
+
+# Twitter test mode constants
+TWITTER_TEST_ACCESS_TOKEN = "test_twitter_access_token_not_real"
+TWITTER_TEST_REFRESH_TOKEN = "test_twitter_refresh_token_not_real"
 
 # LinkedIn API limits
 LINKEDIN_POST_MAX_LENGTH = 3000
 LINKEDIN_TITLE_MAX_LENGTH = 200
+
+# Twitter/X API limits
+TWITTER_POST_MAX_LENGTH = 280  # Standard tweet limit
+TWITTER_POST_MAX_LENGTH_PREMIUM = 25000  # X Premium subscribers
+TWITTER_MEDIA_MAX_IMAGES = 4  # Max images per tweet
+TWITTER_MEDIA_MAX_VIDEO_SIZE = 512 * 1024 * 1024  # 512MB for video
+TWITTER_MEDIA_MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB for images
+TWITTER_MEDIA_MAX_GIF_SIZE = 15 * 1024 * 1024  # 15MB for GIFs
+
+# Twitter supported media types
+TWITTER_IMAGE_TYPES: List[str] = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+TWITTER_VIDEO_TYPES: List[str] = ["video/mp4", "video/quicktime"]
 
 # Editable post statuses - posts with these statuses can be edited
 EDITABLE_STATUSES: List[str] = ["draft", "scheduled"]
