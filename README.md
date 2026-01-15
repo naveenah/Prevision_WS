@@ -18,6 +18,7 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 - 🔗 **LinkedIn Integration** - OAuth 2.0 with posting and scheduling
 - 📅 **Content Calendar** - Schedule and manage social media posts
 - ⚡ **Celery Automation** - Background task processing for scheduled posts
+- 🖼️ **Media Attachments** - Images (8MB), videos (500MB), documents (100MB)
 
 ## Tech Stack
 
@@ -222,8 +223,12 @@ A Django REST Framework backend with Next.js frontend that helps businesses crea
 - `POST /api/v1/automation/linkedin/test-connect/` - Test mode connection (DEBUG only)
 - `POST /api/v1/automation/linkedin/disconnect/` - Disconnect LinkedIn account
 - `POST /api/v1/automation/linkedin/post/` - Post to LinkedIn immediately
+- `POST /api/v1/automation/linkedin/media/upload/` - Upload image, video, or document
+- `GET /api/v1/automation/linkedin/video/status/{urn}/` - Check video processing status
+- `GET /api/v1/automation/linkedin/document/status/{urn}/` - Check document processing status
 - `GET /api/v1/automation/content-calendar/` - List scheduled posts
 - `POST /api/v1/automation/content-calendar/` - Create scheduled post
+- `PUT /api/v1/automation/content-calendar/{id}/` - Edit scheduled post
 - `GET /api/v1/automation/content-calendar/upcoming/` - Get upcoming posts
 - `POST /api/v1/automation/content-calendar/{id}/publish/` - Publish post now
 - `POST /api/v1/automation/content-calendar/{id}/cancel/` - Cancel scheduled post
@@ -417,9 +422,19 @@ See [LICENSE.md](LICENSE.md)
 - ✅ LinkedIn OAuth integration with token encryption
 - ✅ Immediate LinkedIn posting
 - ✅ Content Calendar with scheduling
-- ✅ Celery-based automatic publishing (every 60 seconds)
+- ✅ Edit scheduled posts
+- ✅ Media attachments (images, videos, documents)
+- ✅ Celery-based automatic publishing (every 5 minutes)
 - ✅ Published posts history with configurable limit
+- ✅ Automation tasks view with status badges
 - ✅ Test mode for LinkedIn development
+
+### LinkedIn Media Specifications
+| Media Type | Max Size | Formats |
+|------------|----------|---------|
+| Image | 8MB | JPEG, PNG, GIF |
+| Video | 500MB | MP4 only |
+| Document | 100MB | PDF, DOC, DOCX, PPT, PPTX |
 
 ### Pending Features (Post-MVP)
 - ⏳ Twitter/X integration
