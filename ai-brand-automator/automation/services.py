@@ -16,7 +16,8 @@ class LinkedInService:
     Service for LinkedIn OAuth 2.0 authentication and API interactions.
 
     LinkedIn API v2 with OAuth 2.0 (3-legged)
-    Documentation: https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow
+    Documentation:
+    https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow
     """
 
     AUTHORIZATION_URL = "https://www.linkedin.com/oauth/v2/authorization"

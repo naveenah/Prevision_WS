@@ -127,7 +127,8 @@ class LinkedInCallbackView(APIView):
 
         # Debug logging
         logger.info(
-            f"LinkedIn callback received - code: {bool(code)}, state: {state}, error: {error}"
+            f"LinkedIn callback received - code: {bool(code)}, "
+            f"state: {state}, error: {error}"
         )
 
         # Get frontend URL for redirects
@@ -145,17 +146,21 @@ class LinkedInCallbackView(APIView):
             oauth_state = OAuthState.objects.get(state=state, platform="linkedin")
         except OAuthState.DoesNotExist:
             logger.error(f"LinkedIn OAuth state not found: {state}")
-            return HttpResponseRedirect(
-                f"{frontend_url}/automation?error=invalid_state&message=State+token+not+found+or+expired"
+            redirect_url = (
+                f"{frontend_url}/automation?error=invalid_state"
+                "&message=State+token+not+found+or+expired"
             )
+            return HttpResponseRedirect(redirect_url)
 
         # Check if state is expired (10 min limit)
         if oauth_state.is_expired():
             oauth_state.delete()
             logger.error("LinkedIn OAuth state expired")
-            return HttpResponseRedirect(
-                f"{frontend_url}/automation?error=state_expired&message=Authorization+timed+out"
+            redirect_url = (
+                f"{frontend_url}/automation?error=state_expired"
+                "&message=Authorization+timed+out"
             )
+            return HttpResponseRedirect(redirect_url)
 
         user = oauth_state.user
 
@@ -178,7 +183,9 @@ class LinkedInCallbackView(APIView):
                     "token_expires_at": expires_at,
                     "profile_id": profile_data.get("id"),
                     "profile_name": profile_data.get("name"),
-                    "profile_url": f"https://www.linkedin.com/in/{profile_data.get('id')}",
+                    "profile_url": (
+                        f"https://www.linkedin.com/in/{profile_data.get('id')}"
+                    ),
                     "profile_image_url": profile_data.get("picture"),
                     "status": "connected",
                 },
@@ -189,9 +196,11 @@ class LinkedInCallbackView(APIView):
 
             logger.info(f"LinkedIn connected for user {user.email}")
 
-            return HttpResponseRedirect(
-                f"{frontend_url}/automation?success=linkedin&name={profile_data.get('name', '')}"
+            profile_name = profile_data.get("name", "")
+            redirect_url = (
+                f"{frontend_url}/automation?success=linkedin&name={profile_name}"
             )
+            return HttpResponseRedirect(redirect_url)
 
         except Exception as e:
             logger.error(f"LinkedIn OAuth callback error: {e}")
@@ -487,7 +496,8 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def upcoming(self, request):
         """Get all scheduled posts (pending and overdue) ordered by date."""
-        # Show all scheduled posts - both upcoming and overdue ones that haven't been published
+        # Show all scheduled posts - both upcoming and overdue ones
+        # that haven't been published
         upcoming = ContentCalendar.objects.filter(
             user=request.user,
             status="scheduled",
