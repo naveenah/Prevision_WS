@@ -430,7 +430,8 @@ class LinkedInPostView(APIView):
             )
 
             logger.info(
-                f"LinkedIn post created by {request.user.email} (media: {len(media_urns)})"
+                f"LinkedIn post created by {request.user.email} "
+                f"(media: {len(media_urns)})"
             )
 
             return Response(
@@ -480,9 +481,11 @@ class LinkedInMediaUploadView(APIView):
     DOCUMENT_TYPES = [
         "application/pdf",
         "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+        # docx
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.ms-powerpoint",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # pptx
+        # pptx
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ]
 
     # Size limits (LinkedIn standards: images 8MB, videos 75KB-500MB, documents 100MB)
@@ -510,7 +513,8 @@ class LinkedInMediaUploadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check for file upload (try 'media' first, then 'image' for backward compatibility)
+        # Check for file upload
+        # Try 'media' first, then 'image' for backward compatibility
         media_file = request.FILES.get("media") or request.FILES.get("image")
 
         if media_file:
@@ -520,10 +524,9 @@ class LinkedInMediaUploadView(APIView):
             is_document = content_type in self.DOCUMENT_TYPES
 
             if not is_video and not is_image and not is_document:
+                allowed = "JPEG, PNG, GIF, MP4, PDF, DOC, DOCX, PPT, PPTX"
                 return Response(
-                    {
-                        "error": f"Invalid file type: {content_type}. Allowed: JPEG, PNG, GIF, MP4, PDF, DOC, DOCX, PPT, PPTX"
-                    },
+                    {"error": f"Invalid file type: {content_type}. Allowed: {allowed}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -552,7 +555,8 @@ class LinkedInMediaUploadView(APIView):
                     media_type = "document"
                 else:
                     media_type = "image"
-                test_asset_urn = f"urn:li:digitalmediaAsset:test-{media_type}-{uuid.uuid4().hex[:12]}"
+                asset_id = f"test-{media_type}-{uuid.uuid4().hex[:12]}"
+                test_asset_urn = f"urn:li:digitalmediaAsset:{asset_id}"
                 logger.info(
                     f"Test LinkedIn {media_type} upload by {request.user.email}"
                 )
@@ -564,7 +568,7 @@ class LinkedInMediaUploadView(APIView):
                         "status": "PROCESSING"
                         if (is_video or is_document)
                         else "READY",
-                        "message": f"{media_type.capitalize()} upload simulated in test mode",
+                        "message": f"{media_type.capitalize()} upload simulated",
                     }
                 )
 
@@ -578,14 +582,15 @@ class LinkedInMediaUploadView(APIView):
                         access_token, profile.profile_id, file_data, content_type
                     )
                     logger.info(
-                        f"LinkedIn video uploaded by {request.user.email}: {result['asset_urn']}"
+                        f"LinkedIn video uploaded by {request.user.email}: "
+                        f"{result['asset_urn']}"
                     )
                     return Response(
                         {
                             "asset_urn": result["asset_urn"],
                             "media_type": "video",
                             "status": result["status"],
-                            "message": "Video uploaded successfully. Processing may take a few minutes.",
+                            "message": "Video uploaded. Processing may take a few min.",
                         }
                     )
                 elif is_document:
@@ -598,14 +603,15 @@ class LinkedInMediaUploadView(APIView):
                         filename=media_file.name,
                     )
                     logger.info(
-                        f"LinkedIn document uploaded by {request.user.email}: {result['document_urn']}"
+                        f"LinkedIn document uploaded by {request.user.email}: "
+                        f"{result['document_urn']}"
                     )
                     return Response(
                         {
                             "asset_urn": result["document_urn"],
                             "media_type": "document",
                             "status": result["status"],
-                            "message": "Document uploaded successfully. Processing may take a few minutes.",
+                            "message": "Document uploaded. Processing.",
                         }
                     )
                 else:
@@ -648,9 +654,8 @@ class LinkedInMediaUploadView(APIView):
         if image_url:
             # Check if test mode
             if profile.access_token == TEST_ACCESS_TOKEN:
-                test_asset_urn = (
-                    f"urn:li:digitalmediaAsset:test-url-{uuid.uuid4().hex[:12]}"
-                )
+                asset_id = f"test-url-{uuid.uuid4().hex[:12]}"
+                test_asset_urn = f"urn:li:digitalmediaAsset:{asset_id}"
                 logger.info(f"Test LinkedIn URL upload by {request.user.email}")
                 return Response(
                     {
@@ -669,7 +674,8 @@ class LinkedInMediaUploadView(APIView):
                 )
 
                 logger.info(
-                    f"LinkedIn image uploaded from URL by {request.user.email}: {asset_urn}"
+                    f"LinkedIn image uploaded from URL by {request.user.email}: "
+                    f"{asset_urn}"
                 )
 
                 return Response(
@@ -689,9 +695,7 @@ class LinkedInMediaUploadView(APIView):
                 )
 
         return Response(
-            {
-                "error": "No media provided. Send 'media' file, 'image' file, or 'image_url'"
-            },
+            {"error": "No media provided. Send 'media', 'image', or 'image_url'"},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

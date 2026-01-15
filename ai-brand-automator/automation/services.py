@@ -202,7 +202,8 @@ class LinkedInService:
             user_urn: The user's URN (may be just ID or full URN format)
             text: The post content
             image_urns: Optional list of image asset URNs for media posts
-            video_urn: Optional video asset URN for video posts (takes precedence over images)
+            video_urn: Optional video asset URN for video posts
+                (takes precedence over images)
 
         Returns:
             Dictionary with the created post information
