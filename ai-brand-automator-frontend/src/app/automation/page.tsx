@@ -74,11 +74,49 @@ interface ScheduledPost {
   id: number;
   title: string;
   content: string;
+  media_urls: string[];
   platforms: string[];
   scheduled_date: string;
   status: string;
   status_display: string;
 }
+
+interface AutomationTask {
+  id: number;
+  task_type: string;
+  task_type_display: string;
+  status: string;
+  status_display: string;
+  payload: Record<string, unknown>;
+  result: Record<string, unknown>;
+  error_message: string | null;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+// Media upload constants (LinkedIn standards)
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif'] as const;
+const VIDEO_TYPES = ['video/mp4'] as const;
+const DOCUMENT_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+] as const;
+
+const MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
+const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
+
+// File input accept attribute - all supported media types
+const ACCEPTED_FILE_TYPES = [
+  ...IMAGE_TYPES,
+  ...VIDEO_TYPES,
+  ...DOCUMENT_TYPES,
+].join(',');
 
 // Loading fallback for Suspense
 function AutomationLoading() {
@@ -112,6 +150,8 @@ function AutomationPageContent() {
   const [postTitle, setPostTitle] = useState('');
   const [postText, setPostText] = useState('');
   const [posting, setPosting] = useState(false);
+  const [postMediaUrns, setPostMediaUrns] = useState<string[]>([]);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   
   // Schedule post state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -123,6 +163,22 @@ function AutomationPageContent() {
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [publishedPosts, setPublishedPosts] = useState<ScheduledPost[]>([]);
   const [publishedPostsLimit, setPublishedPostsLimit] = useState<number>(6);
+  const [scheduleMediaUrns, setScheduleMediaUrns] = useState<string[]>([]);
+  const [uploadingScheduleMedia, setUploadingScheduleMedia] = useState(false);
+
+  // Edit post state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editMediaUrns, setEditMediaUrns] = useState<string[]>([]);
+  const [uploadingEditMedia, setUploadingEditMedia] = useState(false);
+
+  // Automation tasks state
+  const [automationTasks, setAutomationTasks] = useState<AutomationTask[]>([]);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -173,6 +229,14 @@ function AutomationPageContent() {
           const posts = data.results || data;
           setPublishedPosts(Array.isArray(posts) ? posts : []);
         }
+
+        // Fetch automation tasks (limit to recent 10)
+        const tasksResponse = await apiClient.get('/automation/tasks/?limit=10');
+        if (tasksResponse.ok) {
+          const data = await tasksResponse.json();
+          const tasks = data.results || data;
+          setAutomationTasks(Array.isArray(tasks) ? tasks : []);
+        }
       } catch (error) {
         console.error('Failed to fetch data:', error);
       } finally {
@@ -216,15 +280,30 @@ function AutomationPageContent() {
     }
   }, [publishedPostsLimit]);
 
+  // Fetch automation tasks
+  const fetchAutomationTasks = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/automation/tasks/?limit=10');
+      if (response.ok) {
+        const data = await response.json();
+        const tasks = data.results || data;
+        setAutomationTasks(Array.isArray(tasks) ? tasks : []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch automation tasks:', error);
+    }
+  }, []);
+
   // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
   useEffect(() => {
     const interval = setInterval(() => {
       fetchScheduledPosts();
       fetchPublishedPosts();
+      fetchAutomationTasks();
     }, 30000); // 30 seconds
 
     return () => clearInterval(interval);
-  }, [fetchScheduledPosts, fetchPublishedPosts]);
+  }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
 
   const handleConnect = async (platform: string) => {
     if (platform !== 'linkedin') {
@@ -332,6 +411,98 @@ function AutomationPageContent() {
     }
   };
 
+  // Handle media upload for posts (images, videos, and documents)
+  const handleMediaUpload = async (
+    file: File,
+    setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
+    setUploading: React.Dispatch<React.SetStateAction<boolean>>
+  ) => {
+    // Validate file type using constants
+    const isImage = (IMAGE_TYPES as readonly string[]).includes(file.type);
+    const isVideo = (VIDEO_TYPES as readonly string[]).includes(file.type);
+    const isDocument = (DOCUMENT_TYPES as readonly string[]).includes(file.type);
+
+    if (!isImage && !isVideo && !isDocument) {
+      setMessage({
+        type: 'error',
+        text: 'Invalid file type. Allowed: JPEG, PNG, GIF (images); MP4 (video); PDF, DOC, DOCX, PPT, PPTX (documents)',
+      });
+      return;
+    }
+
+    // Validate file size using constants
+    let maxSize: number;
+    let sizeLabel: string;
+    if (isVideo) {
+      maxSize = MAX_VIDEO_SIZE;
+      sizeLabel = '500MB';
+    } else if (isDocument) {
+      maxSize = MAX_DOCUMENT_SIZE;
+      sizeLabel = '100MB';
+    } else {
+      maxSize = MAX_IMAGE_SIZE;
+      sizeLabel = '8MB';
+    }
+    
+    if (file.size > maxSize) {
+      setMessage({
+        type: 'error',
+        text: `File too large. Maximum size is ${sizeLabel}`,
+      });
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('media', file);
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/linkedin/media/upload/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMediaUrns((prev) => [...prev, data.asset_urn]);
+        
+        let mediaType: string;
+        if (data.media_type === 'video') {
+          mediaType = 'Video';
+        } else if (data.media_type === 'document') {
+          mediaType = 'Document';
+        } else {
+          mediaType = 'Image';
+        }
+        const processingNote = data.status === 'PROCESSING' ? ' (processing...)' : '';
+        
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? `🧪 ${mediaType} uploaded (Test Mode)${processingNote}` 
+            : `${mediaType} uploaded successfully!${processingNote}`,
+        });
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to upload media',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to upload media:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to upload media',
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // Handle posting to LinkedIn
   const handlePost = async () => {
     if (!postText.trim()) {
@@ -346,7 +517,8 @@ function AutomationPageContent() {
     try {
       const response = await apiClient.post('/automation/linkedin/post/', { 
         title: postTitle.trim() || undefined,
-        text: postText 
+        text: postText,
+        media_urns: postMediaUrns.length > 0 ? postMediaUrns : undefined,
       });
       if (response.ok) {
         const data = await response.json();
@@ -354,10 +526,11 @@ function AutomationPageContent() {
           type: 'success',
           text: data.test_mode 
             ? '🧪 Post created successfully (Test Mode - not actually posted)' 
-            : 'Post published to LinkedIn successfully!',
+            : `Post published to LinkedIn successfully!${data.has_media ? ' (with image)' : ''}`,
         });
         setPostTitle('');
         setPostText('');
+        setPostMediaUrns([]);
         setShowComposeModal(false);
         // Refresh published posts list
         fetchPublishedPosts();
@@ -399,6 +572,7 @@ function AutomationPageContent() {
       const response = await apiClient.post('/automation/content-calendar/', {
         title: scheduleTitle,
         content: scheduleContent,
+        media_urls: scheduleMediaUrns.length > 0 ? scheduleMediaUrns : [],
         platforms: ['linkedin'],
         scheduled_date: scheduledDateTime,
         status: 'scheduled',
@@ -407,12 +581,13 @@ function AutomationPageContent() {
       if (response.ok) {
         setMessage({
           type: 'success',
-          text: 'Post scheduled successfully!',
+          text: `Post scheduled successfully!${scheduleMediaUrns.length > 0 ? ' (with image)' : ''}`,
         });
         setScheduleTitle('');
         setScheduleContent('');
         setScheduleDate('');
         setScheduleTime('');
+        setScheduleMediaUrns([]);
         setShowScheduleModal(false);
         fetchScheduledPosts();
       } else {
@@ -479,6 +654,73 @@ function AutomationPageContent() {
       }
     } catch (error) {
       console.error('Failed to cancel:', error);
+    }
+  };
+
+  // Open edit modal with post data
+  const openEditModal = (post: ScheduledPost) => {
+    setEditingPost(post);
+    setEditTitle(post.title);
+    setEditContent(post.content);
+    // Parse the scheduled date/time using consistent local timezone handling
+    const date = new Date(post.scheduled_date);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    setEditDate(`${year}-${month}-${day}`);
+    setEditTime(
+      date.toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    );
+    // Load existing media if any
+    setEditMediaUrns(post.media_urls || []);
+    setShowEditModal(true);
+  };
+
+  // Handle updating a scheduled post
+  const handleEditPost = async () => {
+    if (!editingPost) return;
+    
+    setEditing(true);
+    try {
+      const scheduledDate = new Date(`${editDate}T${editTime}`);
+      
+      const response = await apiClient.put(`/automation/content-calendar/${editingPost.id}/`, {
+        title: editTitle,
+        content: editContent,
+        media_urls: editMediaUrns,
+        platforms: editingPost.platforms,
+        scheduled_date: scheduledDate.toISOString(),
+        status: editingPost.status,  // Preserve original status
+      });
+
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: `Post updated successfully!${editMediaUrns.length > 0 ? ' (with media)' : ''}`,
+        });
+        setShowEditModal(false);
+        setEditingPost(null);
+        setEditMediaUrns([]);
+        fetchScheduledPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to update post',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update post:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to update post. Please try again.',
+      });
+    } finally {
+      setEditing(false);
     }
   };
 
@@ -700,6 +942,15 @@ function AutomationPageContent() {
                     </div>
                     <div className="flex items-center gap-2 ml-4">
                       <button
+                        onClick={() => openEditModal(post)}
+                        className="px-3 py-1.5 text-xs rounded border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+                        title="Edit post"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
                         onClick={() => handlePublishNow(post.id)}
                         className="px-3 py-1.5 text-xs rounded bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                       >
@@ -832,18 +1083,104 @@ function AutomationPageContent() {
 
         {/* Automation Tasks Section */}
         <div className="mt-12">
-          <h2 className="text-2xl font-heading font-bold text-white mb-4">Automation Tasks</h2>
-          <div className="glass-card p-8 text-center">
-            <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-heading font-bold text-white">Automation Tasks</h2>
+            <button
+              onClick={fetchAutomationTasks}
+              className="text-sm text-brand-electric hover:text-brand-electric/80 flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-            </div>
-            <h3 className="text-lg font-medium text-white mb-2">Automated Workflows</h3>
-            <p className="text-brand-silver/70 max-w-md mx-auto">
-              No automation tasks yet. Once you connect your social accounts, you&apos;ll be able to set up automated workflows.
-            </p>
+              Refresh
+            </button>
           </div>
+          
+          {automationTasks.length > 0 ? (
+            <div className="space-y-3">
+              {automationTasks.map((task) => (
+                <div key={task.id} className="glass-card p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {/* Task Type Icon */}
+                      <div className={`p-2 rounded-lg ${
+                        task.task_type === 'social_post' ? 'bg-blue-500/20 text-blue-400' :
+                        task.task_type === 'profile_sync' ? 'bg-purple-500/20 text-purple-400' :
+                        task.task_type === 'content_schedule' ? 'bg-brand-electric/20 text-brand-electric' :
+                        'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {task.task_type === 'social_post' ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                        ) : task.task_type === 'profile_sync' ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <h4 className="text-white font-medium">{task.task_type_display}</h4>
+                        <p className="text-xs text-brand-silver/70">
+                          {new Date(task.created_at).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Status Badge */}
+                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
+                      task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                      task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                      task.status === 'in_progress' ? 'bg-yellow-500/20 text-yellow-400' :
+                      task.status === 'pending' ? 'bg-blue-500/20 text-blue-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {task.status_display}
+                    </span>
+                  </div>
+                  
+                  {/* Error message if failed */}
+                  {task.status === 'failed' && task.error_message && (
+                    <div className="mt-3 p-2 bg-red-900/20 border border-red-500/30 rounded text-xs text-red-300">
+                      {task.error_message}
+                    </div>
+                  )}
+                  
+                  {/* Result preview for completed tasks */}
+                  {task.status === 'completed' && task.result && Object.keys(task.result).length > 0 && (
+                    <div className="mt-3 p-2 bg-green-900/10 border border-green-500/20 rounded text-xs text-green-300/70">
+                      {task.result.test_mode ? '✓ Test mode - simulated' : '✓ Successfully completed'}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="glass-card p-8 text-center">
+              <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">No Automation Tasks Yet</h3>
+              <p className="text-brand-silver/70 max-w-md mx-auto">
+                {profiles?.linkedin?.connected 
+                  ? "Your automation tasks will appear here as you post and schedule content."
+                  : "Connect your social accounts to start tracking automation tasks."
+                }
+              </p>
+            </div>
+          )}
         </div>
       </main>
 
@@ -914,6 +1251,50 @@ function AutomationPageContent() {
                   )}
                 </div>
               </div>
+
+              {/* Media Upload */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={ACCEPTED_FILE_TYPES}
+                      className="hidden"
+                      disabled={uploadingMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setPostMediaUrns, setUploadingMedia);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {postMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {postMediaUrns.length} file{postMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setPostMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+              </div>
             </div>
 
             {/* Action Buttons */}
@@ -923,6 +1304,7 @@ function AutomationPageContent() {
                   setShowComposeModal(false);
                   setPostTitle('');
                   setPostText('');
+                  setPostMediaUrns([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -930,7 +1312,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handlePost}
-                disabled={posting || !postText.trim()}
+                disabled={posting || uploadingMedia || !postText.trim()}
                 className="px-6 py-2.5 rounded-lg bg-[#0A66C2] hover:bg-[#004182] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {posting ? (
@@ -1046,6 +1428,50 @@ function AutomationPageContent() {
                   <span className="text-xs text-brand-silver/50 ml-auto">Selected</span>
                 </div>
               </div>
+
+              {/* Media Upload for Schedule */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingScheduleMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={ACCEPTED_FILE_TYPES}
+                      className="hidden"
+                      disabled={uploadingScheduleMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {scheduleMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {scheduleMediaUrns.length} file{scheduleMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setScheduleMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+              </div>
             </div>
 
             {/* Action Buttons */}
@@ -1057,6 +1483,7 @@ function AutomationPageContent() {
                   setScheduleContent('');
                   setScheduleDate('');
                   setScheduleTime('');
+                  setScheduleMediaUrns([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1064,7 +1491,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleSchedulePost}
-                disabled={scheduling || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime}
+                disabled={scheduling || uploadingScheduleMedia || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime}
                 className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {scheduling ? (
@@ -1077,6 +1504,189 @@ function AutomationPageContent() {
                   </>
                 ) : (
                   'Schedule Post'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Post Modal */}
+      {showEditModal && editingPost && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingPost(null);
+                setEditTitle('');
+                setEditContent('');
+                setEditDate('');
+                setEditTime('');
+                setEditMediaUrns([]);
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-brand-electric text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Edit Scheduled Post</h2>
+                <p className="text-sm text-brand-silver/70">
+                  Update your scheduled post details
+                </p>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="Give your post a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  placeholder="What do you want to share?"
+                  rows={4}
+                  maxLength={3000}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="text-xs text-brand-silver/50 mt-1">
+                  {editContent.length} / 3,000 characters
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                  />
+                </div>
+              </div>
+              
+              <div className="p-3 bg-white/5 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded bg-[#0A66C2]">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                    </svg>
+                  </div>
+                  <span className="text-sm text-white">LinkedIn</span>
+                  <span className="text-xs text-brand-silver/50 ml-auto">
+                    {editingPost.platforms.join(', ')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Media Upload for Edit */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingEditMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={ACCEPTED_FILE_TYPES}
+                      className="hidden"
+                      disabled={uploadingEditMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setEditMediaUrns, setUploadingEditMedia);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {editMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {editMediaUrns.length} file{editMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setEditMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingPost(null);
+                  setEditTitle('');
+                  setEditContent('');
+                  setEditDate('');
+                  setEditTime('');
+                  setEditMediaUrns([]);
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditPost}
+                disabled={editing || uploadingEditMedia || !editTitle.trim() || !editContent.trim() || !editDate || !editTime}
+                className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {editing ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
                 )}
               </button>
             </div>

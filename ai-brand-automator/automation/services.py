@@ -3,6 +3,7 @@ LinkedIn OAuth and API service.
 """
 import requests
 import logging
+from typing import Optional, List
 from datetime import timedelta
 from urllib.parse import urlencode
 from django.conf import settings
@@ -186,7 +187,14 @@ class LinkedInService:
             logger.error(f"LinkedIn profile fetch failed: {e}")
             raise Exception(f"Failed to fetch profile: {str(e)}")
 
-    def create_share(self, access_token: str, user_urn: str, text: str) -> dict:
+    def create_share(
+        self,
+        access_token: str,
+        user_urn: str,
+        text: str,
+        image_urns: Optional[List[str]] = None,
+        video_urn: Optional[str] = None,
+    ) -> dict:
         """
         Create a share (post) on LinkedIn.
 
@@ -194,6 +202,9 @@ class LinkedInService:
             access_token: Valid LinkedIn access token
             user_urn: The user's URN (may be just ID or full URN format)
             text: The post content
+            image_urns: Optional list of image asset URNs for media posts
+            video_urn: Optional video asset URN for video posts
+                (takes precedence over images)
 
         Returns:
             Dictionary with the created post information
@@ -207,17 +218,61 @@ class LinkedInService:
         else:
             author_urn = f"urn:li:person:{user_urn}"
 
-        payload = {
-            "author": author_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {"text": text},
-                    "shareMediaCategory": "NONE",
-                }
-            },
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
-        }
+        # Video takes precedence over images
+        if video_urn:
+            payload = {
+                "author": author_urn,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": text},
+                        "shareMediaCategory": "VIDEO",
+                        "media": [
+                            {
+                                "status": "READY",
+                                "media": video_urn,
+                            }
+                        ],
+                    }
+                },
+                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            }
+        # Build media content if images provided
+        elif image_urns and len(image_urns) > 0:
+            # Build media array for the share
+            media_items = []
+            for urn in image_urns:
+                media_items.append(
+                    {
+                        "status": "READY",
+                        "media": urn,
+                    }
+                )
+
+            payload = {
+                "author": author_urn,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": text},
+                        "shareMediaCategory": "IMAGE",
+                        "media": media_items,
+                    }
+                },
+                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            }
+        else:
+            payload = {
+                "author": author_urn,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": text},
+                        "shareMediaCategory": "NONE",
+                    }
+                },
+                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            }
 
         try:
             response = requests.post(
@@ -236,6 +291,488 @@ class LinkedInService:
         except requests.exceptions.RequestException as e:
             logger.error(f"LinkedIn share creation failed: {e}")
             raise Exception(f"Failed to create share: {str(e)}")
+
+    def register_image_upload(self, access_token: str, user_urn: str) -> dict:
+        """
+        Register an image upload with LinkedIn to get an upload URL.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+
+        Returns:
+            Dictionary with upload URL and asset URN
+        """
+        register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+
+        # Normalize URN format
+        if user_urn.startswith("urn:li:person:"):
+            owner_urn = user_urn
+        else:
+            owner_urn = f"urn:li:person:{user_urn}"
+
+        payload = {
+            "registerUploadRequest": {
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                "owner": owner_urn,
+                "serviceRelationships": [
+                    {
+                        "relationshipType": "OWNER",
+                        "identifier": "urn:li:userGeneratedContent",
+                    }
+                ],
+            }
+        }
+
+        try:
+            response = requests.post(
+                register_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract upload URL and asset URN
+            value = data.get("value", {})
+            upload_mechanism = value.get("uploadMechanism", {})
+            media_artifact = upload_mechanism.get(
+                "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}
+            )
+
+            return {
+                "upload_url": media_artifact.get("uploadUrl"),
+                "asset_urn": value.get("asset"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn image registration failed: {e}")
+            raise Exception(f"Failed to register image upload: {str(e)}")
+
+    def upload_image(
+        self, upload_url: str, image_data: bytes, content_type: str = "image/jpeg"
+    ) -> bool:
+        """
+        Upload image binary data to LinkedIn's upload URL.
+
+        Args:
+            upload_url: The upload URL from register_image_upload
+            image_data: Binary image data
+            content_type: MIME type of the image
+
+        Returns:
+            True if upload was successful
+        """
+        try:
+            response = requests.put(
+                upload_url,
+                data=image_data,
+                headers={
+                    "Content-Type": content_type,
+                },
+                timeout=60,  # Longer timeout for uploads
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn image upload failed: {e}")
+            raise Exception(f"Failed to upload image: {str(e)}")
+
+    def upload_image_from_url(
+        self, access_token: str, user_urn: str, image_url: str
+    ) -> str:
+        """
+        Upload an image from a URL to LinkedIn.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            image_url: URL of the image to upload
+
+        Returns:
+            The asset URN for the uploaded image
+        """
+        # Download the image
+        try:
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            image_data = response.content
+            content_type = response.headers.get("Content-Type", "image/jpeg")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to download image from URL: {e}")
+            raise Exception(f"Failed to download image: {str(e)}")
+
+        # Register the upload
+        upload_info = self.register_image_upload(access_token, user_urn)
+        upload_url = upload_info.get("upload_url")
+        asset_urn = upload_info.get("asset_urn")
+
+        if not upload_url or not asset_urn:
+            raise Exception("Failed to get upload URL from LinkedIn")
+
+        # Upload the image
+        self.upload_image(upload_url, image_data, content_type)
+
+        return asset_urn
+
+    # ==================== VIDEO UPLOAD METHODS ====================
+
+    def register_video_upload(
+        self, access_token: str, user_urn: str, file_size: int
+    ) -> dict:
+        """
+        Register a video upload with LinkedIn to get upload instructions.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            file_size: Size of the video file in bytes
+
+        Returns:
+            Dictionary with upload URLs and asset URN
+        """
+        register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+
+        # Normalize URN format
+        if user_urn.startswith("urn:li:person:"):
+            owner_urn = user_urn
+        else:
+            owner_urn = f"urn:li:person:{user_urn}"
+
+        payload = {
+            "registerUploadRequest": {
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-video"],
+                "owner": owner_urn,
+                "serviceRelationships": [
+                    {
+                        "relationshipType": "OWNER",
+                        "identifier": "urn:li:userGeneratedContent",
+                    }
+                ],
+                "supportedUploadMechanism": ["SINGLE_REQUEST_UPLOAD"],
+            }
+        }
+
+        try:
+            response = requests.post(
+                register_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract upload URL and asset URN
+            value = data.get("value", {})
+            upload_mechanism = value.get("uploadMechanism", {})
+            media_artifact = upload_mechanism.get(
+                "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}
+            )
+
+            return {
+                "upload_url": media_artifact.get("uploadUrl"),
+                "asset_urn": value.get("asset"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn video registration failed: {e}")
+            raise Exception(f"Failed to register video upload: {str(e)}")
+
+    def upload_video(
+        self, upload_url: str, video_data: bytes, content_type: str = "video/mp4"
+    ) -> bool:
+        """
+        Upload video binary data to LinkedIn's upload URL.
+
+        Args:
+            upload_url: The upload URL from register_video_upload
+            video_data: Binary video data
+            content_type: MIME type of the video
+
+        Returns:
+            True if upload was successful
+        """
+        try:
+            response = requests.put(
+                upload_url,
+                data=video_data,
+                headers={
+                    "Content-Type": content_type,
+                },
+                timeout=300,  # 5 minutes timeout for video uploads
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn video upload failed: {e}")
+            raise Exception(f"Failed to upload video: {str(e)}")
+
+    def check_video_status(self, access_token: str, asset_urn: str) -> dict:
+        """
+        Check the processing status of an uploaded video.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            asset_urn: The asset URN from video registration
+
+        Returns:
+            Dictionary with status information
+        """
+        # URL-encode the asset URN
+        encoded_urn = asset_urn.replace(":", "%3A")
+        status_url = f"https://api.linkedin.com/v2/assets/{encoded_urn}"
+
+        try:
+            response = requests.get(
+                status_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            recipes = data.get("recipes", [])
+            status = "PROCESSING"
+
+            for recipe in recipes:
+                recipe_status = recipe.get("status")
+                if recipe_status == "AVAILABLE":
+                    status = "READY"
+                    break
+                elif recipe_status == "PROCESSING":
+                    status = "PROCESSING"
+                elif recipe_status == "FAILED":
+                    status = "FAILED"
+                    break
+
+            return {
+                "status": status,
+                "asset_urn": asset_urn,
+                "raw_response": data,
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn video status check failed: {e}")
+            raise Exception(f"Failed to check video status: {str(e)}")
+
+    def upload_video_file(
+        self,
+        access_token: str,
+        user_urn: str,
+        video_data: bytes,
+        content_type: str = "video/mp4",
+    ) -> dict:
+        """
+        Upload a video file to LinkedIn.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            video_data: Binary video data
+            content_type: MIME type of the video
+
+        Returns:
+            Dictionary with asset_urn and initial status
+        """
+        file_size = len(video_data)
+
+        # Register the upload
+        upload_info = self.register_video_upload(access_token, user_urn, file_size)
+        upload_url = upload_info.get("upload_url")
+        asset_urn = upload_info.get("asset_urn")
+
+        if not upload_url or not asset_urn:
+            raise Exception("Failed to get upload URL from LinkedIn")
+
+        # Upload the video
+        self.upload_video(upload_url, video_data, content_type)
+
+        return {
+            "asset_urn": asset_urn,
+            "status": "PROCESSING",  # Videos start in processing state
+        }
+
+    # ==================== DOCUMENT UPLOAD METHODS ====================
+
+    def register_document_upload(self, access_token: str, user_urn: str) -> dict:
+        """
+        Register a document upload with LinkedIn to get upload URL.
+
+        LinkedIn Documents API: https://api.linkedin.com/rest/documents
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+
+        Returns:
+            Dictionary with upload_url and document_urn
+        """
+        register_url = "https://api.linkedin.com/rest/documents?action=initializeUpload"
+
+        # Normalize URN format
+        if user_urn.startswith("urn:li:person:"):
+            owner_urn = user_urn
+        else:
+            owner_urn = f"urn:li:person:{user_urn}"
+
+        payload = {
+            "initializeUploadRequest": {
+                "owner": owner_urn,
+            }
+        }
+
+        try:
+            response = requests.post(
+                register_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "LinkedIn-Version": "202501",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            value = data.get("value", {})
+            return {
+                "upload_url": value.get("uploadUrl"),
+                "document_urn": value.get("document"),
+                "upload_url_expires_at": value.get("uploadUrlExpiresAt"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn document registration failed: {e}")
+            raise Exception(f"Failed to register document upload: {str(e)}")
+
+    def upload_document(
+        self, upload_url: str, document_data: bytes, content_type: str
+    ) -> bool:
+        """
+        Upload document binary data to LinkedIn's upload URL.
+
+        Args:
+            upload_url: The upload URL from register_document_upload
+            document_data: Binary document data
+            content_type: MIME type of the document
+
+        Returns:
+            True if upload was successful
+        """
+        try:
+            response = requests.put(
+                upload_url,
+                data=document_data,
+                headers={
+                    "Content-Type": content_type,
+                },
+                timeout=120,  # 2 minutes timeout for document uploads
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn document upload failed: {e}")
+            raise Exception(f"Failed to upload document: {str(e)}")
+
+    def check_document_status(self, access_token: str, document_urn: str) -> dict:
+        """
+        Check the processing status of an uploaded document.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            document_urn: The document URN from registration
+
+        Returns:
+            Dictionary with status information
+        """
+        # URL-encode the document URN
+        encoded_urn = document_urn.replace(":", "%3A")
+        status_url = f"https://api.linkedin.com/rest/documents/{encoded_urn}"
+
+        try:
+            response = requests.get(
+                status_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "LinkedIn-Version": "202501",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            status = data.get("status", "PROCESSING")
+
+            return {
+                "status": status,
+                "document_urn": document_urn,
+                "download_url": data.get("downloadUrl"),
+                "raw_response": data,
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn document status check failed: {e}")
+            raise Exception(f"Failed to check document status: {str(e)}")
+
+    def upload_document_file(
+        self,
+        access_token: str,
+        user_urn: str,
+        document_data: bytes,
+        content_type: str,
+        filename: str = None,
+    ) -> dict:
+        """
+        Upload a document file to LinkedIn.
+
+        Supported formats: PDF, DOC, DOCX, PPT, PPTX
+        Max size: 100MB, Max pages: 300
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            document_data: Binary document data
+            content_type: MIME type of the document
+            filename: Optional filename for the document
+
+        Returns:
+            Dictionary with document_urn and initial status
+        """
+        # Register the upload
+        upload_info = self.register_document_upload(access_token, user_urn)
+        upload_url = upload_info.get("upload_url")
+        document_urn = upload_info.get("document_urn")
+
+        if not upload_url or not document_urn:
+            raise Exception("Failed to get upload URL from LinkedIn")
+
+        # Upload the document
+        self.upload_document(upload_url, document_data, content_type)
+
+        return {
+            "document_urn": document_urn,
+            "status": "PROCESSING",  # Documents start in processing state
+            "filename": filename,
+        }
 
 
 # Singleton instance

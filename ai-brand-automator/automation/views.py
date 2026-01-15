@@ -20,7 +20,18 @@ from .serializers import (
     ContentCalendarSerializer,
 )
 from .services import linkedin_service
-from .constants import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN, LINKEDIN_TITLE_MAX_LENGTH
+from .constants import (
+    TEST_ACCESS_TOKEN,
+    TEST_REFRESH_TOKEN,
+    LINKEDIN_TITLE_MAX_LENGTH,
+    EDITABLE_STATUSES,
+    IMAGE_TYPES,
+    VIDEO_TYPES,
+    DOCUMENT_TYPES,
+    MAX_IMAGE_SIZE,
+    MAX_VIDEO_SIZE,
+    MAX_DOCUMENT_SIZE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +310,9 @@ class LinkedInPostView(APIView):
         """Create a LinkedIn post."""
         title = request.data.get("title", "").strip()
         text = request.data.get("text", "").strip()
+        media_urns = request.data.get(
+            "media_urns", []
+        )  # List of asset URNs from media upload
 
         if not text:
             return Response(
@@ -317,6 +331,10 @@ class LinkedInPostView(APIView):
                 {"error": f"Title cannot exceed {LINKEDIN_TITLE_MAX_LENGTH} chars"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Validate media_urns is a list
+        if media_urns and not isinstance(media_urns, list):
+            media_urns = [media_urns]
 
         try:
             profile = SocialProfile.objects.get(
@@ -343,6 +361,7 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 title=post_title,
                 content=text,
+                media_urls=media_urns,  # Store media URNs
                 platforms=["linkedin"],
                 scheduled_date=timezone.now(),
                 published_at=timezone.now(),
@@ -350,6 +369,7 @@ class LinkedInPostView(APIView):
                 post_results={
                     "test_mode": True,
                     "message": "Post simulated in test mode",
+                    "has_media": len(media_urns) > 0,
                 },
             )
             content.social_profiles.add(profile)
@@ -359,7 +379,11 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 task_type="social_post",
                 status="completed",
-                payload={"text": text, "platform": "linkedin"},
+                payload={
+                    "text": text,
+                    "platform": "linkedin",
+                    "media_count": len(media_urns),
+                },
                 result={"test_mode": True, "message": "Post simulated in test mode"},
             )
 
@@ -376,9 +400,12 @@ class LinkedInPostView(APIView):
             # Get valid access token (auto-refresh if needed)
             access_token = profile.get_valid_access_token()
 
-            # Create the post
+            # Create the post (with optional media)
             result = linkedin_service.create_share(
-                access_token=access_token, user_urn=profile.profile_id, text=text
+                access_token=access_token,
+                user_urn=profile.profile_id,
+                text=text,
+                image_urns=media_urns if media_urns else None,
             )
 
             # Create a ContentCalendar entry for the published post
@@ -391,6 +418,7 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 title=post_title,
                 content=text,
+                media_urls=media_urns,  # Store media URNs
                 platforms=["linkedin"],
                 scheduled_date=timezone.now(),
                 published_at=timezone.now(),
@@ -404,11 +432,18 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 task_type="social_post",
                 status="completed",
-                payload={"text": text, "platform": "linkedin"},
+                payload={
+                    "text": text,
+                    "platform": "linkedin",
+                    "media_count": len(media_urns),
+                },
                 result=result,
             )
 
-            logger.info(f"LinkedIn post created by {request.user.email}")
+            logger.info(
+                f"LinkedIn post created by {request.user.email} "
+                f"(media: {len(media_urns)})"
+            )
 
             return Response(
                 {
@@ -416,6 +451,7 @@ class LinkedInPostView(APIView):
                     "post_id": result.get("id"),
                     "task_id": task.id,
                     "content_id": content.id,
+                    "has_media": len(media_urns) > 0,
                 }
             )
 
@@ -429,12 +465,347 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 task_type="social_post",
                 status="failed",
-                payload={"text": text, "platform": "linkedin"},
+                payload={
+                    "text": text,
+                    "platform": "linkedin",
+                    "media_count": len(media_urns),
+                },
                 result={"error": str(e)},
             )
 
             return Response(
                 {"error": f"Failed to create post: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LinkedInMediaUploadView(APIView):
+    """
+    Upload media (images, videos, or documents) to LinkedIn for use in posts.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Upload an image or video to LinkedIn.
+
+        Accepts either:
+        - A file upload (multipart/form-data with 'media' or 'image' field)
+        - An image URL (JSON with 'image_url' field)
+
+        Returns the asset URN to use when creating a post with media.
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for file upload
+        # Try 'media' first, then 'image' for backward compatibility
+        media_file = request.FILES.get("media") or request.FILES.get("image")
+
+        if media_file:
+            content_type = media_file.content_type
+            is_video = content_type in VIDEO_TYPES
+            is_image = content_type in IMAGE_TYPES
+            is_document = content_type in DOCUMENT_TYPES
+
+            if not is_video and not is_image and not is_document:
+                allowed = "JPEG, PNG, GIF, MP4, PDF, DOC, DOCX, PPT, PPTX"
+                return Response(
+                    {"error": f"Invalid file type: {content_type}. Allowed: {allowed}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validate file size
+            if is_video:
+                max_size = MAX_VIDEO_SIZE
+                size_label = "500MB"
+            elif is_document:
+                max_size = MAX_DOCUMENT_SIZE
+                size_label = "100MB"
+            else:
+                max_size = MAX_IMAGE_SIZE
+                size_label = "8MB"
+
+            if media_file.size > max_size:
+                return Response(
+                    {"error": f"File too large. Maximum size is {size_label}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Check if test mode
+            if profile.access_token == TEST_ACCESS_TOKEN:
+                if is_video:
+                    media_type = "video"
+                elif is_document:
+                    media_type = "document"
+                else:
+                    media_type = "image"
+                asset_id = f"test-{media_type}-{uuid.uuid4().hex[:12]}"
+                test_asset_urn = f"urn:li:digitalmediaAsset:{asset_id}"
+                logger.info(
+                    f"Test LinkedIn {media_type} upload by {request.user.email}"
+                )
+                return Response(
+                    {
+                        "asset_urn": test_asset_urn,
+                        "media_type": media_type,
+                        "test_mode": True,
+                        "status": "PROCESSING"
+                        if (is_video or is_document)
+                        else "READY",
+                        "message": f"{media_type.capitalize()} upload simulated",
+                    }
+                )
+
+            try:
+                access_token = profile.get_valid_access_token()
+                file_data = media_file.read()
+
+                if is_video:
+                    # Video upload
+                    result = linkedin_service.upload_video_file(
+                        access_token, profile.profile_id, file_data, content_type
+                    )
+                    logger.info(
+                        f"LinkedIn video uploaded by {request.user.email}: "
+                        f"{result['asset_urn']}"
+                    )
+                    return Response(
+                        {
+                            "asset_urn": result["asset_urn"],
+                            "media_type": "video",
+                            "status": result["status"],
+                            "message": "Video uploaded. Processing may take a few min.",
+                        }
+                    )
+                elif is_document:
+                    # Document upload
+                    result = linkedin_service.upload_document_file(
+                        access_token,
+                        profile.profile_id,
+                        file_data,
+                        content_type,
+                        filename=media_file.name,
+                    )
+                    logger.info(
+                        f"LinkedIn document uploaded by {request.user.email}: "
+                        f"{result['document_urn']}"
+                    )
+                    return Response(
+                        {
+                            "asset_urn": result["document_urn"],
+                            "media_type": "document",
+                            "status": result["status"],
+                            "message": "Document uploaded. Processing.",
+                        }
+                    )
+                else:
+                    # Image upload
+                    upload_info = linkedin_service.register_image_upload(
+                        access_token, profile.profile_id
+                    )
+                    upload_url = upload_info.get("upload_url")
+                    asset_urn = upload_info.get("asset_urn")
+
+                    if not upload_url or not asset_urn:
+                        return Response(
+                            {"error": "Failed to get upload URL from LinkedIn"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+
+                    linkedin_service.upload_image(upload_url, file_data, content_type)
+                    logger.info(
+                        f"LinkedIn image uploaded by {request.user.email}: {asset_urn}"
+                    )
+
+                    return Response(
+                        {
+                            "asset_urn": asset_urn,
+                            "media_type": "image",
+                            "status": "READY",
+                            "message": "Image uploaded successfully",
+                        }
+                    )
+
+            except Exception as e:
+                logger.error(f"LinkedIn media upload failed: {e}")
+                return Response(
+                    {"error": f"Failed to upload media: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # Handle URL-based upload (images only)
+        image_url = request.data.get("image_url")
+        if image_url:
+            # Check if test mode
+            if profile.access_token == TEST_ACCESS_TOKEN:
+                asset_id = f"test-url-{uuid.uuid4().hex[:12]}"
+                test_asset_urn = f"urn:li:digitalmediaAsset:{asset_id}"
+                logger.info(f"Test LinkedIn URL upload by {request.user.email}")
+                return Response(
+                    {
+                        "asset_urn": test_asset_urn,
+                        "media_type": "image",
+                        "test_mode": True,
+                        "status": "READY",
+                        "message": "Image upload simulated in test mode",
+                    }
+                )
+
+            try:
+                access_token = profile.get_valid_access_token()
+                asset_urn = linkedin_service.upload_image_from_url(
+                    access_token, profile.profile_id, image_url
+                )
+
+                logger.info(
+                    f"LinkedIn image uploaded from URL by {request.user.email}: "
+                    f"{asset_urn}"
+                )
+
+                return Response(
+                    {
+                        "asset_urn": asset_urn,
+                        "media_type": "image",
+                        "status": "READY",
+                        "message": "Image uploaded successfully",
+                    }
+                )
+
+            except Exception as e:
+                logger.error(f"LinkedIn media upload from URL failed: {e}")
+                return Response(
+                    {"error": f"Failed to upload image: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        return Response(
+            {"error": "No media provided. Send 'media', 'image', or 'image_url'"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class LinkedInVideoStatusView(APIView):
+    """
+    Check the processing status of an uploaded video.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, asset_urn):
+        """
+        Check video processing status.
+
+        Args:
+            asset_urn: The asset URN returned from video upload
+
+        Returns:
+            Status: PROCESSING, READY, or FAILED
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response(
+                {
+                    "asset_urn": asset_urn,
+                    "status": "READY",
+                    "test_mode": True,
+                    "message": "Video ready (test mode)",
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            result = linkedin_service.check_video_status(access_token, asset_urn)
+
+            return Response(
+                {
+                    "asset_urn": result["asset_urn"],
+                    "status": result["status"],
+                    "message": f"Video status: {result['status']}",
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"LinkedIn video status check failed: {e}")
+            return Response(
+                {"error": f"Failed to check video status: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LinkedInDocumentStatusView(APIView):
+    """
+    Check the processing status of an uploaded document.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_urn):
+        """
+        Check document processing status.
+
+        Args:
+            document_urn: The document URN returned from document upload
+
+        Returns:
+            Status: PROCESSING, AVAILABLE, or FAILED
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response(
+                {
+                    "document_urn": document_urn,
+                    "status": "AVAILABLE",
+                    "test_mode": True,
+                    "message": "Document ready (test mode)",
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            result = linkedin_service.check_document_status(access_token, document_urn)
+
+            return Response(
+                {
+                    "document_urn": result["document_urn"],
+                    "status": result["status"],
+                    "download_url": result.get("download_url"),
+                    "message": f"Document status: {result['status']}",
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"LinkedIn document status check failed: {e}")
+            return Response(
+                {"error": f"Failed to check document status: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -498,16 +869,56 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
 
         return queryset
 
-    def perform_create(self, serializer):
-        # Auto-link LinkedIn profile if platform is selected
-        instance = serializer.save(user=self.request.user)
+    def _sync_platform_profiles(self, instance):
+        """
+        Sync social profiles with selected platforms.
+
+        Adds or removes social profiles based on the platforms list.
+        """
+        # Handle LinkedIn platform
+        linkedin_profiles_on_instance = instance.social_profiles.filter(
+            platform="linkedin"
+        )
 
         if "linkedin" in instance.platforms:
+            # Ensure the user's connected LinkedIn profile is attached
             linkedin_profile = SocialProfile.objects.filter(
                 user=self.request.user, platform="linkedin", status="connected"
             ).first()
+
             if linkedin_profile:
-                instance.social_profiles.add(linkedin_profile)
+                # Add if not already linked
+                if not linkedin_profiles_on_instance.filter(
+                    id=linkedin_profile.id
+                ).exists():
+                    instance.social_profiles.add(linkedin_profile)
+        else:
+            # LinkedIn removed from platforms - remove any LinkedIn profiles
+            if linkedin_profiles_on_instance.exists():
+                instance.social_profiles.remove(*linkedin_profiles_on_instance)
+
+    def perform_create(self, serializer):
+        """Auto-link social profiles based on selected platforms."""
+        instance = serializer.save(user=self.request.user)
+        self._sync_platform_profiles(instance)
+
+    def update(self, request, *args, **kwargs):
+        """Update a scheduled post. Only draft/scheduled posts can be edited."""
+        instance = self.get_object()
+
+        # Prevent editing published, failed, or cancelled posts
+        if instance.status not in EDITABLE_STATUSES:
+            return Response(
+                {"error": f"Cannot edit a post with status '{instance.status}'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        """Handle platform changes when updating a post."""
+        instance = serializer.save()
+        self._sync_platform_profiles(instance)
 
     @action(detail=False, methods=["get"])
     def upcoming(self, request):
@@ -536,6 +947,9 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
         results = {}
         errors = []
 
+        # Get media URNs if any
+        media_urns = content.media_urls if content.media_urls else []
+
         # Publish to each connected platform
         for profile in content.social_profiles.all():
             if profile.platform == "linkedin" and profile.status == "connected":
@@ -545,6 +959,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                         results["linkedin"] = {
                             "test_mode": True,
                             "message": "Post simulated in test mode",
+                            "has_media": len(media_urns) > 0,
                         }
                         logger.info(f"Test publish to LinkedIn: {content.title}")
                     else:
@@ -553,6 +968,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                             access_token=access_token,
                             user_urn=profile.profile_id,
                             text=content.content,
+                            image_urns=media_urns if media_urns else None,
                         )
                         results["linkedin"] = result
                 except Exception as e:
