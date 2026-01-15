@@ -20,6 +20,7 @@ from .serializers import (
     ContentCalendarSerializer,
 )
 from .services import linkedin_service
+from .constants import TEST_ACCESS_TOKEN, TEST_REFRESH_TOKEN, LINKEDIN_TITLE_MAX_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -174,18 +175,25 @@ class LinkedInCallbackView(APIView):
             # Get user profile from LinkedIn
             profile_data = linkedin_service.get_user_profile(access_token)
 
-            social_profile, created = SocialProfile.objects.update_or_create(
+            # Extract profile ID - the 'sub' field may be full URN or just ID
+            # Store the full ID for API calls (create_share handles both formats)
+            profile_id = profile_data.get("id", "")
+
+            # LinkedIn profile URLs require vanity name which isn't available
+            # from userinfo endpoint, so we link to the generic profile page
+            # Note: profile_id may be in URN format, not suitable for /in/ URLs
+            profile_url = "https://www.linkedin.com/feed/"
+
+            _social_profile, _created = SocialProfile.objects.update_or_create(
                 user=user,
                 platform="linkedin",
                 defaults={
                     "access_token": access_token,
                     "refresh_token": refresh_token,
                     "token_expires_at": expires_at,
-                    "profile_id": profile_data.get("id"),
+                    "profile_id": profile_id,
                     "profile_name": profile_data.get("name"),
-                    "profile_url": (
-                        f"https://www.linkedin.com/in/{profile_data.get('id')}"
-                    ),
+                    "profile_url": profile_url,
                     "profile_image_url": profile_data.get("picture"),
                     "status": "connected",
                 },
@@ -236,8 +244,8 @@ class LinkedInTestConnectView(APIView):
             user=request.user,
             platform="linkedin",
             defaults={
-                "access_token": "test_access_token_not_real",
-                "refresh_token": "test_refresh_token_not_real",
+                "access_token": TEST_ACCESS_TOKEN,
+                "refresh_token": TEST_REFRESH_TOKEN,
                 "token_expires_at": timezone.now() + timedelta(days=60),
                 "profile_id": f"test_user_{request.user.id}",
                 "profile_name": request.user.get_full_name()
@@ -303,6 +311,13 @@ class LinkedInPostView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate title length if provided
+        if title and len(title) > LINKEDIN_TITLE_MAX_LENGTH:
+            return Response(
+                {"error": f"Title cannot exceed {LINKEDIN_TITLE_MAX_LENGTH} chars"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             profile = SocialProfile.objects.get(
                 user=request.user, platform="linkedin", status="connected"
@@ -314,7 +329,7 @@ class LinkedInPostView(APIView):
             )
 
         # Check if this is a test profile
-        if profile.access_token == "test_access_token_not_real":
+        if profile.access_token == TEST_ACCESS_TOKEN:
             # Simulate posting for test mode
             logger.info(f"Test LinkedIn post by {request.user.email}: {text[:50]}...")
 
@@ -478,6 +493,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                 if limit_int > 0:
                     queryset = queryset[:limit_int]
             except ValueError:
+                # If limit is not a valid integer, ignore it and return full queryset
                 pass
 
         return queryset
@@ -525,7 +541,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
             if profile.platform == "linkedin" and profile.status == "connected":
                 try:
                     # Check if test mode
-                    if profile.access_token == "test_access_token_not_real":
+                    if profile.access_token == TEST_ACCESS_TOKEN:
                         results["linkedin"] = {
                             "test_mode": True,
                             "message": "Post simulated in test mode",

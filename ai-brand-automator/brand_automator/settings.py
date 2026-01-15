@@ -444,6 +444,6 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "publish-scheduled-posts": {
         "task": "automation.publish_scheduled_posts",
-        "schedule": 60.0,  # Run every 60 seconds
+        "schedule": 300.0,  # Run every 5 minutes (reduced from 60s for efficiency)
     },
 }

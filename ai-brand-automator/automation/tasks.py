@@ -5,6 +5,8 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
+from .constants import TEST_ACCESS_TOKEN
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,7 @@ def publish_scheduled_posts():
             if profile.platform == "linkedin" and profile.status == "connected":
                 try:
                     # Check if test mode
-                    if profile.access_token == "test_access_token_not_real":
+                    if profile.access_token == TEST_ACCESS_TOKEN:
                         results["linkedin"] = {
                             "test_mode": True,
                             "message": "Post simulated in test mode",

@@ -63,9 +63,22 @@ def encrypt_token(plaintext: str) -> str:
         return plaintext
 
     if not ENCRYPTION_AVAILABLE:
-        # In dev mode without cryptography, return as-is with marker
-        logger.debug("Encryption not available, storing token in plaintext")
-        return plaintext
+        # In development without cryptography, allow plaintext with a warning.
+        # In non-debug environments, refuse to proceed to avoid insecure storage.
+        if getattr(settings, "DEBUG", False):
+            logger.warning(
+                "Encryption not available; storing token in plaintext because "
+                "DEBUG=True. Install the 'cryptography' package to enable "
+                "token encryption."
+            )
+            return plaintext
+        # In production, refuse to store tokens in plaintext
+        message = (
+            "Encryption not available; refusing to store token in plaintext. "
+            "Install the 'cryptography' package to enable token encryption."
+        )
+        logger.error(message)
+        raise RuntimeError(message)
 
     try:
         fernet = get_fernet()
@@ -108,11 +121,20 @@ def decrypt_token(ciphertext: str) -> str:
         decrypted = fernet.decrypt(encrypted_data)
         return decrypted.decode("utf-8")
     except InvalidToken:
-        logger.error("Invalid token or wrong encryption key")
-        return ""
+        # Do not log the token itself to avoid leaking sensitive data
+        logger.error(
+            "Invalid token or wrong encryption key during token decryption; "
+            "returning original ciphertext to caller."
+        )
+        return ciphertext
     except Exception as e:
-        logger.error(f"Failed to decrypt token: {e}")
-        return ""
+        # Do not log the token itself to avoid leaking sensitive data
+        logger.error(
+            "Failed to decrypt token due to unexpected error %s; "
+            "returning original ciphertext to caller.",
+            e,
+        )
+        return ciphertext
 
 
 def is_encrypted(value: str) -> bool:

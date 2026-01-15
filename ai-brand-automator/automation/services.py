@@ -186,25 +186,29 @@ class LinkedInService:
             logger.error(f"LinkedIn profile fetch failed: {e}")
             raise Exception(f"Failed to fetch profile: {str(e)}")
 
-    def create_share(
-        self, access_token: str, user_urn: str, text: str, media_urls: list = None
-    ) -> dict:
+    def create_share(self, access_token: str, user_urn: str, text: str) -> dict:
         """
         Create a share (post) on LinkedIn.
 
         Args:
             access_token: Valid LinkedIn access token
-            user_urn: The user's URN (e.g., 'urn:li:person:ABC123')
+            user_urn: The user's URN (may be just ID or full URN format)
             text: The post content
-            media_urls: Optional list of media URLs to attach
 
         Returns:
             Dictionary with the created post information
         """
         share_url = "https://api.linkedin.com/v2/ugcPosts"
 
+        # Handle URN format: user_urn may be just ID or full URN
+        # Normalize to full URN format
+        if user_urn.startswith("urn:li:person:"):
+            author_urn = user_urn
+        else:
+            author_urn = f"urn:li:person:{user_urn}"
+
         payload = {
-            "author": f"urn:li:person:{user_urn}",
+            "author": author_urn,
             "lifecycleState": "PUBLISHED",
             "specificContent": {
                 "com.linkedin.ugc.ShareContent": {
