@@ -13,6 +13,7 @@ interface SocialPlatformStatus {
   profile_image_url: string | null;
   status: string;
   is_token_valid: boolean;
+  access_token?: string | null;
 }
 
 interface SocialProfilesStatus {
