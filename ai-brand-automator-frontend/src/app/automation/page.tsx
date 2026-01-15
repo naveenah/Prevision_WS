@@ -111,6 +111,10 @@ const MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
 const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
 
+// Twitter constants
+const TWITTER_MAX_LENGTH = 280;
+const TWITTER_PREMIUM_MAX_LENGTH = 25000;
+
 // File input accept attribute - all supported media types
 const ACCEPTED_FILE_TYPES = [
   ...IMAGE_TYPES,
@@ -179,6 +183,13 @@ function AutomationPageContent() {
 
   // Automation tasks state
   const [automationTasks, setAutomationTasks] = useState<AutomationTask[]>([]);
+
+  // Twitter compose state
+  const [showTwitterComposeModal, setShowTwitterComposeModal] = useState(false);
+  const [tweetText, setTweetText] = useState('');
+  const [tweetPosting, setTweetPosting] = useState(false);
+  const [twitterTestMode, setTwitterTestMode] = useState(true); // Default to test mode for safety
+  const [testTweets, setTestTweets] = useState<Array<{ id: string; text: string; created_at: string }>>([]);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -552,6 +563,73 @@ function AutomationPageContent() {
     }
   };
 
+  // Handle posting to Twitter/X
+  const handleTwitterPost = async () => {
+    if (!tweetText.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter some text for your tweet',
+      });
+      return;
+    }
+
+    if (tweetText.length > TWITTER_MAX_LENGTH) {
+      setMessage({
+        type: 'error',
+        text: `Tweet exceeds ${TWITTER_MAX_LENGTH} characters`,
+      });
+      return;
+    }
+
+    setTweetPosting(true);
+    try {
+      if (twitterTestMode) {
+        // In test mode, simulate the tweet locally
+        const testTweet = {
+          id: `test_${Date.now()}`,
+          text: tweetText,
+          created_at: new Date().toISOString(),
+        };
+        setTestTweets(prev => [testTweet, ...prev]);
+        setMessage({
+          type: 'success',
+          text: '🧪 Test tweet simulated! (Not posted to Twitter)',
+        });
+        setTweetText('');
+        setShowTwitterComposeModal(false);
+      } else {
+        // Real mode - post to Twitter
+        const response = await apiClient.post('/automation/twitter/post/', {
+          text: tweetText,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setMessage({
+            type: 'success',
+            text: `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
+          });
+          setTweetText('');
+          setShowTwitterComposeModal(false);
+        } else {
+          const error = await response.json();
+          setMessage({
+            type: 'error',
+            text: error.error || 'Failed to post tweet',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to post tweet:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to post tweet',
+      });
+    } finally {
+      setTweetPosting(false);
+    }
+  };
+
   // Handle scheduling a post
   const handleSchedulePost = async () => {
     if (!scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime) {
@@ -830,6 +908,17 @@ function AutomationPageContent() {
                         Create Post
                       </button>
                     )}
+                    {platform === 'twitter' && (
+                      <button
+                        onClick={() => setShowTwitterComposeModal(true)}
+                        className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Tweet
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -843,6 +932,14 @@ function AutomationPageContent() {
                           className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                         >
                           📝 Compose Post
+                        </button>
+                      )}
+                      {platform === 'twitter' && (
+                        <button
+                          onClick={() => setShowTwitterComposeModal(true)}
+                          className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                        >
+                          🐦 Compose Tweet
                         </button>
                       )}
                       <button
@@ -863,7 +960,7 @@ function AutomationPageContent() {
                         {isLoading ? 'Connecting...' : `Connect ${config.name}`}
                       </button>
                       {/* Test Connect Button - Dev Mode Only */}
-                      {platform === 'linkedin' && (
+                      {(platform === 'linkedin' || platform === 'twitter') && (
                         <button
                           onClick={() => handleTestConnect(platform)}
                           disabled={isLoading || loading}
@@ -1080,6 +1177,81 @@ function AutomationPageContent() {
             </div>
           )}
         </div>
+
+        {/* Twitter Test Tweets Section */}
+        {testTweets.length > 0 && (
+          <div className="mt-12">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-heading font-bold text-white flex items-center gap-3">
+                <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+                Test Tweets
+                <span className="text-sm font-normal text-green-400 bg-green-400/10 px-2 py-0.5 rounded">🧪 Simulated</span>
+              </h2>
+              <button
+                onClick={() => setTestTweets([])}
+                className="text-sm text-red-400 hover:text-red-300 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear All
+              </button>
+            </div>
+            <p className="text-sm text-brand-silver/70 mb-4">
+              These tweets were simulated in Test Mode and were NOT posted to Twitter. Use this to preview before going live.
+            </p>
+            <div className="space-y-4">
+              {testTweets.map((tweet) => (
+                <div
+                  key={tweet.id}
+                  className="glass-card p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-white">Test User</span>
+                        <span className="text-brand-silver/50 text-sm">@testuser</span>
+                        <span className="text-brand-silver/50 text-sm">·</span>
+                        <span className="text-brand-silver/50 text-sm">
+                          {new Date(tweet.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-white whitespace-pre-wrap break-words">{tweet.text}</p>
+                      <div className="mt-3 flex items-center gap-4 text-brand-silver/50 text-sm">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          0
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          0
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                          </svg>
+                          0
+                        </span>
+                        <span className="text-green-400 ml-auto">✓ Simulated (ID: {tweet.id})</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Automation Tasks Section */}
         <div className="mt-12">
@@ -1325,6 +1497,136 @@ function AutomationPageContent() {
                   </>
                 ) : (
                   'Post'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Twitter Compose Tweet Modal */}
+      {showTwitterComposeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowTwitterComposeModal(false);
+                setTweetText('');
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-black text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Create Tweet</h2>
+                <p className="text-sm text-brand-silver/70">
+                  Share your thoughts on Twitter/X
+                </p>
+              </div>
+            </div>
+
+            {/* Test Mode Toggle */}
+            <div className="mb-4 p-3 rounded-lg bg-white/5 border border-brand-ghost/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-medium text-white">Test Mode</span>
+                  <p className="text-xs text-brand-silver/70">Simulates tweets without posting to Twitter</p>
+                </div>
+                <button
+                  onClick={() => setTwitterTestMode(!twitterTestMode)}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    twitterTestMode ? 'bg-green-600' : 'bg-gray-600'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      twitterTestMode ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {!twitterTestMode && (
+              <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <p className="text-yellow-400 text-sm">
+                  ⚠️ <strong>Live Mode Active!</strong> Tweets will be posted to your real Twitter account.
+                </p>
+              </div>
+            )}
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Tweet</label>
+                <textarea
+                  value={tweetText}
+                  onChange={(e) => setTweetText(e.target.value)}
+                  placeholder="What's happening?"
+                  rows={4}
+                  maxLength={TWITTER_MAX_LENGTH}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="flex justify-between items-center mt-1 text-xs">
+                  <span className={`${
+                    tweetText.length > TWITTER_MAX_LENGTH - 20 
+                      ? tweetText.length > TWITTER_MAX_LENGTH 
+                        ? 'text-red-400' 
+                        : 'text-amber-400' 
+                      : 'text-brand-silver/50'
+                  }`}>
+                    {tweetText.length} / {TWITTER_MAX_LENGTH} characters
+                  </span>
+                  {twitterTestMode && (
+                    <span className="text-green-400 flex items-center gap-1">
+                      <span>🧪</span> Test Mode
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowTwitterComposeModal(false);
+                  setTweetText('');
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTwitterPost}
+                disabled={tweetPosting || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
+                className={`px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
+                  twitterTestMode 
+                    ? 'bg-green-600 hover:bg-green-700' 
+                    : 'bg-black hover:bg-gray-800'
+                }`}
+              >
+                {tweetPosting ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {twitterTestMode ? 'Simulating...' : 'Posting...'}
+                  </>
+                ) : (
+                  twitterTestMode ? '🧪 Test Tweet' : 'Post Tweet'
                 )}
               </button>
             </div>
