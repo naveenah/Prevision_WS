@@ -80,6 +80,21 @@ interface ScheduledPost {
   status_display: string;
 }
 
+interface AutomationTask {
+  id: number;
+  task_type: string;
+  task_type_display: string;
+  status: string;
+  status_display: string;
+  payload: Record<string, unknown>;
+  result: Record<string, unknown>;
+  error_message: string | null;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
 // Loading fallback for Suspense
 function AutomationLoading() {
   return (
@@ -133,6 +148,9 @@ function AutomationPageContent() {
   const [editTime, setEditTime] = useState('');
   const [editing, setEditing] = useState(false);
 
+  // Automation tasks state
+  const [automationTasks, setAutomationTasks] = useState<AutomationTask[]>([]);
+
   // Check for OAuth callback results
   useEffect(() => {
     const success = searchParams.get('success');
@@ -182,6 +200,14 @@ function AutomationPageContent() {
           const posts = data.results || data;
           setPublishedPosts(Array.isArray(posts) ? posts : []);
         }
+
+        // Fetch automation tasks (limit to recent 10)
+        const tasksResponse = await apiClient.get('/automation/tasks/?limit=10');
+        if (tasksResponse.ok) {
+          const data = await tasksResponse.json();
+          const tasks = data.results || data;
+          setAutomationTasks(Array.isArray(tasks) ? tasks : []);
+        }
       } catch (error) {
         console.error('Failed to fetch data:', error);
       } finally {
@@ -225,15 +251,30 @@ function AutomationPageContent() {
     }
   }, [publishedPostsLimit]);
 
+  // Fetch automation tasks
+  const fetchAutomationTasks = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/automation/tasks/?limit=10');
+      if (response.ok) {
+        const data = await response.json();
+        const tasks = data.results || data;
+        setAutomationTasks(Array.isArray(tasks) ? tasks : []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch automation tasks:', error);
+    }
+  }, []);
+
   // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
   useEffect(() => {
     const interval = setInterval(() => {
       fetchScheduledPosts();
       fetchPublishedPosts();
+      fetchAutomationTasks();
     }, 30000); // 30 seconds
 
     return () => clearInterval(interval);
-  }, [fetchScheduledPosts, fetchPublishedPosts]);
+  }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
 
   const handleConnect = async (platform: string) => {
     if (platform !== 'linkedin') {
@@ -904,18 +945,104 @@ function AutomationPageContent() {
 
         {/* Automation Tasks Section */}
         <div className="mt-12">
-          <h2 className="text-2xl font-heading font-bold text-white mb-4">Automation Tasks</h2>
-          <div className="glass-card p-8 text-center">
-            <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-heading font-bold text-white">Automation Tasks</h2>
+            <button
+              onClick={fetchAutomationTasks}
+              className="text-sm text-brand-electric hover:text-brand-electric/80 flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-            </div>
-            <h3 className="text-lg font-medium text-white mb-2">Automated Workflows</h3>
-            <p className="text-brand-silver/70 max-w-md mx-auto">
-              No automation tasks yet. Once you connect your social accounts, you&apos;ll be able to set up automated workflows.
-            </p>
+              Refresh
+            </button>
           </div>
+          
+          {automationTasks.length > 0 ? (
+            <div className="space-y-3">
+              {automationTasks.map((task) => (
+                <div key={task.id} className="glass-card p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {/* Task Type Icon */}
+                      <div className={`p-2 rounded-lg ${
+                        task.task_type === 'social_post' ? 'bg-blue-500/20 text-blue-400' :
+                        task.task_type === 'profile_sync' ? 'bg-purple-500/20 text-purple-400' :
+                        task.task_type === 'content_schedule' ? 'bg-brand-electric/20 text-brand-electric' :
+                        'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {task.task_type === 'social_post' ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                        ) : task.task_type === 'profile_sync' ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <h4 className="text-white font-medium">{task.task_type_display}</h4>
+                        <p className="text-xs text-brand-silver/70">
+                          {new Date(task.created_at).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Status Badge */}
+                    <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
+                      task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                      task.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                      task.status === 'in_progress' ? 'bg-yellow-500/20 text-yellow-400' :
+                      task.status === 'pending' ? 'bg-blue-500/20 text-blue-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {task.status_display}
+                    </span>
+                  </div>
+                  
+                  {/* Error message if failed */}
+                  {task.status === 'failed' && task.error_message && (
+                    <div className="mt-3 p-2 bg-red-900/20 border border-red-500/30 rounded text-xs text-red-300">
+                      {task.error_message}
+                    </div>
+                  )}
+                  
+                  {/* Result preview for completed tasks */}
+                  {task.status === 'completed' && task.result && Object.keys(task.result).length > 0 && (
+                    <div className="mt-3 p-2 bg-green-900/10 border border-green-500/20 rounded text-xs text-green-300/70">
+                      {task.result.test_mode ? '✓ Test mode - simulated' : '✓ Successfully completed'}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="glass-card p-8 text-center">
+              <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-white mb-2">No Automation Tasks Yet</h3>
+              <p className="text-brand-silver/70 max-w-md mx-auto">
+                {profiles?.linkedin?.connected 
+                  ? "Your automation tasks will appear here as you post and schedule content."
+                  : "Connect your social accounts to start tracking automation tasks."
+                }
+              </p>
+            </div>
+          )}
         </div>
       </main>
 

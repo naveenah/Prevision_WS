@@ -147,6 +147,7 @@ CELERY_BEAT_SCHEDULE = {
 | Published Posts List | ✅ Complete | Configurable limit (3/6/10), Test Mode badge |
 | Auto-Refresh | ✅ Complete | 30-second polling for Celery updates |
 | Button Styling | ✅ Complete | Consistent brand palette across all buttons |
+| Automation Tasks View | ✅ Complete | Status badges, task type icons, timestamps, error messages |
 
 **Files:**
 - `src/app/automation/page.tsx` - Main automation page (1070+ lines)
@@ -158,7 +159,9 @@ CELERY_BEAT_SCHEDULE = {
 | Feature | Status | Notes | Priority |
 |---------|--------|-------|----------|
 | Media Attachments | 🟡 Stubbed | Model has `media_urls` field, not processed in API | MEDIUM |
-| Automation Tasks View | 🟡 Placeholder | UI section exists, no task management | LOW |
+
+### Recently Completed (moved from Partially Implemented):
+- ✅ **Automation Tasks View** - Displays recent tasks with status badges, task type icons, timestamps, and error messages
 
 ### Implementation Notes:
 
