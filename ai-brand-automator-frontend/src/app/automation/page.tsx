@@ -389,28 +389,33 @@ function AutomationPageContent() {
     }
   };
 
-  // Handle media upload for posts
+  // Handle media upload for posts (images and videos)
   const handleMediaUpload = async (
     file: File,
     setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
     setUploading: React.Dispatch<React.SetStateAction<boolean>>
   ) => {
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    if (!allowedTypes.includes(file.type)) {
+    const imageTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    const videoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
+    const isImage = imageTypes.includes(file.type);
+    const isVideo = videoTypes.includes(file.type);
+
+    if (!isImage && !isVideo) {
       setMessage({
         type: 'error',
-        text: 'Invalid image type. Allowed: JPEG, PNG, GIF',
+        text: 'Invalid file type. Allowed: JPEG, PNG, GIF, MP4, MOV, AVI, WebM',
       });
       return;
     }
 
-    // Validate file size (max 8MB)
-    const maxSize = 8 * 1024 * 1024;
+    // Validate file size (8MB for images, 200MB for videos)
+    const maxSize = isVideo ? 200 * 1024 * 1024 : 8 * 1024 * 1024;
+    const sizeLabel = isVideo ? '200MB' : '8MB';
     if (file.size > maxSize) {
       setMessage({
         type: 'error',
-        text: 'Image too large. Maximum size is 8MB',
+        text: `File too large. Maximum size is ${sizeLabel}`,
       });
       return;
     }
@@ -418,7 +423,7 @@ function AutomationPageContent() {
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('media', file);
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/linkedin/media/upload/`, {
         method: 'POST',
@@ -431,24 +436,28 @@ function AutomationPageContent() {
       if (response.ok) {
         const data = await response.json();
         setMediaUrns((prev) => [...prev, data.asset_urn]);
+        
+        const mediaType = data.media_type === 'video' ? 'Video' : 'Image';
+        const processingNote = data.status === 'PROCESSING' ? ' (processing...)' : '';
+        
         setMessage({
           type: 'success',
           text: data.test_mode 
-            ? '🧪 Image uploaded (Test Mode)' 
-            : 'Image uploaded successfully!',
+            ? `🧪 ${mediaType} uploaded (Test Mode)${processingNote}` 
+            : `${mediaType} uploaded successfully!${processingNote}`,
         });
       } else {
         const error = await response.json();
         setMessage({
           type: 'error',
-          text: error.error || 'Failed to upload image',
+          text: error.error || 'Failed to upload media',
         });
       }
     } catch (error) {
       console.error('Failed to upload media:', error);
       setMessage({
         type: 'error',
-        text: 'Failed to upload image',
+        text: 'Failed to upload media',
       });
     } finally {
       setUploading(false);
@@ -1203,10 +1212,10 @@ function AutomationPageContent() {
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    {uploadingMedia ? 'Uploading...' : 'Add Image'}
+                    {uploadingMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif"
+                      accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm"
                       className="hidden"
                       disabled={uploadingMedia}
                       onChange={(e) => {
@@ -1380,10 +1389,10 @@ function AutomationPageContent() {
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    {uploadingScheduleMedia ? 'Uploading...' : 'Add Image'}
+                    {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif"
+                      accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm"
                       className="hidden"
                       disabled={uploadingScheduleMedia}
                       onChange={(e) => {
@@ -1562,10 +1571,10 @@ function AutomationPageContent() {
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    {uploadingEditMedia ? 'Uploading...' : 'Add Image'}
+                    {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif"
+                      accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm"
                       className="hidden"
                       disabled={uploadingEditMedia}
                       onChange={(e) => {

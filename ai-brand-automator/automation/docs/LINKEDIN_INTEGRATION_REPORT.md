@@ -148,10 +148,10 @@ CELERY_BEAT_SCHEDULE = {
 | Auto-Refresh | ✅ Complete | 30-second polling for Celery updates |
 | Button Styling | ✅ Complete | Consistent brand palette across all buttons |
 | Automation Tasks View | ✅ Complete | Status badges, task type icons, timestamps, error messages |
-| Media Upload UI | ✅ Complete | Image upload in Compose/Schedule modals, validation, preview |
+| Media Upload UI | ✅ Complete | Image & video upload in Compose/Schedule/Edit modals |
 
 **Files:**
-- `src/app/automation/page.tsx` - Main automation page (1500+ lines)
+- `src/app/automation/page.tsx` - Main automation page (1650+ lines)
 
 ---
 
@@ -161,13 +161,16 @@ CELERY_BEAT_SCHEDULE = {
 
 ### Recently Completed (moved from Partially Implemented):
 - ✅ **Automation Tasks View** - Displays recent tasks with status badges, task type icons, timestamps, and error messages
-- ✅ **Media Attachments** - Full image upload support for LinkedIn posts:
+- ✅ **Media Attachments (Images + Videos)** - Full media upload support for LinkedIn posts:
   - Backend: `LinkedInMediaUploadView` at `/api/v1/automation/linkedin/media/upload/`
-  - Service: `register_image_upload()`, `upload_image()`, `upload_image_from_url()` in LinkedInService
-  - Frontend: Image upload UI in Compose, Schedule, and Edit modals
+  - Backend: `LinkedInVideoStatusView` at `/api/v1/automation/linkedin/video/status/<asset_urn>/`
+  - Image Service: `register_image_upload()`, `upload_image()`, `upload_image_from_url()` in LinkedInService
+  - Video Service: `register_video_upload()`, `upload_video()`, `check_video_status()`, `upload_video_file()` in LinkedInService
+  - Frontend: Media upload UI in Compose, Schedule, and Edit modals
   - Supports file upload and URL-based upload
   - Test mode simulation for development
-  - Max 8MB, supports JPEG/PNG/GIF
+  - **Image Support:** Max 8MB, supports JPEG/PNG/GIF
+  - **Video Support:** Max 200MB, supports MP4/MOV/AVI/WebM (async processing)
 
 ---
 
@@ -178,7 +181,6 @@ CELERY_BEAT_SCHEDULE = {
 | Twitter/X Integration | UI shows "Coming Soon", OAuth 2.0 similar to LinkedIn | HIGH | 2-3 days |
 | Instagram Integration | Via Facebook Graph API, requires Business account | MEDIUM | 3-4 days |
 | Facebook Integration | Page posting via Graph API | MEDIUM | 2-3 days |
-| LinkedIn Media Uploads | Image/video support in posts | MEDIUM | 1-2 days |
 | Analytics Fetch | Task type in model, fetch post metrics | LOW | 2-3 days |
 | Profile Sync | Task type in model, sync profile data | LOW | 1 day |
 | Multi-platform Simultaneous Post | Post to multiple platforms at once | MEDIUM | 1 day |
@@ -200,25 +202,6 @@ CELERY_BEAT_SCHEDULE = {
 4. Request `instagram_basic`, `instagram_content_publish` permissions
 5. Add InstagramService class
 6. Only supports image/video posts (no text-only)
-
-**LinkedIn Media Uploads:**
-```python
-# services.py addition needed:
-def register_upload(self, access_token, user_urn):
-    """Register media upload with LinkedIn."""
-    # POST to https://api.linkedin.com/v2/assets?action=registerUpload
-    pass
-
-def upload_media(self, upload_url, file_data):
-    """Upload binary to LinkedIn's storage."""
-    # PUT to upload_url from registerUpload response
-    pass
-
-def create_share_with_media(self, access_token, user_urn, text, asset_urns):
-    """Create share with media assets."""
-    # Include asset URNs in ugcPost payload
-    pass
-```
 
 ---
 

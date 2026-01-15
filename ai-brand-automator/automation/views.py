@@ -453,17 +453,25 @@ class LinkedInPostView(APIView):
 
 class LinkedInMediaUploadView(APIView):
     """
-    Upload media (images) to LinkedIn for use in posts.
+    Upload media (images or videos) to LinkedIn for use in posts.
     """
 
     permission_classes = [IsAuthenticated]
 
+    # Supported media types
+    IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif"]
+    VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"]
+    
+    # Size limits
+    MAX_IMAGE_SIZE = 8 * 1024 * 1024  # 8MB
+    MAX_VIDEO_SIZE = 200 * 1024 * 1024  # 200MB
+
     def post(self, request):
         """
-        Upload an image to LinkedIn.
+        Upload an image or video to LinkedIn.
         
         Accepts either:
-        - A file upload (multipart/form-data with 'image' field)
+        - A file upload (multipart/form-data with 'media' or 'image' field)
         - An image URL (JSON with 'image_url' field)
         
         Returns the asset URN to use when creating a post with media.
@@ -478,85 +486,116 @@ class LinkedInMediaUploadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check if test mode
-        if profile.access_token == TEST_ACCESS_TOKEN:
-            # Simulate media upload in test mode
-            test_asset_urn = f"urn:li:digitalmediaAsset:test-{uuid.uuid4().hex[:12]}"
-            logger.info(f"Test LinkedIn media upload by {request.user.email}")
-            return Response({
-                "asset_urn": test_asset_urn,
-                "test_mode": True,
-                "message": "Media upload simulated in test mode",
-            })
+        # Check for file upload (try 'media' first, then 'image' for backward compatibility)
+        media_file = request.FILES.get("media") or request.FILES.get("image")
+        
+        if media_file:
+            content_type = media_file.content_type
+            is_video = content_type in self.VIDEO_TYPES
+            is_image = content_type in self.IMAGE_TYPES
+            
+            if not is_video and not is_image:
+                return Response(
+                    {"error": f"Invalid file type: {content_type}. Allowed: JPEG, PNG, GIF, MP4, MOV, AVI, WebM"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Validate file size
+            max_size = self.MAX_VIDEO_SIZE if is_video else self.MAX_IMAGE_SIZE
+            size_label = "200MB" if is_video else "8MB"
+            if media_file.size > max_size:
+                return Response(
+                    {"error": f"File too large. Maximum size is {size_label}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        # Handle file upload
-        if "image" in request.FILES:
-            image_file = request.FILES["image"]
-            
-            # Validate file type
-            allowed_types = ["image/jpeg", "image/png", "image/gif"]
-            if image_file.content_type not in allowed_types:
-                return Response(
-                    {"error": "Invalid image type. Allowed: JPEG, PNG, GIF"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            
-            # Validate file size (max 8MB for LinkedIn)
-            max_size = 8 * 1024 * 1024
-            if image_file.size > max_size:
-                return Response(
-                    {"error": "Image too large. Maximum size is 8MB"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            # Check if test mode
+            if profile.access_token == TEST_ACCESS_TOKEN:
+                media_type = "video" if is_video else "image"
+                test_asset_urn = f"urn:li:digitalmediaAsset:test-{media_type}-{uuid.uuid4().hex[:12]}"
+                logger.info(f"Test LinkedIn {media_type} upload by {request.user.email}")
+                return Response({
+                    "asset_urn": test_asset_urn,
+                    "media_type": media_type,
+                    "test_mode": True,
+                    "status": "PROCESSING" if is_video else "READY",
+                    "message": f"{media_type.capitalize()} upload simulated in test mode",
+                })
 
             try:
                 access_token = profile.get_valid_access_token()
+                file_data = media_file.read()
                 
-                # Register the upload
-                upload_info = linkedin_service.register_image_upload(
-                    access_token, profile.profile_id
-                )
-                upload_url = upload_info.get("upload_url")
-                asset_urn = upload_info.get("asset_urn")
-
-                if not upload_url or not asset_urn:
-                    return Response(
-                        {"error": "Failed to get upload URL from LinkedIn"},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                if is_video:
+                    # Video upload
+                    result = linkedin_service.upload_video_file(
+                        access_token, profile.profile_id, file_data, content_type
                     )
+                    logger.info(f"LinkedIn video uploaded by {request.user.email}: {result['asset_urn']}")
+                    return Response({
+                        "asset_urn": result["asset_urn"],
+                        "media_type": "video",
+                        "status": result["status"],
+                        "message": "Video uploaded successfully. Processing may take a few minutes.",
+                    })
+                else:
+                    # Image upload
+                    upload_info = linkedin_service.register_image_upload(
+                        access_token, profile.profile_id
+                    )
+                    upload_url = upload_info.get("upload_url")
+                    asset_urn = upload_info.get("asset_urn")
 
-                # Upload the image
-                linkedin_service.upload_image(
-                    upload_url, image_file.read(), image_file.content_type
-                )
+                    if not upload_url or not asset_urn:
+                        return Response(
+                            {"error": "Failed to get upload URL from LinkedIn"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
 
-                logger.info(f"LinkedIn media uploaded by {request.user.email}: {asset_urn}")
-
-                return Response({
-                    "asset_urn": asset_urn,
-                    "message": "Image uploaded successfully",
-                })
+                    linkedin_service.upload_image(upload_url, file_data, content_type)
+                    logger.info(f"LinkedIn image uploaded by {request.user.email}: {asset_urn}")
+                    
+                    return Response({
+                        "asset_urn": asset_urn,
+                        "media_type": "image",
+                        "status": "READY",
+                        "message": "Image uploaded successfully",
+                    })
 
             except Exception as e:
                 logger.error(f"LinkedIn media upload failed: {e}")
                 return Response(
-                    {"error": f"Failed to upload image: {str(e)}"},
+                    {"error": f"Failed to upload media: {str(e)}"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-        # Handle URL-based upload
+        # Handle URL-based upload (images only)
         image_url = request.data.get("image_url")
         if image_url:
+            # Check if test mode
+            if profile.access_token == TEST_ACCESS_TOKEN:
+                test_asset_urn = f"urn:li:digitalmediaAsset:test-url-{uuid.uuid4().hex[:12]}"
+                logger.info(f"Test LinkedIn URL upload by {request.user.email}")
+                return Response({
+                    "asset_urn": test_asset_urn,
+                    "media_type": "image",
+                    "test_mode": True,
+                    "status": "READY",
+                    "message": "Image upload simulated in test mode",
+                })
+            
             try:
                 access_token = profile.get_valid_access_token()
                 asset_urn = linkedin_service.upload_image_from_url(
                     access_token, profile.profile_id, image_url
                 )
 
-                logger.info(f"LinkedIn media uploaded from URL by {request.user.email}: {asset_urn}")
+                logger.info(f"LinkedIn image uploaded from URL by {request.user.email}: {asset_urn}")
 
                 return Response({
                     "asset_urn": asset_urn,
+                    "media_type": "image",
+                    "status": "READY",
                     "message": "Image uploaded successfully",
                 })
 
@@ -568,9 +607,63 @@ class LinkedInMediaUploadView(APIView):
                 )
 
         return Response(
-            {"error": "No image provided. Send 'image' file or 'image_url'"},
+            {"error": "No media provided. Send 'media' file, 'image' file, or 'image_url'"},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class LinkedInVideoStatusView(APIView):
+    """
+    Check the processing status of an uploaded video.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, asset_urn):
+        """
+        Check video processing status.
+        
+        Args:
+            asset_urn: The asset URN returned from video upload
+        
+        Returns:
+            Status: PROCESSING, READY, or FAILED
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response({
+                "asset_urn": asset_urn,
+                "status": "READY",
+                "test_mode": True,
+                "message": "Video ready (test mode)",
+            })
+
+        try:
+            access_token = profile.get_valid_access_token()
+            result = linkedin_service.check_video_status(access_token, asset_urn)
+            
+            return Response({
+                "asset_urn": result["asset_urn"],
+                "status": result["status"],
+                "message": f"Video status: {result['status']}",
+            })
+
+        except Exception as e:
+            logger.error(f"LinkedIn video status check failed: {e}")
+            return Response(
+                {"error": f"Failed to check video status: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class AutomationTaskViewSet(viewsets.ModelViewSet):
