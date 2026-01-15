@@ -67,7 +67,7 @@ class Command(BaseCommand):
                 content.published_at = timezone.now()
                 content.post_results = results
                 published_count += 1
-                self.stdout.write(self.style.SUCCESS(f"  Published successfully"))
+                self.stdout.write(self.style.SUCCESS("  Published successfully"))
 
             content.save()
 

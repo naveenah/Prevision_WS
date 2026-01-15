@@ -3,7 +3,6 @@ Views for the automation app - social media integrations and content scheduling.
 """
 import uuid
 import logging
-from django.shortcuts import redirect
 from django.http import HttpResponseRedirect
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -488,10 +487,6 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def upcoming(self, request):
         """Get all scheduled posts (pending and overdue) ordered by date."""
-        from datetime import timedelta
-
-        now = timezone.now()
-
         # Show all scheduled posts - both upcoming and overdue ones that haven't been published
         upcoming = ContentCalendar.objects.filter(
             user=request.user,
