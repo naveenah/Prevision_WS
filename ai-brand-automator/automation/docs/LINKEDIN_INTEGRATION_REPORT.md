@@ -140,35 +140,34 @@ CELERY_BEAT_SCHEDULE = {
 | Feature | Status | Details |
 |---------|--------|---------|
 | Platform Cards | ✅ Complete | LinkedIn active, others "Coming Soon" |
-| Compose Post Modal | ✅ Complete | Title + Content fields, character counter |
-| Schedule Post Modal | ✅ Complete | Title, Content, Date, Time pickers |
+| Compose Post Modal | ✅ Complete | Title + Content fields, character counter, image upload |
+| Schedule Post Modal | ✅ Complete | Title, Content, Date, Time pickers, image upload |
 | Edit Post Modal | ✅ Complete | Pre-filled fields, update scheduled posts |
 | Scheduled Posts List | ✅ Complete | Overdue indicator, Edit/Publish/Cancel buttons |
 | Published Posts List | ✅ Complete | Configurable limit (3/6/10), Test Mode badge |
 | Auto-Refresh | ✅ Complete | 30-second polling for Celery updates |
 | Button Styling | ✅ Complete | Consistent brand palette across all buttons |
 | Automation Tasks View | ✅ Complete | Status badges, task type icons, timestamps, error messages |
+| Media Upload UI | ✅ Complete | Image upload in Compose/Schedule modals, validation, preview |
 
 **Files:**
-- `src/app/automation/page.tsx` - Main automation page (1070+ lines)
+- `src/app/automation/page.tsx` - Main automation page (1500+ lines)
 
 ---
 
 ## ⚠️ Partially Implemented / Stubbed (For Future Enhancement)
 
-| Feature | Status | Notes | Priority |
-|---------|--------|-------|----------|
-| Media Attachments | 🟡 Stubbed | Model has `media_urls` field, not processed in API | MEDIUM |
+*All partially implemented features have been completed!*
 
 ### Recently Completed (moved from Partially Implemented):
 - ✅ **Automation Tasks View** - Displays recent tasks with status badges, task type icons, timestamps, and error messages
-
-### Implementation Notes:
-
-**Media Attachments:**
-- `ContentCalendar.media_urls` field exists (JSONField)
-- LinkedIn API supports image/video uploads via separate endpoint
-- Requires: Register media asset → Upload binary → Get asset URN → Include in share
+- ✅ **Media Attachments** - Full image upload support for LinkedIn posts:
+  - Backend: `LinkedInMediaUploadView` at `/api/v1/automation/linkedin/media/upload/`
+  - Service: `register_image_upload()`, `upload_image()`, `upload_image_from_url()` in LinkedInService
+  - Frontend: Image upload UI in Compose, Schedule, and Edit modals
+  - Supports file upload and URL-based upload
+  - Test mode simulation for development
+  - Max 8MB, supports JPEG/PNG/GIF
 
 ---
 

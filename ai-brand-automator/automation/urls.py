@@ -12,6 +12,7 @@ from .views import (
     LinkedInDisconnectView,
     LinkedInTestConnectView,
     LinkedInPostView,
+    LinkedInMediaUploadView,
 )
 
 router = DefaultRouter()
@@ -38,6 +39,11 @@ urlpatterns = [
         name="linkedin-test-connect",
     ),
     path("linkedin/post/", LinkedInPostView.as_view(), name="linkedin-post"),
+    path(
+        "linkedin/media/upload/",
+        LinkedInMediaUploadView.as_view(),
+        name="linkedin-media-upload",
+    ),
     # Router URLs
     path("", include(router.urls)),
 ]

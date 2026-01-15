@@ -299,6 +299,7 @@ class LinkedInPostView(APIView):
         """Create a LinkedIn post."""
         title = request.data.get("title", "").strip()
         text = request.data.get("text", "").strip()
+        media_urns = request.data.get("media_urns", [])  # List of asset URNs from media upload
 
         if not text:
             return Response(
@@ -317,6 +318,10 @@ class LinkedInPostView(APIView):
                 {"error": f"Title cannot exceed {LINKEDIN_TITLE_MAX_LENGTH} chars"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Validate media_urns is a list
+        if media_urns and not isinstance(media_urns, list):
+            media_urns = [media_urns]
 
         try:
             profile = SocialProfile.objects.get(
@@ -343,6 +348,7 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 title=post_title,
                 content=text,
+                media_urls=media_urns,  # Store media URNs
                 platforms=["linkedin"],
                 scheduled_date=timezone.now(),
                 published_at=timezone.now(),
@@ -350,6 +356,7 @@ class LinkedInPostView(APIView):
                 post_results={
                     "test_mode": True,
                     "message": "Post simulated in test mode",
+                    "has_media": len(media_urns) > 0,
                 },
             )
             content.social_profiles.add(profile)
@@ -359,7 +366,7 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 task_type="social_post",
                 status="completed",
-                payload={"text": text, "platform": "linkedin"},
+                payload={"text": text, "platform": "linkedin", "media_count": len(media_urns)},
                 result={"test_mode": True, "message": "Post simulated in test mode"},
             )
 
@@ -376,9 +383,12 @@ class LinkedInPostView(APIView):
             # Get valid access token (auto-refresh if needed)
             access_token = profile.get_valid_access_token()
 
-            # Create the post
+            # Create the post (with optional media)
             result = linkedin_service.create_share(
-                access_token=access_token, user_urn=profile.profile_id, text=text
+                access_token=access_token, 
+                user_urn=profile.profile_id, 
+                text=text,
+                image_urns=media_urns if media_urns else None,
             )
 
             # Create a ContentCalendar entry for the published post
@@ -391,6 +401,7 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 title=post_title,
                 content=text,
+                media_urls=media_urns,  # Store media URNs
                 platforms=["linkedin"],
                 scheduled_date=timezone.now(),
                 published_at=timezone.now(),
@@ -404,11 +415,11 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 task_type="social_post",
                 status="completed",
-                payload={"text": text, "platform": "linkedin"},
+                payload={"text": text, "platform": "linkedin", "media_count": len(media_urns)},
                 result=result,
             )
 
-            logger.info(f"LinkedIn post created by {request.user.email}")
+            logger.info(f"LinkedIn post created by {request.user.email} (media: {len(media_urns)})")
 
             return Response(
                 {
@@ -416,6 +427,7 @@ class LinkedInPostView(APIView):
                     "post_id": result.get("id"),
                     "task_id": task.id,
                     "content_id": content.id,
+                    "has_media": len(media_urns) > 0,
                 }
             )
 
@@ -429,7 +441,7 @@ class LinkedInPostView(APIView):
                 user=request.user,
                 task_type="social_post",
                 status="failed",
-                payload={"text": text, "platform": "linkedin"},
+                payload={"text": text, "platform": "linkedin", "media_count": len(media_urns)},
                 result={"error": str(e)},
             )
 
@@ -437,6 +449,128 @@ class LinkedInPostView(APIView):
                 {"error": f"Failed to create post: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class LinkedInMediaUploadView(APIView):
+    """
+    Upload media (images) to LinkedIn for use in posts.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Upload an image to LinkedIn.
+        
+        Accepts either:
+        - A file upload (multipart/form-data with 'image' field)
+        - An image URL (JSON with 'image_url' field)
+        
+        Returns the asset URN to use when creating a post with media.
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check if test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            # Simulate media upload in test mode
+            test_asset_urn = f"urn:li:digitalmediaAsset:test-{uuid.uuid4().hex[:12]}"
+            logger.info(f"Test LinkedIn media upload by {request.user.email}")
+            return Response({
+                "asset_urn": test_asset_urn,
+                "test_mode": True,
+                "message": "Media upload simulated in test mode",
+            })
+
+        # Handle file upload
+        if "image" in request.FILES:
+            image_file = request.FILES["image"]
+            
+            # Validate file type
+            allowed_types = ["image/jpeg", "image/png", "image/gif"]
+            if image_file.content_type not in allowed_types:
+                return Response(
+                    {"error": "Invalid image type. Allowed: JPEG, PNG, GIF"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Validate file size (max 8MB for LinkedIn)
+            max_size = 8 * 1024 * 1024
+            if image_file.size > max_size:
+                return Response(
+                    {"error": "Image too large. Maximum size is 8MB"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                access_token = profile.get_valid_access_token()
+                
+                # Register the upload
+                upload_info = linkedin_service.register_image_upload(
+                    access_token, profile.profile_id
+                )
+                upload_url = upload_info.get("upload_url")
+                asset_urn = upload_info.get("asset_urn")
+
+                if not upload_url or not asset_urn:
+                    return Response(
+                        {"error": "Failed to get upload URL from LinkedIn"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+
+                # Upload the image
+                linkedin_service.upload_image(
+                    upload_url, image_file.read(), image_file.content_type
+                )
+
+                logger.info(f"LinkedIn media uploaded by {request.user.email}: {asset_urn}")
+
+                return Response({
+                    "asset_urn": asset_urn,
+                    "message": "Image uploaded successfully",
+                })
+
+            except Exception as e:
+                logger.error(f"LinkedIn media upload failed: {e}")
+                return Response(
+                    {"error": f"Failed to upload image: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # Handle URL-based upload
+        image_url = request.data.get("image_url")
+        if image_url:
+            try:
+                access_token = profile.get_valid_access_token()
+                asset_urn = linkedin_service.upload_image_from_url(
+                    access_token, profile.profile_id, image_url
+                )
+
+                logger.info(f"LinkedIn media uploaded from URL by {request.user.email}: {asset_urn}")
+
+                return Response({
+                    "asset_urn": asset_urn,
+                    "message": "Image uploaded successfully",
+                })
+
+            except Exception as e:
+                logger.error(f"LinkedIn media upload from URL failed: {e}")
+                return Response(
+                    {"error": f"Failed to upload image: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        return Response(
+            {"error": "No image provided. Send 'image' file or 'image_url'"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class AutomationTaskViewSet(viewsets.ModelViewSet):
@@ -564,6 +698,9 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
         results = {}
         errors = []
 
+        # Get media URNs if any
+        media_urns = content.media_urls if content.media_urls else []
+
         # Publish to each connected platform
         for profile in content.social_profiles.all():
             if profile.platform == "linkedin" and profile.status == "connected":
@@ -573,6 +710,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                         results["linkedin"] = {
                             "test_mode": True,
                             "message": "Post simulated in test mode",
+                            "has_media": len(media_urns) > 0,
                         }
                         logger.info(f"Test publish to LinkedIn: {content.title}")
                     else:
@@ -581,6 +719,7 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                             access_token=access_token,
                             user_urn=profile.profile_id,
                             text=content.content,
+                            image_urns=media_urns if media_urns else None,
                         )
                         results["linkedin"] = result
                 except Exception as e:

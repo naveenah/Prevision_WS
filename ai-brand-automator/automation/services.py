@@ -186,7 +186,7 @@ class LinkedInService:
             logger.error(f"LinkedIn profile fetch failed: {e}")
             raise Exception(f"Failed to fetch profile: {str(e)}")
 
-    def create_share(self, access_token: str, user_urn: str, text: str) -> dict:
+    def create_share(self, access_token: str, user_urn: str, text: str, image_urns: list = None) -> dict:
         """
         Create a share (post) on LinkedIn.
 
@@ -194,6 +194,7 @@ class LinkedInService:
             access_token: Valid LinkedIn access token
             user_urn: The user's URN (may be just ID or full URN format)
             text: The post content
+            image_urns: Optional list of image asset URNs for media posts
 
         Returns:
             Dictionary with the created post information
@@ -207,17 +208,40 @@ class LinkedInService:
         else:
             author_urn = f"urn:li:person:{user_urn}"
 
-        payload = {
-            "author": author_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {"text": text},
-                    "shareMediaCategory": "NONE",
-                }
-            },
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
-        }
+        # Build media content if images provided
+        if image_urns and len(image_urns) > 0:
+            # Build media array for the share
+            media_items = []
+            for urn in image_urns:
+                media_items.append({
+                    "status": "READY",
+                    "media": urn,
+                })
+            
+            payload = {
+                "author": author_urn,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": text},
+                        "shareMediaCategory": "IMAGE",
+                        "media": media_items,
+                    }
+                },
+                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            }
+        else:
+            payload = {
+                "author": author_urn,
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": text},
+                        "shareMediaCategory": "NONE",
+                    }
+                },
+                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
+            }
 
         try:
             response = requests.post(
@@ -236,6 +260,131 @@ class LinkedInService:
         except requests.exceptions.RequestException as e:
             logger.error(f"LinkedIn share creation failed: {e}")
             raise Exception(f"Failed to create share: {str(e)}")
+
+    def register_image_upload(self, access_token: str, user_urn: str) -> dict:
+        """
+        Register an image upload with LinkedIn to get an upload URL.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+
+        Returns:
+            Dictionary with upload URL and asset URN
+        """
+        register_url = "https://api.linkedin.com/v2/assets?action=registerUpload"
+
+        # Normalize URN format
+        if user_urn.startswith("urn:li:person:"):
+            owner_urn = user_urn
+        else:
+            owner_urn = f"urn:li:person:{user_urn}"
+
+        payload = {
+            "registerUploadRequest": {
+                "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                "owner": owner_urn,
+                "serviceRelationships": [
+                    {
+                        "relationshipType": "OWNER",
+                        "identifier": "urn:li:userGeneratedContent",
+                    }
+                ],
+            }
+        }
+
+        try:
+            response = requests.post(
+                register_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Extract upload URL and asset URN
+            value = data.get("value", {})
+            upload_mechanism = value.get("uploadMechanism", {})
+            media_artifact = upload_mechanism.get(
+                "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest", {}
+            )
+
+            return {
+                "upload_url": media_artifact.get("uploadUrl"),
+                "asset_urn": value.get("asset"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn image registration failed: {e}")
+            raise Exception(f"Failed to register image upload: {str(e)}")
+
+    def upload_image(self, upload_url: str, image_data: bytes, content_type: str = "image/jpeg") -> bool:
+        """
+        Upload image binary data to LinkedIn's upload URL.
+
+        Args:
+            upload_url: The upload URL from register_image_upload
+            image_data: Binary image data
+            content_type: MIME type of the image
+
+        Returns:
+            True if upload was successful
+        """
+        try:
+            response = requests.put(
+                upload_url,
+                data=image_data,
+                headers={
+                    "Content-Type": content_type,
+                },
+                timeout=60,  # Longer timeout for uploads
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn image upload failed: {e}")
+            raise Exception(f"Failed to upload image: {str(e)}")
+
+    def upload_image_from_url(self, access_token: str, user_urn: str, image_url: str) -> str:
+        """
+        Upload an image from a URL to LinkedIn.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            image_url: URL of the image to upload
+
+        Returns:
+            The asset URN for the uploaded image
+        """
+        # Download the image
+        try:
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            image_data = response.content
+            content_type = response.headers.get("Content-Type", "image/jpeg")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to download image from URL: {e}")
+            raise Exception(f"Failed to download image: {str(e)}")
+
+        # Register the upload
+        upload_info = self.register_image_upload(access_token, user_urn)
+        upload_url = upload_info.get("upload_url")
+        asset_urn = upload_info.get("asset_urn")
+
+        if not upload_url or not asset_urn:
+            raise Exception("Failed to get upload URL from LinkedIn")
+
+        # Upload the image
+        self.upload_image(upload_url, image_data, content_type)
+
+        return asset_urn
 
 
 # Singleton instance

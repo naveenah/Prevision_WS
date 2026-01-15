@@ -74,6 +74,7 @@ interface ScheduledPost {
   id: number;
   title: string;
   content: string;
+  media_urls: string[];
   platforms: string[];
   scheduled_date: string;
   status: string;
@@ -127,6 +128,8 @@ function AutomationPageContent() {
   const [postTitle, setPostTitle] = useState('');
   const [postText, setPostText] = useState('');
   const [posting, setPosting] = useState(false);
+  const [postMediaUrns, setPostMediaUrns] = useState<string[]>([]);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   
   // Schedule post state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -138,6 +141,8 @@ function AutomationPageContent() {
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [publishedPosts, setPublishedPosts] = useState<ScheduledPost[]>([]);
   const [publishedPostsLimit, setPublishedPostsLimit] = useState<number>(6);
+  const [scheduleMediaUrns, setScheduleMediaUrns] = useState<string[]>([]);
+  const [uploadingScheduleMedia, setUploadingScheduleMedia] = useState(false);
 
   // Edit post state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -147,6 +152,8 @@ function AutomationPageContent() {
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [editing, setEditing] = useState(false);
+  const [editMediaUrns, setEditMediaUrns] = useState<string[]>([]);
+  const [uploadingEditMedia, setUploadingEditMedia] = useState(false);
 
   // Automation tasks state
   const [automationTasks, setAutomationTasks] = useState<AutomationTask[]>([]);
@@ -382,6 +389,72 @@ function AutomationPageContent() {
     }
   };
 
+  // Handle media upload for posts
+  const handleMediaUpload = async (
+    file: File,
+    setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
+    setUploading: React.Dispatch<React.SetStateAction<boolean>>
+  ) => {
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      setMessage({
+        type: 'error',
+        text: 'Invalid image type. Allowed: JPEG, PNG, GIF',
+      });
+      return;
+    }
+
+    // Validate file size (max 8MB)
+    const maxSize = 8 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setMessage({
+        type: 'error',
+        text: 'Image too large. Maximum size is 8MB',
+      });
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/linkedin/media/upload/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMediaUrns((prev) => [...prev, data.asset_urn]);
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Image uploaded (Test Mode)' 
+            : 'Image uploaded successfully!',
+        });
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to upload image',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to upload media:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to upload image',
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // Handle posting to LinkedIn
   const handlePost = async () => {
     if (!postText.trim()) {
@@ -396,7 +469,8 @@ function AutomationPageContent() {
     try {
       const response = await apiClient.post('/automation/linkedin/post/', { 
         title: postTitle.trim() || undefined,
-        text: postText 
+        text: postText,
+        media_urns: postMediaUrns.length > 0 ? postMediaUrns : undefined,
       });
       if (response.ok) {
         const data = await response.json();
@@ -404,10 +478,11 @@ function AutomationPageContent() {
           type: 'success',
           text: data.test_mode 
             ? '🧪 Post created successfully (Test Mode - not actually posted)' 
-            : 'Post published to LinkedIn successfully!',
+            : `Post published to LinkedIn successfully!${data.has_media ? ' (with image)' : ''}`,
         });
         setPostTitle('');
         setPostText('');
+        setPostMediaUrns([]);
         setShowComposeModal(false);
         // Refresh published posts list
         fetchPublishedPosts();
@@ -449,6 +524,7 @@ function AutomationPageContent() {
       const response = await apiClient.post('/automation/content-calendar/', {
         title: scheduleTitle,
         content: scheduleContent,
+        media_urls: scheduleMediaUrns.length > 0 ? scheduleMediaUrns : [],
         platforms: ['linkedin'],
         scheduled_date: scheduledDateTime,
         status: 'scheduled',
@@ -457,12 +533,13 @@ function AutomationPageContent() {
       if (response.ok) {
         setMessage({
           type: 'success',
-          text: 'Post scheduled successfully!',
+          text: `Post scheduled successfully!${scheduleMediaUrns.length > 0 ? ' (with image)' : ''}`,
         });
         setScheduleTitle('');
         setScheduleContent('');
         setScheduleDate('');
         setScheduleTime('');
+        setScheduleMediaUrns([]);
         setShowScheduleModal(false);
         fetchScheduledPosts();
       } else {
@@ -541,6 +618,8 @@ function AutomationPageContent() {
     const date = new Date(post.scheduled_date);
     setEditDate(date.toISOString().split('T')[0]);
     setEditTime(date.toTimeString().slice(0, 5));
+    // Load existing media if any
+    setEditMediaUrns(post.media_urls || []);
     setShowEditModal(true);
   };
 
@@ -555,6 +634,7 @@ function AutomationPageContent() {
       const response = await apiClient.put(`/automation/content-calendar/${editingPost.id}/`, {
         title: editTitle,
         content: editContent,
+        media_urls: editMediaUrns,
         platforms: editingPost.platforms,
         scheduled_date: scheduledDate.toISOString(),
         status: 'scheduled',
@@ -563,10 +643,11 @@ function AutomationPageContent() {
       if (response.ok) {
         setMessage({
           type: 'success',
-          text: 'Post updated successfully!',
+          text: `Post updated successfully!${editMediaUrns.length > 0 ? ' (with image)' : ''}`,
         });
         setShowEditModal(false);
         setEditingPost(null);
+        setEditMediaUrns([]);
         fetchScheduledPosts();
       } else {
         const error = await response.json();
@@ -1113,6 +1194,50 @@ function AutomationPageContent() {
                   )}
                 </div>
               </div>
+
+              {/* Image Upload */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Image (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingMedia ? 'Uploading...' : 'Add Image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif"
+                      className="hidden"
+                      disabled={uploadingMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setPostMediaUrns, setUploadingMedia);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {postMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {postMediaUrns.length} image{postMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setPostMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove images"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">JPEG, PNG, or GIF. Max 8MB.</p>
+              </div>
             </div>
 
             {/* Action Buttons */}
@@ -1122,6 +1247,7 @@ function AutomationPageContent() {
                   setShowComposeModal(false);
                   setPostTitle('');
                   setPostText('');
+                  setPostMediaUrns([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1129,7 +1255,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handlePost}
-                disabled={posting || !postText.trim()}
+                disabled={posting || uploadingMedia || !postText.trim()}
                 className="px-6 py-2.5 rounded-lg bg-[#0A66C2] hover:bg-[#004182] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {posting ? (
@@ -1245,6 +1371,50 @@ function AutomationPageContent() {
                   <span className="text-xs text-brand-silver/50 ml-auto">Selected</span>
                 </div>
               </div>
+
+              {/* Image Upload for Schedule */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Image (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingScheduleMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingScheduleMedia ? 'Uploading...' : 'Add Image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif"
+                      className="hidden"
+                      disabled={uploadingScheduleMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {scheduleMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {scheduleMediaUrns.length} image{scheduleMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setScheduleMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove images"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">JPEG, PNG, or GIF. Max 8MB.</p>
+              </div>
             </div>
 
             {/* Action Buttons */}
@@ -1256,6 +1426,7 @@ function AutomationPageContent() {
                   setScheduleContent('');
                   setScheduleDate('');
                   setScheduleTime('');
+                  setScheduleMediaUrns([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1263,7 +1434,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleSchedulePost}
-                disabled={scheduling || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime}
+                disabled={scheduling || uploadingScheduleMedia || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime}
                 className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {scheduling ? (
@@ -1296,6 +1467,7 @@ function AutomationPageContent() {
                 setEditContent('');
                 setEditDate('');
                 setEditTime('');
+                setEditMediaUrns([]);
               }}
               className="absolute top-4 right-4 text-brand-silver hover:text-white"
             >
@@ -1381,6 +1553,50 @@ function AutomationPageContent() {
                   </span>
                 </div>
               </div>
+
+              {/* Image Upload for Edit */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Image (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingEditMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingEditMedia ? 'Uploading...' : 'Add Image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif"
+                      className="hidden"
+                      disabled={uploadingEditMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleMediaUpload(file, setEditMediaUrns, setUploadingEditMedia);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {editMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {editMediaUrns.length} image{editMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => setEditMediaUrns([])}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove images"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-1">JPEG, PNG, or GIF. Max 8MB.</p>
+              </div>
             </div>
 
             {/* Action Buttons */}
@@ -1393,6 +1609,7 @@ function AutomationPageContent() {
                   setEditContent('');
                   setEditDate('');
                   setEditTime('');
+                  setEditMediaUrns([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1400,7 +1617,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleEditPost}
-                disabled={editing || !editTitle.trim() || !editContent.trim() || !editDate || !editTime}
+                disabled={editing || uploadingEditMedia || !editTitle.trim() || !editContent.trim() || !editDate || !editTime}
                 className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {editing ? (
