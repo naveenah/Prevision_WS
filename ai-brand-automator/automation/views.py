@@ -458,13 +458,13 @@ class LinkedInMediaUploadView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    # Supported media types
+    # Supported media types (LinkedIn officially supports MP4 only for video)
     IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif"]
-    VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"]
+    VIDEO_TYPES = ["video/mp4"]  # LinkedIn standard: MP4 only
     
-    # Size limits
+    # Size limits (LinkedIn standards: images 8MB, videos 75KB-500MB)
     MAX_IMAGE_SIZE = 8 * 1024 * 1024  # 8MB
-    MAX_VIDEO_SIZE = 200 * 1024 * 1024  # 200MB
+    MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB (LinkedIn max for organic posts)
 
     def post(self, request):
         """

@@ -395,23 +395,23 @@ function AutomationPageContent() {
     setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
     setUploading: React.Dispatch<React.SetStateAction<boolean>>
   ) => {
-    // Validate file type
+    // Validate file type (LinkedIn standards: JPEG/PNG/GIF for images, MP4 only for video)
     const imageTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    const videoTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'];
+    const videoTypes = ['video/mp4'];  // LinkedIn officially supports MP4 only
     const isImage = imageTypes.includes(file.type);
     const isVideo = videoTypes.includes(file.type);
 
     if (!isImage && !isVideo) {
       setMessage({
         type: 'error',
-        text: 'Invalid file type. Allowed: JPEG, PNG, GIF, MP4, MOV, AVI, WebM',
+        text: 'Invalid file type. Allowed: JPEG, PNG, GIF for images; MP4 for video',
       });
       return;
     }
 
-    // Validate file size (8MB for images, 200MB for videos)
-    const maxSize = isVideo ? 200 * 1024 * 1024 : 8 * 1024 * 1024;
-    const sizeLabel = isVideo ? '200MB' : '8MB';
+    // Validate file size (LinkedIn standards: 8MB for images, 500MB for videos)
+    const maxSize = isVideo ? 500 * 1024 * 1024 : 8 * 1024 * 1024;
+    const sizeLabel = isVideo ? '500MB' : '8MB';
     if (file.size > maxSize) {
       setMessage({
         type: 'error',
@@ -1215,7 +1215,7 @@ function AutomationPageContent() {
                     {uploadingMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm"
+                      accept="image/jpeg,image/png,image/gif,video/mp4"
                       className="hidden"
                       disabled={uploadingMedia}
                       onChange={(e) => {
@@ -1392,7 +1392,7 @@ function AutomationPageContent() {
                     {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm"
+                      accept="image/jpeg,image/png,image/gif,video/mp4"
                       className="hidden"
                       disabled={uploadingScheduleMedia}
                       onChange={(e) => {
@@ -1574,7 +1574,7 @@ function AutomationPageContent() {
                     {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4,video/quicktime,video/webm"
+                      accept="image/jpeg,image/png,image/gif,video/mp4"
                       className="hidden"
                       disabled={uploadingEditMedia}
                       onChange={(e) => {
