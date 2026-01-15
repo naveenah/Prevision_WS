@@ -389,29 +389,48 @@ function AutomationPageContent() {
     }
   };
 
-  // Handle media upload for posts (images and videos)
+  // Handle media upload for posts (images, videos, and documents)
   const handleMediaUpload = async (
     file: File,
     setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
     setUploading: React.Dispatch<React.SetStateAction<boolean>>
   ) => {
-    // Validate file type (LinkedIn standards: JPEG/PNG/GIF for images, MP4 only for video)
+    // Validate file type (LinkedIn standards)
     const imageTypes = ['image/jpeg', 'image/png', 'image/gif'];
     const videoTypes = ['video/mp4'];  // LinkedIn officially supports MP4 only
+    const documentTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  // docx
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',  // pptx
+    ];
     const isImage = imageTypes.includes(file.type);
     const isVideo = videoTypes.includes(file.type);
+    const isDocument = documentTypes.includes(file.type);
 
-    if (!isImage && !isVideo) {
+    if (!isImage && !isVideo && !isDocument) {
       setMessage({
         type: 'error',
-        text: 'Invalid file type. Allowed: JPEG, PNG, GIF for images; MP4 for video',
+        text: 'Invalid file type. Allowed: JPEG, PNG, GIF (images); MP4 (video); PDF, DOC, DOCX, PPT, PPTX (documents)',
       });
       return;
     }
 
-    // Validate file size (LinkedIn standards: 8MB for images, 500MB for videos)
-    const maxSize = isVideo ? 500 * 1024 * 1024 : 8 * 1024 * 1024;
-    const sizeLabel = isVideo ? '500MB' : '8MB';
+    // Validate file size (LinkedIn standards: 8MB for images, 500MB for videos, 100MB for documents)
+    let maxSize: number;
+    let sizeLabel: string;
+    if (isVideo) {
+      maxSize = 500 * 1024 * 1024;
+      sizeLabel = '500MB';
+    } else if (isDocument) {
+      maxSize = 100 * 1024 * 1024;
+      sizeLabel = '100MB';
+    } else {
+      maxSize = 8 * 1024 * 1024;
+      sizeLabel = '8MB';
+    }
+    
     if (file.size > maxSize) {
       setMessage({
         type: 'error',
@@ -437,7 +456,14 @@ function AutomationPageContent() {
         const data = await response.json();
         setMediaUrns((prev) => [...prev, data.asset_urn]);
         
-        const mediaType = data.media_type === 'video' ? 'Video' : 'Image';
+        let mediaType: string;
+        if (data.media_type === 'video') {
+          mediaType = 'Video';
+        } else if (data.media_type === 'document') {
+          mediaType = 'Document';
+        } else {
+          mediaType = 'Image';
+        }
         const processingNote = data.status === 'PROCESSING' ? ' (processing...)' : '';
         
         setMessage({
@@ -1215,7 +1241,7 @@ function AutomationPageContent() {
                     {uploadingMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4"
+                      accept="image/jpeg,image/png,image/gif,video/mp4,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                       className="hidden"
                       disabled={uploadingMedia}
                       onChange={(e) => {
@@ -1245,7 +1271,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
               </div>
             </div>
 
@@ -1392,7 +1418,7 @@ function AutomationPageContent() {
                     {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4"
+                      accept="image/jpeg,image/png,image/gif,video/mp4,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                       className="hidden"
                       disabled={uploadingScheduleMedia}
                       onChange={(e) => {
@@ -1422,7 +1448,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
               </div>
             </div>
 
@@ -1574,7 +1600,7 @@ function AutomationPageContent() {
                     {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,video/mp4"
+                      accept="image/jpeg,image/png,image/gif,video/mp4,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                       className="hidden"
                       disabled={uploadingEditMedia}
                       onChange={(e) => {
@@ -1604,7 +1630,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
               </div>
             </div>
 

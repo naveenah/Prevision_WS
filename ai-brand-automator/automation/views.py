@@ -453,7 +453,7 @@ class LinkedInPostView(APIView):
 
 class LinkedInMediaUploadView(APIView):
     """
-    Upload media (images or videos) to LinkedIn for use in posts.
+    Upload media (images, videos, or documents) to LinkedIn for use in posts.
     """
 
     permission_classes = [IsAuthenticated]
@@ -461,10 +461,18 @@ class LinkedInMediaUploadView(APIView):
     # Supported media types (LinkedIn officially supports MP4 only for video)
     IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif"]
     VIDEO_TYPES = ["video/mp4"]  # LinkedIn standard: MP4 only
+    DOCUMENT_TYPES = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # pptx
+    ]
     
-    # Size limits (LinkedIn standards: images 8MB, videos 75KB-500MB)
+    # Size limits (LinkedIn standards: images 8MB, videos 75KB-500MB, documents 100MB)
     MAX_IMAGE_SIZE = 8 * 1024 * 1024  # 8MB
     MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB (LinkedIn max for organic posts)
+    MAX_DOCUMENT_SIZE = 100 * 1024 * 1024  # 100MB (LinkedIn max for documents)
 
     def post(self, request):
         """
@@ -493,16 +501,25 @@ class LinkedInMediaUploadView(APIView):
             content_type = media_file.content_type
             is_video = content_type in self.VIDEO_TYPES
             is_image = content_type in self.IMAGE_TYPES
+            is_document = content_type in self.DOCUMENT_TYPES
             
-            if not is_video and not is_image:
+            if not is_video and not is_image and not is_document:
                 return Response(
-                    {"error": f"Invalid file type: {content_type}. Allowed: JPEG, PNG, GIF, MP4, MOV, AVI, WebM"},
+                    {"error": f"Invalid file type: {content_type}. Allowed: JPEG, PNG, GIF, MP4, PDF, DOC, DOCX, PPT, PPTX"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             
             # Validate file size
-            max_size = self.MAX_VIDEO_SIZE if is_video else self.MAX_IMAGE_SIZE
-            size_label = "200MB" if is_video else "8MB"
+            if is_video:
+                max_size = self.MAX_VIDEO_SIZE
+                size_label = "500MB"
+            elif is_document:
+                max_size = self.MAX_DOCUMENT_SIZE
+                size_label = "100MB"
+            else:
+                max_size = self.MAX_IMAGE_SIZE
+                size_label = "8MB"
+                
             if media_file.size > max_size:
                 return Response(
                     {"error": f"File too large. Maximum size is {size_label}"},
@@ -511,14 +528,19 @@ class LinkedInMediaUploadView(APIView):
 
             # Check if test mode
             if profile.access_token == TEST_ACCESS_TOKEN:
-                media_type = "video" if is_video else "image"
+                if is_video:
+                    media_type = "video"
+                elif is_document:
+                    media_type = "document"
+                else:
+                    media_type = "image"
                 test_asset_urn = f"urn:li:digitalmediaAsset:test-{media_type}-{uuid.uuid4().hex[:12]}"
                 logger.info(f"Test LinkedIn {media_type} upload by {request.user.email}")
                 return Response({
                     "asset_urn": test_asset_urn,
                     "media_type": media_type,
                     "test_mode": True,
-                    "status": "PROCESSING" if is_video else "READY",
+                    "status": "PROCESSING" if (is_video or is_document) else "READY",
                     "message": f"{media_type.capitalize()} upload simulated in test mode",
                 })
 
@@ -537,6 +559,19 @@ class LinkedInMediaUploadView(APIView):
                         "media_type": "video",
                         "status": result["status"],
                         "message": "Video uploaded successfully. Processing may take a few minutes.",
+                    })
+                elif is_document:
+                    # Document upload
+                    result = linkedin_service.upload_document_file(
+                        access_token, profile.profile_id, file_data, content_type,
+                        filename=media_file.name
+                    )
+                    logger.info(f"LinkedIn document uploaded by {request.user.email}: {result['document_urn']}")
+                    return Response({
+                        "asset_urn": result["document_urn"],
+                        "media_type": "document",
+                        "status": result["status"],
+                        "message": "Document uploaded successfully. Processing may take a few minutes.",
                     })
                 else:
                     # Image upload
@@ -662,6 +697,61 @@ class LinkedInVideoStatusView(APIView):
             logger.error(f"LinkedIn video status check failed: {e}")
             return Response(
                 {"error": f"Failed to check video status: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LinkedInDocumentStatusView(APIView):
+    """
+    Check the processing status of an uploaded document.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, document_urn):
+        """
+        Check document processing status.
+        
+        Args:
+            document_urn: The document URN returned from document upload
+        
+        Returns:
+            Status: PROCESSING, AVAILABLE, or FAILED
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response({
+                "document_urn": document_urn,
+                "status": "AVAILABLE",
+                "test_mode": True,
+                "message": "Document ready (test mode)",
+            })
+
+        try:
+            access_token = profile.get_valid_access_token()
+            result = linkedin_service.check_document_status(access_token, document_urn)
+            
+            return Response({
+                "document_urn": result["document_urn"],
+                "status": result["status"],
+                "download_url": result.get("download_url"),
+                "message": f"Document status: {result['status']}",
+            })
+
+        except Exception as e:
+            logger.error(f"LinkedIn document status check failed: {e}")
+            return Response(
+                {"error": f"Failed to check document status: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

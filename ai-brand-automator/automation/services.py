@@ -582,6 +582,164 @@ class LinkedInService:
             "status": "PROCESSING",  # Videos start in processing state
         }
 
+    # ==================== DOCUMENT UPLOAD METHODS ====================
+
+    def register_document_upload(self, access_token: str, user_urn: str) -> dict:
+        """
+        Register a document upload with LinkedIn to get upload URL.
+
+        LinkedIn Documents API: https://api.linkedin.com/rest/documents
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+
+        Returns:
+            Dictionary with upload_url and document_urn
+        """
+        register_url = "https://api.linkedin.com/rest/documents?action=initializeUpload"
+
+        # Normalize URN format
+        if user_urn.startswith("urn:li:person:"):
+            owner_urn = user_urn
+        else:
+            owner_urn = f"urn:li:person:{user_urn}"
+
+        payload = {
+            "initializeUploadRequest": {
+                "owner": owner_urn,
+            }
+        }
+
+        try:
+            response = requests.post(
+                register_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "LinkedIn-Version": "202501",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            value = data.get("value", {})
+            return {
+                "upload_url": value.get("uploadUrl"),
+                "document_urn": value.get("document"),
+                "upload_url_expires_at": value.get("uploadUrlExpiresAt"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn document registration failed: {e}")
+            raise Exception(f"Failed to register document upload: {str(e)}")
+
+    def upload_document(self, upload_url: str, document_data: bytes, content_type: str) -> bool:
+        """
+        Upload document binary data to LinkedIn's upload URL.
+
+        Args:
+            upload_url: The upload URL from register_document_upload
+            document_data: Binary document data
+            content_type: MIME type of the document
+
+        Returns:
+            True if upload was successful
+        """
+        try:
+            response = requests.put(
+                upload_url,
+                data=document_data,
+                headers={
+                    "Content-Type": content_type,
+                },
+                timeout=120,  # 2 minutes timeout for document uploads
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn document upload failed: {e}")
+            raise Exception(f"Failed to upload document: {str(e)}")
+
+    def check_document_status(self, access_token: str, document_urn: str) -> dict:
+        """
+        Check the processing status of an uploaded document.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            document_urn: The document URN from registration
+
+        Returns:
+            Dictionary with status information
+        """
+        # URL-encode the document URN
+        encoded_urn = document_urn.replace(":", "%3A")
+        status_url = f"https://api.linkedin.com/rest/documents/{encoded_urn}"
+
+        try:
+            response = requests.get(
+                status_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                    "LinkedIn-Version": "202501",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            status = data.get("status", "PROCESSING")
+
+            return {
+                "status": status,
+                "document_urn": document_urn,
+                "download_url": data.get("downloadUrl"),
+                "raw_response": data,
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn document status check failed: {e}")
+            raise Exception(f"Failed to check document status: {str(e)}")
+
+    def upload_document_file(self, access_token: str, user_urn: str, document_data: bytes, content_type: str, filename: str = None) -> dict:
+        """
+        Upload a document file to LinkedIn.
+
+        Supported formats: PDF, DOC, DOCX, PPT, PPTX
+        Max size: 100MB, Max pages: 300
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            document_data: Binary document data
+            content_type: MIME type of the document
+            filename: Optional filename for the document
+
+        Returns:
+            Dictionary with document_urn and initial status
+        """
+        # Register the upload
+        upload_info = self.register_document_upload(access_token, user_urn)
+        upload_url = upload_info.get("upload_url")
+        document_urn = upload_info.get("document_urn")
+
+        if not upload_url or not document_urn:
+            raise Exception("Failed to get upload URL from LinkedIn")
+
+        # Upload the document
+        self.upload_document(upload_url, document_data, content_type)
+
+        return {
+            "document_urn": document_urn,
+            "status": "PROCESSING",  # Documents start in processing state
+            "filename": filename,
+        }
+
 
 # Singleton instance
 linkedin_service = LinkedInService()

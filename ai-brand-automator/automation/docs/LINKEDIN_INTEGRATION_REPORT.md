@@ -182,15 +182,21 @@ CELERY_BEAT_SCHEDULE = {
 | **Video** | Format | MP4 only | ✅ MP4 only |
 | **Video** | Duration | 3 seconds - 30 minutes | ⚠️ Not validated (LinkedIn handles) |
 | **Video** | Processing | Async (PROCESSING → AVAILABLE) | ✅ Status polling endpoint |
+| **Document** | Max File Size | 100MB | ✅ 100MB |
+| **Document** | Max Pages | 300 pages | ⚠️ Not validated (LinkedIn handles) |
+| **Document** | Formats | PDF, DOC, DOCX, PPT, PPTX | ✅ All supported |
+| **Document** | Processing | Async (PROCESSING → AVAILABLE) | ✅ Status polling endpoint |
 
 **Implementation Files:**
-- Backend validation: `automation/views.py` - `LinkedInMediaUploadView.IMAGE_TYPES`, `VIDEO_TYPES`, `MAX_IMAGE_SIZE`, `MAX_VIDEO_SIZE`
+- Backend validation: `automation/views.py` - `LinkedInMediaUploadView.IMAGE_TYPES`, `VIDEO_TYPES`, `DOCUMENT_TYPES`, `MAX_IMAGE_SIZE`, `MAX_VIDEO_SIZE`, `MAX_DOCUMENT_SIZE`
 - Frontend validation: `src/app/automation/page.tsx` - `handleMediaUpload()` function
 - Video status: `automation/views.py` - `LinkedInVideoStatusView`
+- Document status: `automation/views.py` - `LinkedInDocumentStatusView`
 
 **API Endpoints:**
-- `POST /api/v1/automation/linkedin/media/upload/` - Upload image or video
+- `POST /api/v1/automation/linkedin/media/upload/` - Upload image, video, or document
 - `GET /api/v1/automation/linkedin/video/status/<asset_urn>/` - Check video processing status
+- `GET /api/v1/automation/linkedin/document/status/<document_urn>/` - Check document processing status
 
 ---
 
