@@ -1204,9 +1204,9 @@ function AutomationPageContent() {
                 </div>
               </div>
 
-              {/* Image Upload */}
+              {/* Media Upload */}
               <div>
-                <label className="block text-sm font-medium text-brand-silver mb-1">Image (optional)</label>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
                 <div className="flex items-center gap-3">
                   <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1232,11 +1232,11 @@ function AutomationPageContent() {
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      {postMediaUrns.length} image{postMediaUrns.length > 1 ? 's' : ''} attached
+                      {postMediaUrns.length} file{postMediaUrns.length > 1 ? 's' : ''} attached
                       <button
                         onClick={() => setPostMediaUrns([])}
                         className="text-red-400 hover:text-red-300 ml-2"
-                        title="Remove images"
+                        title="Remove media"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1245,7 +1245,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">JPEG, PNG, or GIF. Max 8MB.</p>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB)</p>
               </div>
             </div>
 
@@ -1381,9 +1381,9 @@ function AutomationPageContent() {
                 </div>
               </div>
 
-              {/* Image Upload for Schedule */}
+              {/* Media Upload for Schedule */}
               <div>
-                <label className="block text-sm font-medium text-brand-silver mb-1">Image (optional)</label>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
                 <div className="flex items-center gap-3">
                   <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingScheduleMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1409,11 +1409,11 @@ function AutomationPageContent() {
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      {scheduleMediaUrns.length} image{scheduleMediaUrns.length > 1 ? 's' : ''} attached
+                      {scheduleMediaUrns.length} file{scheduleMediaUrns.length > 1 ? 's' : ''} attached
                       <button
                         onClick={() => setScheduleMediaUrns([])}
                         className="text-red-400 hover:text-red-300 ml-2"
-                        title="Remove images"
+                        title="Remove media"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1422,7 +1422,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">JPEG, PNG, or GIF. Max 8MB.</p>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB)</p>
               </div>
             </div>
 
@@ -1563,9 +1563,9 @@ function AutomationPageContent() {
                 </div>
               </div>
 
-              {/* Image Upload for Edit */}
+              {/* Media Upload for Edit */}
               <div>
-                <label className="block text-sm font-medium text-brand-silver mb-1">Image (optional)</label>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
                 <div className="flex items-center gap-3">
                   <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingEditMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1591,11 +1591,11 @@ function AutomationPageContent() {
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      {editMediaUrns.length} image{editMediaUrns.length > 1 ? 's' : ''} attached
+                      {editMediaUrns.length} file{editMediaUrns.length > 1 ? 's' : ''} attached
                       <button
                         onClick={() => setEditMediaUrns([])}
                         className="text-red-400 hover:text-red-300 ml-2"
-                        title="Remove images"
+                        title="Remove media"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1604,7 +1604,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">JPEG, PNG, or GIF. Max 8MB.</p>
+                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB)</p>
               </div>
             </div>
 
