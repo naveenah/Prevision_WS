@@ -189,10 +189,11 @@ function AutomationPageContent() {
 
   // Twitter compose state
   const [showTwitterComposeModal, setShowTwitterComposeModal] = useState(false);
+  const [tweetTitle, setTweetTitle] = useState('');
   const [tweetText, setTweetText] = useState('');
   const [tweetPosting, setTweetPosting] = useState(false);
   const [twitterTestMode, setTwitterTestMode] = useState(true); // Default to test mode for safety
-  const [testTweets, setTestTweets] = useState<Array<{ id: string; text: string; created_at: string }>>([]);
+  const [testTweets, setTestTweets] = useState<Array<{ id: string; title: string; text: string; created_at: string }>>([]);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -568,6 +569,14 @@ function AutomationPageContent() {
 
   // Handle posting to Twitter/X
   const handleTwitterPost = async () => {
+    if (!tweetTitle.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter a title for your tweet',
+      });
+      return;
+    }
+
     if (!tweetText.trim()) {
       setMessage({
         type: 'error',
@@ -590,6 +599,7 @@ function AutomationPageContent() {
         // In test mode, simulate the tweet locally
         const testTweet = {
           id: `test_${Date.now()}`,
+          title: tweetTitle,
           text: tweetText,
           created_at: new Date().toISOString(),
         };
@@ -598,6 +608,7 @@ function AutomationPageContent() {
           type: 'success',
           text: '🧪 Test tweet simulated! (Not posted to Twitter)',
         });
+        setTweetTitle('');
         setTweetText('');
         setShowTwitterComposeModal(false);
       } else {
@@ -612,6 +623,7 @@ function AutomationPageContent() {
             type: 'success',
             text: `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
           });
+          setTweetTitle('');
           setTweetText('');
           setShowTwitterComposeModal(false);
         } else {
@@ -1205,17 +1217,25 @@ function AutomationPageContent() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-white font-medium">Tweet</span>
+                        <h4 className="text-white font-medium">{tweet.title}</h4>
                         <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
                           🧪 Test Mode
                         </span>
-                        <span className="text-brand-silver/50 text-xs ml-auto">
-                          {new Date(tweet.created_at).toLocaleString()}
-                        </span>
                       </div>
-                      <p className="mt-2 text-brand-silver/70 text-sm whitespace-pre-wrap break-words line-clamp-2">{tweet.text}</p>
-                      <div className="mt-2 text-xs text-brand-silver/40">
-                        Simulated • ID: {tweet.id}
+                      <p className="mt-1 text-brand-silver/70 text-sm whitespace-pre-wrap break-words line-clamp-2">{tweet.text}</p>
+                      <div className="flex items-center gap-4 mt-3">
+                        <span className="text-xs text-yellow-400 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {new Date(tweet.created_at).toLocaleString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
                       </div>
                     </div>
                     <button
@@ -1573,6 +1593,7 @@ function AutomationPageContent() {
             <button
               onClick={() => {
                 setShowTwitterComposeModal(false);
+                setTweetTitle('');
                 setTweetText('');
               }}
               className="absolute top-4 right-4 text-brand-silver hover:text-white"
@@ -1630,7 +1651,18 @@ function AutomationPageContent() {
             {/* Form Fields */}
             <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-sm font-medium text-brand-silver mb-1">Tweet</label>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title</label>
+                <input
+                  type="text"
+                  value={tweetTitle}
+                  onChange={(e) => setTweetTitle(e.target.value)}
+                  placeholder="Give your tweet a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
                 <textarea
                   value={tweetText}
                   onChange={(e) => setTweetText(e.target.value)}
@@ -1663,6 +1695,7 @@ function AutomationPageContent() {
               <button
                 onClick={() => {
                   setShowTwitterComposeModal(false);
+                  setTweetTitle('');
                   setTweetText('');
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
@@ -1671,7 +1704,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleTwitterPost}
-                disabled={tweetPosting || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
+                disabled={tweetPosting || !tweetTitle.trim() || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
                 className={`px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
                   twitterTestMode 
                     ? 'bg-green-600 hover:bg-green-700' 
