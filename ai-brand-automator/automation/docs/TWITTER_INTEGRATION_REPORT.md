@@ -71,12 +71,17 @@ The Twitter/X integration is **fully implemented** for MVP functionality includi
 | Edit Scheduled Tweet | ✅ Complete | PUT endpoint + Edit modal with pre-filled fields |
 | Cancel Scheduled | ✅ Complete | `/content-calendar/{id}/cancel/` endpoint |
 | Publish Now | ✅ Complete | `/content-calendar/{id}/publish/` for manual publish |
-| Delete Tweet | ✅ Complete | `TwitterService.delete_tweet()` method |
+| Delete Tweet | ✅ Complete | DELETE `/twitter/tweet/{id}/` + UI delete button |
 | Tweet Validation | ✅ Complete | `/twitter/validate/` checks length and content |
 | Character Counter | ✅ Complete | Real-time 280/25000 character validation |
+| Reply to Tweet | ✅ Complete | Input field for reply_to_id in compose modal |
+| Quote Tweet | ✅ Complete | Input field for quote_tweet_id in compose modal |
+| Thread Posting | ✅ Complete | Thread mode toggle, multiple tweets chained via reply_to_id |
+| Media Alt Text | ✅ Complete | Accessibility alt text input when media attached |
 
 **Endpoints:**
-- `POST /api/v1/automation/twitter/tweet/` - Tweet immediately
+- `POST /api/v1/automation/twitter/tweet/` - Tweet immediately (with reply/quote support)
+- `DELETE /api/v1/automation/twitter/tweet/{id}/` - Delete a tweet
 - `POST /api/v1/automation/twitter/validate/` - Validate tweet before posting
 - `POST /api/v1/automation/content-calendar/` - Create scheduled tweet
 - `PUT /api/v1/automation/content-calendar/{id}/` - Edit scheduled tweet
@@ -84,8 +89,8 @@ The Twitter/X integration is **fully implemented** for MVP functionality includi
 - `POST /api/v1/automation/content-calendar/{id}/cancel/` - Cancel scheduled
 
 **Files:**
-- `automation/views.py` - TwitterTweetView, TwitterValidateTweetView, ContentCalendarViewSet
-- `automation/services.py` - TwitterService.create_tweet(), validate_tweet_length()
+- `automation/views.py` - TwitterTweetView, TwitterValidateTweetView, TwitterDeleteTweetView, ContentCalendarViewSet
+- `automation/services.py` - TwitterService.create_tweet(), validate_tweet_length(), delete_tweet()
 
 ### 4. Media Upload
 
@@ -489,13 +494,27 @@ curl -X POST http://localhost:8000/api/v1/automation/twitter/disconnect/ \
 
 | Limitation | Reason | Workaround |
 |------------|--------|------------|
-| No thread posting | Not implemented | Post multiple tweets manually |
-| No reply UI | Backend supports it, no UI | Use API directly |
-| No quote tweet UI | Backend supports it, no UI | Use API directly |
-| No tweet deletion UI | Backend supports it, no UI | Use API directly |
-| No media alt text | Not implemented | Future enhancement |
 | No analytics | Twitter API v2 metrics not integrated | Future enhancement |
 | Rate limits not tracked | App-level only | Monitor Twitter dashboard |
+
+---
+
+## ✅ Recently Implemented Features
+
+The following features were implemented and are now available:
+
+| Feature | Status | Implementation Date |
+|---------|--------|---------------------|
+| Thread posting (multiple tweets) | ✅ Complete | 2026-01-16 |
+| Reply/Quote tweet UI | ✅ Complete | 2026-01-16 |
+| Tweet deletion UI | ✅ Complete | 2026-01-16 |
+| Media alt text for accessibility | ✅ Complete | 2026-01-16 |
+
+**Details:**
+- **Thread Posting**: Toggle between "Single Tweet" and "Thread" mode. Add/remove tweets in thread, posts are chained using reply_to_id
+- **Reply/Quote Tweet**: Input fields for Reply to Tweet ID and Quote Tweet ID in compose modal
+- **Tweet Deletion**: Delete button appears on published tweets in Recent Activity, with confirmation
+- **Media Alt Text**: Input field for accessibility text when media is attached
 
 ---
 
@@ -503,10 +522,6 @@ curl -X POST http://localhost:8000/api/v1/automation/twitter/disconnect/ \
 
 | Feature | Priority | Effort |
 |---------|----------|--------|
-| Thread posting (multiple tweets) | MEDIUM | 1-2 days |
-| Reply/Quote tweet UI | LOW | 1 day |
-| Tweet deletion UI | LOW | 0.5 day |
-| Media alt text for accessibility | LOW | 0.5 day |
 | Twitter Analytics dashboard | LOW | 2-3 days |
 | Twitter Premium (25K chars) toggle | LOW | 0.5 day |
 | Twitter API rate limit tracking | MEDIUM | 1 day |
@@ -518,6 +533,10 @@ curl -X POST http://localhost:8000/api/v1/automation/twitter/disconnect/ \
 
 | Date | Changes |
 |------|---------|
+| 2026-01-16 | Added Thread Posting mode with multiple tweet support |
+| 2026-01-16 | Added Reply/Quote tweet UI with input fields |
+| 2026-01-16 | Added Tweet Deletion UI with confirmation dialog |
+| 2026-01-16 | Added Media Alt Text for accessibility |
 | 2026-01-16 | Fixed 3 high-priority issues: media in scheduled posts, OAuth callback param, state expiration |
 | 2026-01-16 | Added media preview for Twitter compose modal |
 | 2026-01-16 | Created initial Twitter integration documentation |
