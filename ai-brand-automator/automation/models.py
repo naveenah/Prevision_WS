@@ -333,3 +333,51 @@ class TwitterWebhookEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type} for {self.for_user_id} at {self.created_at}"
+
+
+class LinkedInWebhookEvent(models.Model):
+    """
+    Stores incoming webhook events from LinkedIn.
+    
+    LinkedIn webhooks can notify about:
+    - Share reactions (likes)
+    - Share comments
+    - Profile mentions
+    - Connection updates
+    - Organization updates (for company pages)
+    
+    Docs: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/webhooks
+    """
+
+    EVENT_TYPE_CHOICES = [
+        ("share_reaction", "Share Reaction (Like)"),
+        ("share_comment", "Comment on Share"),
+        ("mention", "Mentioned"),
+        ("connection_update", "Connection Update"),
+        ("organization_update", "Organization Update"),
+        ("share_update", "Share/Post Update"),
+        ("message", "Message Received"),
+    ]
+
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPE_CHOICES)
+    for_user_id = models.CharField(
+        max_length=100, db_index=True, help_text="LinkedIn member URN this event is for"
+    )
+    resource_urn = models.CharField(
+        max_length=200, blank=True, null=True, help_text="URN of the resource (share, comment, etc.)"
+    )
+    payload = models.JSONField(default=dict, help_text="Full event payload from LinkedIn")
+    read = models.BooleanField(default=False, help_text="Whether user has seen this event")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "LinkedIn Webhook Event"
+        verbose_name_plural = "LinkedIn Webhook Events"
+        indexes = [
+            models.Index(fields=["for_user_id", "-created_at"]),
+            models.Index(fields=["for_user_id", "read"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} for {self.for_user_id} at {self.created_at}"

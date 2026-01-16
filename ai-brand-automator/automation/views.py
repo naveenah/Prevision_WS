@@ -926,6 +926,269 @@ class LinkedInAnalyticsView(APIView):
             )
 
 
+class LinkedInWebhookView(APIView):
+    """
+    Handle LinkedIn webhook events.
+    
+    LinkedIn sends webhooks for:
+    - Share reactions (likes)
+    - Share comments
+    - Mentions
+    - Connection updates
+    
+    Docs: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/webhooks
+    
+    Note: Webhooks must be registered via LinkedIn Developer Portal.
+    """
+
+    # Webhooks don't require user authentication - they use signature validation
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        """
+        Handle incoming webhook events from LinkedIn.
+        
+        LinkedIn sends events in this format:
+        {
+            "resource": "urn:li:share:123456",
+            "resourceEvent": "CREATED|UPDATED|DELETED",
+            "resourceOwner": "urn:li:person:ABC123",
+            "triggeredAt": 1609459200000,
+            "topic": "shares|comments|reactions",
+            "payload": { ... }
+        }
+        """
+        import hmac
+        import hashlib
+        import base64
+
+        # Validate LinkedIn webhook signature
+        signature_header = request.headers.get("X-LI-Signature", "")
+
+        if not signature_header:
+            logger.warning("LinkedIn webhook received without signature")
+            # For development, we may still process the event
+            # In production, you should require signature validation
+            pass
+
+        # Get LinkedIn client secret for signature validation
+        client_secret = getattr(settings, "LINKEDIN_CLIENT_SECRET", None)
+
+        if signature_header and client_secret:
+            # Verify HMAC-SHA256 signature
+            expected_signature = "sha256=" + base64.b64encode(
+                hmac.new(
+                    client_secret.encode("utf-8"),
+                    request.body,
+                    hashlib.sha256,
+                ).digest()
+            ).decode("utf-8")
+
+            if not hmac.compare_digest(signature_header, expected_signature):
+                logger.warning("LinkedIn webhook signature validation failed")
+                return Response(
+                    {"error": "Invalid signature"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+        # Process the webhook event
+        event_data = request.data
+        logger.info(f"LinkedIn webhook event received: {event_data}")
+
+        # Store event for processing
+        from .models import LinkedInWebhookEvent
+
+        # Extract event details
+        resource = event_data.get("resource", "")
+        resource_event = event_data.get("resourceEvent", "")
+        resource_owner = event_data.get("resourceOwner", "")
+        topic = event_data.get("topic", "")
+
+        # Map LinkedIn topics to our event types
+        event_type_map = {
+            "reactions": "share_reaction",
+            "comments": "share_comment",
+            "shares": "share_update",
+            "mentions": "mention",
+            "connections": "connection_update",
+            "organizations": "organization_update",
+            "messages": "message",
+        }
+
+        event_type = event_type_map.get(topic, topic)
+
+        # Store the event
+        LinkedInWebhookEvent.objects.create(
+            event_type=event_type,
+            for_user_id=resource_owner,
+            resource_urn=resource,
+            payload=event_data,
+        )
+
+        logger.info(f"LinkedIn webhook event stored: {event_type} for {resource_owner}")
+
+        # Return 200 to acknowledge receipt
+        return Response({"status": "ok"})
+
+
+class LinkedInWebhookEventsView(APIView):
+    """
+    Get stored LinkedIn webhook events for the authenticated user.
+    
+    GET /linkedin/webhooks/events/ - List recent webhook events
+    POST /linkedin/webhooks/events/ - Mark events as read
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import LinkedInWebhookEvent
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response({
+                "test_mode": True,
+                "events": [
+                    {
+                        "id": 1,
+                        "event_type": "share_reaction",
+                        "created_at": "2026-01-16T12:00:00Z",
+                        "resource_urn": "urn:li:share:test123",
+                        "payload": {
+                            "resource": "urn:li:share:test123",
+                            "resourceEvent": "CREATED",
+                            "topic": "reactions",
+                            "actor": {
+                                "name": "Jane Smith",
+                                "reaction_type": "LIKE",
+                            },
+                        },
+                        "read": False,
+                    },
+                    {
+                        "id": 2,
+                        "event_type": "share_comment",
+                        "created_at": "2026-01-16T11:30:00Z",
+                        "resource_urn": "urn:li:comment:test456",
+                        "payload": {
+                            "resource": "urn:li:comment:test456",
+                            "resourceEvent": "CREATED",
+                            "topic": "comments",
+                            "actor": {
+                                "name": "John Doe",
+                            },
+                            "comment": {
+                                "text": "Great post! Thanks for sharing.",
+                            },
+                        },
+                        "read": False,
+                    },
+                    {
+                        "id": 3,
+                        "event_type": "connection_update",
+                        "created_at": "2026-01-16T10:00:00Z",
+                        "resource_urn": "urn:li:person:newconnection",
+                        "payload": {
+                            "topic": "connections",
+                            "actor": {
+                                "name": "New Connection",
+                            },
+                        },
+                        "read": True,
+                    },
+                ],
+                "unread_count": 2,
+            })
+
+        # Get user's LinkedIn ID from profile
+        linkedin_user_id = profile.profile_id
+
+        if not linkedin_user_id:
+            return Response({
+                "events": [],
+                "unread_count": 0,
+                "message": "No LinkedIn user ID associated with profile",
+            })
+
+        # Get recent events for this user
+        event_type = request.query_params.get("event_type")
+        limit = int(request.query_params.get("limit", 50))
+
+        events_qs = LinkedInWebhookEvent.objects.filter(
+            for_user_id=linkedin_user_id
+        ).order_by("-created_at")
+
+        if event_type:
+            events_qs = events_qs.filter(event_type=event_type)
+
+        events = events_qs[:limit]
+
+        unread_count = LinkedInWebhookEvent.objects.filter(
+            for_user_id=linkedin_user_id,
+            read=False,
+        ).count()
+
+        return Response({
+            "events": [
+                {
+                    "id": event.id,
+                    "event_type": event.event_type,
+                    "created_at": event.created_at.isoformat(),
+                    "resource_urn": event.resource_urn,
+                    "payload": event.payload,
+                    "read": event.read,
+                }
+                for event in events
+            ],
+            "unread_count": unread_count,
+        })
+
+    def post(self, request):
+        """Mark events as read."""
+        from .models import LinkedInWebhookEvent
+
+        event_ids = request.data.get("event_ids", [])
+
+        if not event_ids:
+            return Response(
+                {"error": "No event_ids provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+            linkedin_user_id = profile.profile_id
+
+            updated = LinkedInWebhookEvent.objects.filter(
+                id__in=event_ids,
+                for_user_id=linkedin_user_id,
+            ).update(read=True)
+
+            return Response({
+                "message": f"Marked {updated} events as read",
+                "updated_count": updated,
+            })
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
 class TwitterMediaUploadView(APIView):
     """
     Upload media (images, videos, or GIFs) to Twitter for use in tweets.

@@ -385,6 +385,18 @@ function AutomationPageContent() {
     test_mode?: boolean;
   } | null>(null);
 
+  // LinkedIn Webhook notifications state
+  const [linkedInWebhookEvents, setLinkedInWebhookEvents] = useState<Array<{
+    id: number;
+    event_type: string;
+    created_at: string;
+    resource_urn?: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+  }>>([]);
+  const [linkedInUnreadCount, setLinkedInUnreadCount] = useState(0);
+  const [showLinkedInNotifications, setShowLinkedInNotifications] = useState(false);
+
   // Check for OAuth callback results
   useEffect(() => {
     const success = searchParams.get('success');
@@ -571,6 +583,39 @@ function AutomationPageContent() {
       setLinkedInAnalyticsLoading(false);
     }
   }, [profiles?.linkedin?.connected]);
+
+  // Fetch LinkedIn webhook events/notifications
+  const fetchLinkedInWebhookEvents = useCallback(async () => {
+    if (!profiles?.linkedin?.connected) return;
+    
+    try {
+      const response = await apiClient.get('/automation/linkedin/webhooks/events/?limit=20');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInWebhookEvents(data.events || []);
+        setLinkedInUnreadCount(data.unread_count || 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn webhook events:', error);
+    }
+  }, [profiles?.linkedin?.connected]);
+
+  // Mark LinkedIn webhook events as read
+  const markLinkedInEventsAsRead = async (eventIds: number[]) => {
+    try {
+      const response = await apiClient.post('/automation/linkedin/webhooks/events/', {
+        event_ids: eventIds,
+      });
+      if (response.ok) {
+        setLinkedInWebhookEvents(prev => 
+          prev.map(e => eventIds.includes(e.id) ? { ...e, read: true } : e)
+        );
+        setLinkedInUnreadCount(prev => Math.max(0, prev - eventIds.length));
+      }
+    } catch (error) {
+      console.error('Failed to mark LinkedIn events as read:', error);
+    }
+  };
 
   // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
   useEffect(() => {
@@ -1834,6 +1879,78 @@ function AutomationPageContent() {
                 LinkedIn Analytics
               </h2>
               <div className="flex items-center gap-2">
+                {/* Notifications Bell for LinkedIn */}
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setShowLinkedInNotifications(!showLinkedInNotifications);
+                      if (!showLinkedInNotifications) fetchLinkedInWebhookEvents();
+                    }}
+                    className="p-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 transition-colors relative"
+                    title="LinkedIn Notifications"
+                  >
+                    <svg className="w-5 h-5 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    {linkedInUnreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                        {linkedInUnreadCount > 9 ? '9+' : linkedInUnreadCount}
+                      </span>
+                    )}
+                  </button>
+                  
+                  {/* LinkedIn Notifications Dropdown */}
+                  {showLinkedInNotifications && (
+                    <div className="absolute right-0 top-12 w-80 bg-brand-midnight border border-brand-ghost/30 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+                      <div className="p-3 border-b border-brand-ghost/30 flex items-center justify-between">
+                        <span className="font-medium text-white">LinkedIn Notifications</span>
+                        {linkedInWebhookEvents.length > 0 && (
+                          <button
+                            onClick={() => markLinkedInEventsAsRead(linkedInWebhookEvents.map(e => e.id))}
+                            className="text-xs text-[#0A66C2] hover:underline"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                      </div>
+                      {linkedInWebhookEvents.length === 0 ? (
+                        <div className="p-4 text-center text-brand-silver/70">
+                          <p>No notifications yet</p>
+                          <p className="text-xs mt-1">LinkedIn events will appear here</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-brand-ghost/20">
+                          {linkedInWebhookEvents.map(event => (
+                            <div 
+                              key={event.id}
+                              className={`p-3 ${!event.read ? 'bg-[#0A66C2]/5' : ''} hover:bg-brand-ghost/10`}
+                              onClick={() => !event.read && markLinkedInEventsAsRead([event.id])}
+                            >
+                              <div className="flex items-start gap-2">
+                                <span className={`w-2 h-2 rounded-full mt-2 ${!event.read ? 'bg-[#0A66C2]' : 'bg-transparent'}`} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-white">
+                                    {event.event_type === 'share_reaction' && '👍 Someone reacted to your post'}
+                                    {event.event_type === 'share_comment' && '💬 New comment on your post'}
+                                    {event.event_type === 'mention' && '🔔 You were mentioned'}
+                                    {event.event_type === 'connection_update' && '🤝 New connection update'}
+                                    {event.event_type === 'share_update' && '📝 Share update'}
+                                    {event.event_type === 'message' && '✉️ New message'}
+                                    {event.event_type === 'organization_update' && '🏢 Organization update'}
+                                  </p>
+                                  <p className="text-xs text-brand-silver/70">
+                                    {new Date(event.created_at).toLocaleString()}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
                 <button
                   onClick={() => {
                     setShowLinkedInAnalytics(!showLinkedInAnalytics);
