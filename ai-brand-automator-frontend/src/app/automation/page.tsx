@@ -302,6 +302,57 @@ function AutomationPageContent() {
   // Deleting tweet
   const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
 
+  // Twitter Analytics state
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<{
+    user?: {
+      username?: string;
+      name?: string;
+      profile_image_url?: string;
+      metrics?: {
+        followers: number;
+        following: number;
+        tweets: number;
+        listed: number;
+      };
+    };
+    tweets?: Array<{
+      tweet_id: string;
+      text: string;
+      created_at: string;
+      metrics: {
+        impressions: number;
+        likes: number;
+        retweets: number;
+        replies: number;
+        quotes: number;
+        bookmarks: number;
+      };
+    }>;
+    totals?: {
+      total_impressions: number;
+      total_likes: number;
+      total_retweets: number;
+      total_replies: number;
+      total_quotes: number;
+      total_bookmarks: number;
+      engagement_rate: number;
+    };
+    test_mode?: boolean;
+  } | null>(null);
+
+  // Twitter Webhook notifications state
+  const [webhookEvents, setWebhookEvents] = useState<Array<{
+    id: number;
+    event_type: string;
+    created_at: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+  }>>([]);
+  const [unreadEventCount, setUnreadEventCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
+
   // Check for OAuth callback results
   useEffect(() => {
     const success = searchParams.get('success');
@@ -415,6 +466,59 @@ function AutomationPageContent() {
       console.error('Failed to fetch automation tasks:', error);
     }
   }, []);
+
+  // Fetch Twitter analytics
+  const fetchTwitterAnalytics = useCallback(async () => {
+    if (!profiles?.twitter?.connected) return;
+    
+    setAnalyticsLoading(true);
+    try {
+      const response = await apiClient.get('/automation/twitter/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setAnalyticsData(data);
+      } else {
+        console.error('Failed to fetch analytics:', await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to fetch Twitter analytics:', error);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [profiles?.twitter?.connected]);
+
+  // Fetch Twitter webhook events/notifications
+  const fetchWebhookEvents = useCallback(async () => {
+    if (!profiles?.twitter?.connected) return;
+    
+    try {
+      const response = await apiClient.get('/automation/twitter/webhooks/events/?limit=20');
+      if (response.ok) {
+        const data = await response.json();
+        setWebhookEvents(data.events || []);
+        setUnreadEventCount(data.unread_count || 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch webhook events:', error);
+    }
+  }, [profiles?.twitter?.connected]);
+
+  // Mark webhook events as read
+  const markEventsAsRead = async (eventIds: number[]) => {
+    try {
+      const response = await apiClient.post('/automation/twitter/webhooks/events/', {
+        event_ids: eventIds,
+      });
+      if (response.ok) {
+        setWebhookEvents(prev => 
+          prev.map(e => eventIds.includes(e.id) ? { ...e, read: true } : e)
+        );
+        setUnreadEventCount(prev => Math.max(0, prev - eventIds.length));
+      }
+    } catch (error) {
+      console.error('Failed to mark events as read:', error);
+    }
+  };
 
   // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
   useEffect(() => {
@@ -1437,6 +1541,235 @@ function AutomationPageContent() {
             </div>
           )}
         </div>
+
+        {/* Twitter Analytics Dashboard */}
+        {profiles?.twitter?.connected && (
+          <div className="mt-12">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-heading font-bold text-white flex items-center gap-2">
+                <svg className="w-6 h-6 text-brand-electric" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Twitter Analytics
+              </h2>
+              <div className="flex items-center gap-2">
+                {/* Notifications Bell */}
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setShowNotifications(!showNotifications);
+                      if (!showNotifications) fetchWebhookEvents();
+                    }}
+                    className="p-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 transition-colors relative"
+                    title="Notifications"
+                  >
+                    <svg className="w-5 h-5 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    {unreadEventCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                        {unreadEventCount > 9 ? '9+' : unreadEventCount}
+                      </span>
+                    )}
+                  </button>
+                  
+                  {/* Notifications Dropdown */}
+                  {showNotifications && (
+                    <div className="absolute right-0 top-12 w-80 bg-brand-midnight border border-brand-ghost/30 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+                      <div className="p-3 border-b border-brand-ghost/30 flex items-center justify-between">
+                        <span className="font-medium text-white">Notifications</span>
+                        {webhookEvents.length > 0 && (
+                          <button
+                            onClick={() => markEventsAsRead(webhookEvents.map(e => e.id))}
+                            className="text-xs text-brand-electric hover:underline"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                      </div>
+                      {webhookEvents.length === 0 ? (
+                        <div className="p-4 text-center text-brand-silver/70">
+                          <p>No notifications yet</p>
+                          <p className="text-xs mt-1">Webhook events will appear here</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-brand-ghost/20">
+                          {webhookEvents.map(event => (
+                            <div 
+                              key={event.id}
+                              className={`p-3 ${!event.read ? 'bg-brand-electric/5' : ''} hover:bg-brand-ghost/10`}
+                              onClick={() => !event.read && markEventsAsRead([event.id])}
+                            >
+                              <div className="flex items-start gap-2">
+                                <span className={`w-2 h-2 rounded-full mt-2 ${!event.read ? 'bg-brand-electric' : 'bg-transparent'}`} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-white">
+                                    {event.event_type === 'favorite' && '❤️ Someone liked your tweet'}
+                                    {event.event_type === 'follow' && '👤 New follower'}
+                                    {event.event_type === 'retweet' && '🔄 Someone retweeted'}
+                                    {event.event_type === 'mention' && '💬 You were mentioned'}
+                                    {event.event_type === 'direct_message' && '✉️ New direct message'}
+                                    {event.event_type === 'tweet_create' && '🐦 New tweet activity'}
+                                  </p>
+                                  <p className="text-xs text-brand-silver/70">
+                                    {new Date(event.created_at).toLocaleString()}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                <button
+                  onClick={() => {
+                    setShowAnalytics(!showAnalytics);
+                    if (!showAnalytics && !analyticsData) fetchTwitterAnalytics();
+                  }}
+                  className="px-4 py-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 text-brand-silver transition-colors flex items-center gap-2"
+                >
+                  {showAnalytics ? 'Hide Analytics' : 'Show Analytics'}
+                  <svg className={`w-4 h-4 transition-transform ${showAnalytics ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={fetchTwitterAnalytics}
+                  disabled={analyticsLoading}
+                  className="p-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 transition-colors disabled:opacity-50"
+                  title="Refresh analytics"
+                >
+                  <svg className={`w-5 h-5 text-brand-silver ${analyticsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {showAnalytics && (
+              <div className="glass-card p-6">
+                {analyticsLoading && !analyticsData ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-electric"></div>
+                  </div>
+                ) : analyticsData ? (
+                  <div>
+                    {analyticsData.test_mode && (
+                      <div className="mb-4 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                        🧪 Test Mode - Showing simulated analytics data
+                      </div>
+                    )}
+                    
+                    {/* User Profile Stats */}
+                    {analyticsData.user && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                          {analyticsData.user.profile_image_url && (
+                            <img src={analyticsData.user.profile_image_url} alt="" className="w-8 h-8 rounded-full" />
+                          )}
+                          @{analyticsData.user.username || 'Account'} Overview
+                        </h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                            <div className="text-2xl font-bold text-brand-electric">{analyticsData.user.metrics?.followers?.toLocaleString() || 0}</div>
+                            <div className="text-sm text-brand-silver/70">Followers</div>
+                          </div>
+                          <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                            <div className="text-2xl font-bold text-white">{analyticsData.user.metrics?.following?.toLocaleString() || 0}</div>
+                            <div className="text-sm text-brand-silver/70">Following</div>
+                          </div>
+                          <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                            <div className="text-2xl font-bold text-white">{analyticsData.user.metrics?.tweets?.toLocaleString() || 0}</div>
+                            <div className="text-sm text-brand-silver/70">Tweets</div>
+                          </div>
+                          <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                            <div className="text-2xl font-bold text-white">{analyticsData.user.metrics?.listed?.toLocaleString() || 0}</div>
+                            <div className="text-sm text-brand-silver/70">Listed</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Totals/Engagement Summary */}
+                    {analyticsData.totals && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-medium text-white mb-3">Tweet Performance Summary</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                          <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 rounded-lg p-4 text-center border border-blue-500/20">
+                            <div className="text-xl font-bold text-blue-400">{analyticsData.totals.total_impressions.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Impressions</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-red-500/20 to-red-600/10 rounded-lg p-4 text-center border border-red-500/20">
+                            <div className="text-xl font-bold text-red-400">{analyticsData.totals.total_likes.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Likes</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 rounded-lg p-4 text-center border border-green-500/20">
+                            <div className="text-xl font-bold text-green-400">{analyticsData.totals.total_retweets.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Retweets</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 rounded-lg p-4 text-center border border-purple-500/20">
+                            <div className="text-xl font-bold text-purple-400">{analyticsData.totals.total_replies.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Replies</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-yellow-500/20 to-yellow-600/10 rounded-lg p-4 text-center border border-yellow-500/20">
+                            <div className="text-xl font-bold text-yellow-400">{analyticsData.totals.total_quotes.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Quotes</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-indigo-500/20 to-indigo-600/10 rounded-lg p-4 text-center border border-indigo-500/20">
+                            <div className="text-xl font-bold text-indigo-400">{analyticsData.totals.total_bookmarks.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Bookmarks</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-brand-electric/20 to-brand-electric/10 rounded-lg p-4 text-center border border-brand-electric/20">
+                            <div className="text-xl font-bold text-brand-electric">{analyticsData.totals.engagement_rate}%</div>
+                            <div className="text-xs text-brand-silver/70">Engagement</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Individual Tweet Metrics */}
+                    {analyticsData.tweets && analyticsData.tweets.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-medium text-white mb-3">Recent Tweet Metrics</h3>
+                        <div className="space-y-3 max-h-80 overflow-y-auto">
+                          {analyticsData.tweets.map(tweet => (
+                            <div key={tweet.tweet_id} className="bg-brand-ghost/10 rounded-lg p-4">
+                              <p className="text-sm text-white mb-2 line-clamp-2">{tweet.text}</p>
+                              <div className="flex items-center gap-4 text-xs text-brand-silver/70">
+                                <span>📊 {tweet.metrics.impressions.toLocaleString()}</span>
+                                <span>❤️ {tweet.metrics.likes}</span>
+                                <span>🔄 {tweet.metrics.retweets}</span>
+                                <span>💬 {tweet.metrics.replies}</span>
+                                <span className="ml-auto">{new Date(tweet.created_at).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(!analyticsData.tweets || analyticsData.tweets.length === 0) && !analyticsData.user && (
+                      <div className="text-center py-8 text-brand-silver/70">
+                        <p>No analytics data available yet.</p>
+                        <p className="text-sm mt-1">Post some tweets to see your metrics here.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-brand-silver/70">
+                    <p>Failed to load analytics data.</p>
+                    <button onClick={fetchTwitterAnalytics} className="text-brand-electric hover:underline mt-2">
+                      Try again
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Recent Activity Section - Combined LinkedIn posts and Tweets */}
         <div className="mt-12">

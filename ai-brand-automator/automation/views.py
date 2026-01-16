@@ -1723,3 +1723,464 @@ class TwitterDeleteTweetView(APIView):
                 {"error": f"Failed to delete tweet: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class TwitterAnalyticsView(APIView):
+    """
+    Get analytics and metrics for Twitter tweets.
+    
+    GET /twitter/analytics/ - Get user profile metrics and recent tweet metrics
+    GET /twitter/analytics/<tweet_id>/ - Get metrics for a specific tweet
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, tweet_id=None):
+        from .services import twitter_service
+        from .constants import TWITTER_TEST_ACCESS_TOKEN
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode analytics request by {request.user.email}")
+            
+            if tweet_id:
+                # Return mock metrics for a specific tweet
+                return Response({
+                    "test_mode": True,
+                    "tweet_id": tweet_id,
+                    "text": "Test tweet content",
+                    "created_at": "2026-01-16T12:00:00Z",
+                    "metrics": {
+                        "impressions": 1250,
+                        "likes": 45,
+                        "retweets": 12,
+                        "replies": 8,
+                        "quotes": 3,
+                        "bookmarks": 5,
+                    },
+                })
+            else:
+                # Return mock user metrics and recent tweets
+                return Response({
+                    "test_mode": True,
+                    "user": {
+                        "user_id": "test_user_123",
+                        "username": "testuser",
+                        "name": "Test User",
+                        "profile_image_url": None,
+                        "metrics": {
+                            "followers": 1500,
+                            "following": 350,
+                            "tweets": 420,
+                            "listed": 12,
+                        },
+                    },
+                    "tweets": [
+                        {
+                            "tweet_id": "test_tweet_1",
+                            "text": "First test tweet",
+                            "created_at": "2026-01-16T12:00:00Z",
+                            "metrics": {
+                                "impressions": 1250,
+                                "likes": 45,
+                                "retweets": 12,
+                                "replies": 8,
+                                "quotes": 3,
+                                "bookmarks": 5,
+                            },
+                        },
+                        {
+                            "tweet_id": "test_tweet_2",
+                            "text": "Second test tweet",
+                            "created_at": "2026-01-15T10:00:00Z",
+                            "metrics": {
+                                "impressions": 980,
+                                "likes": 32,
+                                "retweets": 8,
+                                "replies": 5,
+                                "quotes": 1,
+                                "bookmarks": 2,
+                            },
+                        },
+                    ],
+                    "totals": {
+                        "total_impressions": 2230,
+                        "total_likes": 77,
+                        "total_retweets": 20,
+                        "total_replies": 13,
+                        "total_quotes": 4,
+                        "total_bookmarks": 7,
+                        "engagement_rate": 5.4,
+                    },
+                })
+
+        try:
+            access_token = profile.get_valid_access_token()
+
+            if tweet_id:
+                # Get metrics for a specific tweet
+                metrics = twitter_service.get_tweet_metrics(access_token, tweet_id)
+                return Response(metrics)
+            else:
+                # Get user metrics and published tweets from ContentCalendar
+                user_metrics = twitter_service.get_user_metrics(access_token)
+
+                # Get tweet IDs from published posts
+                published_posts = ContentCalendar.objects.filter(
+                    user=request.user,
+                    platforms__contains=["twitter"],
+                    status="published",
+                ).order_by("-published_at")[:20]
+
+                tweet_ids = []
+                for post in published_posts:
+                    # post_results can have tweet id in different locations
+                    post_results = post.post_results or {}
+                    tweet_data = post_results.get("tweet", post_results)
+                    if isinstance(tweet_data, dict) and tweet_data.get("id"):
+                        tweet_ids.append(tweet_data["id"])
+                    elif post_results.get("id"):
+                        tweet_ids.append(post_results["id"])
+
+                # Get metrics for all tweets
+                tweets_metrics = []
+                if tweet_ids:
+                    tweets_metrics = twitter_service.get_multiple_tweet_metrics(
+                        access_token, tweet_ids
+                    )
+
+                # Calculate totals
+                totals = {
+                    "total_impressions": 0,
+                    "total_likes": 0,
+                    "total_retweets": 0,
+                    "total_replies": 0,
+                    "total_quotes": 0,
+                    "total_bookmarks": 0,
+                }
+                for tweet in tweets_metrics:
+                    metrics = tweet.get("metrics", {})
+                    totals["total_impressions"] += metrics.get("impressions", 0)
+                    totals["total_likes"] += metrics.get("likes", 0)
+                    totals["total_retweets"] += metrics.get("retweets", 0)
+                    totals["total_replies"] += metrics.get("replies", 0)
+                    totals["total_quotes"] += metrics.get("quotes", 0)
+                    totals["total_bookmarks"] += metrics.get("bookmarks", 0)
+
+                # Calculate engagement rate
+                if totals["total_impressions"] > 0:
+                    engagements = (
+                        totals["total_likes"]
+                        + totals["total_retweets"]
+                        + totals["total_replies"]
+                        + totals["total_quotes"]
+                    )
+                    totals["engagement_rate"] = round(
+                        (engagements / totals["total_impressions"]) * 100, 2
+                    )
+                else:
+                    totals["engagement_rate"] = 0
+
+                return Response({
+                    "user": user_metrics,
+                    "tweets": tweets_metrics,
+                    "totals": totals,
+                })
+
+        except Exception as e:
+            logger.error(f"Failed to get Twitter analytics: {e}")
+            return Response(
+                {"error": f"Failed to get analytics: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterWebhookView(APIView):
+    """
+    Handle Twitter Account Activity API webhooks.
+    
+    GET - CRC challenge validation
+    POST - Receive webhook events (likes, retweets, mentions, DMs)
+    
+    Note: Requires Twitter Premium or Enterprise tier for Account Activity API.
+    """
+
+    # Webhooks don't require user authentication - they use signature validation
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        """
+        Handle CRC (Challenge Response Check) for webhook registration.
+        
+        Twitter sends a GET request with crc_token parameter.
+        We must respond with a HMAC-SHA256 signature of the token.
+        """
+        import hmac
+        import hashlib
+        import base64
+
+        crc_token = request.query_params.get("crc_token")
+
+        if not crc_token:
+            return Response(
+                {"error": "Missing crc_token parameter"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get consumer secret from settings
+        consumer_secret = getattr(settings, "TWITTER_CLIENT_SECRET", None)
+
+        if not consumer_secret:
+            logger.error("Twitter webhook CRC failed: No client secret configured")
+            return Response(
+                {"error": "Webhook not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Create HMAC-SHA256 signature
+        signature = hmac.new(
+            consumer_secret.encode("utf-8"),
+            crc_token.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+
+        response_token = base64.b64encode(signature).decode("utf-8")
+
+        logger.info("Twitter webhook CRC challenge validated")
+        return Response({"response_token": f"sha256={response_token}"})
+
+    def post(self, request):
+        """
+        Handle incoming webhook events from Twitter.
+        
+        Events can include:
+        - tweet_create_events: New tweets/replies/mentions
+        - favorite_events: Likes
+        - follow_events: New followers
+        - direct_message_events: DMs
+        - tweet_delete_events: Deleted tweets
+        """
+        import hmac
+        import hashlib
+        import base64
+
+        # Validate webhook signature
+        signature_header = request.headers.get("X-Twitter-Webhooks-Signature", "")
+
+        if not signature_header:
+            logger.warning("Twitter webhook received without signature")
+            return Response(
+                {"error": "Missing signature"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        consumer_secret = getattr(settings, "TWITTER_CLIENT_SECRET", None)
+
+        if not consumer_secret:
+            return Response(
+                {"error": "Webhook not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Verify signature
+        expected_signature = "sha256=" + base64.b64encode(
+            hmac.new(
+                consumer_secret.encode("utf-8"),
+                request.body,
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        if not hmac.compare_digest(signature_header, expected_signature):
+            logger.warning("Twitter webhook signature validation failed")
+            return Response(
+                {"error": "Invalid signature"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Process the webhook event
+        event_data = request.data
+        logger.info(f"Twitter webhook event received: {list(event_data.keys())}")
+
+        # Store event for processing
+        from .models import TwitterWebhookEvent
+
+        # Handle different event types
+        for_user_id = event_data.get("for_user_id")
+
+        if "tweet_create_events" in event_data:
+            for tweet in event_data["tweet_create_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="tweet_create",
+                    for_user_id=for_user_id,
+                    payload=tweet,
+                )
+                logger.info(f"Tweet create event stored: {tweet.get('id_str')}")
+
+        if "favorite_events" in event_data:
+            for favorite in event_data["favorite_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="favorite",
+                    for_user_id=for_user_id,
+                    payload=favorite,
+                )
+                logger.info(f"Favorite event stored")
+
+        if "follow_events" in event_data:
+            for follow in event_data["follow_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="follow",
+                    for_user_id=for_user_id,
+                    payload=follow,
+                )
+                logger.info(f"Follow event stored")
+
+        if "direct_message_events" in event_data:
+            for dm in event_data["direct_message_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="direct_message",
+                    for_user_id=for_user_id,
+                    payload=dm,
+                )
+                logger.info(f"DM event stored")
+
+        return Response({"status": "ok"})
+
+
+class TwitterWebhookEventsView(APIView):
+    """
+    Get stored webhook events for the authenticated user.
+    
+    GET /twitter/webhooks/events/ - List recent webhook events
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import TwitterWebhookEvent
+        from .constants import TWITTER_TEST_ACCESS_TOKEN
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            return Response({
+                "test_mode": True,
+                "events": [
+                    {
+                        "id": 1,
+                        "event_type": "favorite",
+                        "created_at": "2026-01-16T12:00:00Z",
+                        "payload": {
+                            "user": {"screen_name": "testfan"},
+                            "favorited_status": {"text": "Your tweet was liked!"},
+                        },
+                        "read": False,
+                    },
+                    {
+                        "id": 2,
+                        "event_type": "follow",
+                        "created_at": "2026-01-16T11:30:00Z",
+                        "payload": {
+                            "source": {"screen_name": "newfollower"},
+                        },
+                        "read": False,
+                    },
+                ],
+                "unread_count": 2,
+            })
+
+        # Get user's Twitter ID from profile
+        twitter_user_id = profile.profile_id
+
+        if not twitter_user_id:
+            return Response({
+                "events": [],
+                "unread_count": 0,
+                "message": "No Twitter user ID associated with profile",
+            })
+
+        # Get recent events for this user
+        event_type = request.query_params.get("event_type")
+        limit = int(request.query_params.get("limit", 50))
+
+        events_qs = TwitterWebhookEvent.objects.filter(
+            for_user_id=twitter_user_id
+        ).order_by("-created_at")
+
+        if event_type:
+            events_qs = events_qs.filter(event_type=event_type)
+
+        events = events_qs[:limit]
+
+        unread_count = TwitterWebhookEvent.objects.filter(
+            for_user_id=twitter_user_id,
+            read=False,
+        ).count()
+
+        return Response({
+            "events": [
+                {
+                    "id": event.id,
+                    "event_type": event.event_type,
+                    "created_at": event.created_at.isoformat(),
+                    "payload": event.payload,
+                    "read": event.read,
+                }
+                for event in events
+            ],
+            "unread_count": unread_count,
+        })
+
+    def post(self, request):
+        """Mark events as read."""
+        from .models import TwitterWebhookEvent
+
+        event_ids = request.data.get("event_ids", [])
+
+        if not event_ids:
+            return Response(
+                {"error": "No event_ids provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+            twitter_user_id = profile.profile_id
+
+            updated = TwitterWebhookEvent.objects.filter(
+                id__in=event_ids,
+                for_user_id=twitter_user_id,
+            ).update(read=True)
+
+            return Response({
+                "message": f"Marked {updated} events as read",
+                "updated_count": updated,
+            })
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )

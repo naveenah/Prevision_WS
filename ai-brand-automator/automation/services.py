@@ -1118,6 +1118,159 @@ class TwitterService:
             logger.error(f"Twitter tweet deletion failed: {e}")
             return False
 
+    def get_tweet_metrics(self, access_token: str, tweet_id: str) -> dict:
+        """
+        Get public metrics for a specific tweet.
+
+        Args:
+            access_token: Valid Twitter access token
+            tweet_id: The ID of the tweet to get metrics for
+
+        Returns:
+            Dictionary with tweet metrics (impressions, likes, retweets, replies, quotes)
+        """
+        try:
+            response = requests.get(
+                f"{self.TWEET_URL}/{tweet_id}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "tweet.fields": "public_metrics,created_at,text",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            tweet_data = data.get("data", {})
+            metrics = tweet_data.get("public_metrics", {})
+
+            return {
+                "tweet_id": tweet_id,
+                "text": tweet_data.get("text", ""),
+                "created_at": tweet_data.get("created_at"),
+                "metrics": {
+                    "impressions": metrics.get("impression_count", 0),
+                    "likes": metrics.get("like_count", 0),
+                    "retweets": metrics.get("retweet_count", 0),
+                    "replies": metrics.get("reply_count", 0),
+                    "quotes": metrics.get("quote_count", 0),
+                    "bookmarks": metrics.get("bookmark_count", 0),
+                },
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get tweet metrics: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to get tweet metrics: {str(e)}")
+
+    def get_multiple_tweet_metrics(self, access_token: str, tweet_ids: list) -> list:
+        """
+        Get public metrics for multiple tweets at once.
+
+        Args:
+            access_token: Valid Twitter access token
+            tweet_ids: List of tweet IDs to get metrics for (max 100)
+
+        Returns:
+            List of tweet metrics dictionaries
+        """
+        if not tweet_ids:
+            return []
+
+        # Twitter API allows max 100 tweets per request
+        tweet_ids = tweet_ids[:100]
+
+        try:
+            response = requests.get(
+                self.TWEET_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "ids": ",".join(tweet_ids),
+                    "tweet.fields": "public_metrics,created_at,text",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            results = []
+            for tweet_data in data.get("data", []):
+                metrics = tweet_data.get("public_metrics", {})
+                results.append({
+                    "tweet_id": tweet_data.get("id"),
+                    "text": tweet_data.get("text", ""),
+                    "created_at": tweet_data.get("created_at"),
+                    "metrics": {
+                        "impressions": metrics.get("impression_count", 0),
+                        "likes": metrics.get("like_count", 0),
+                        "retweets": metrics.get("retweet_count", 0),
+                        "replies": metrics.get("reply_count", 0),
+                        "quotes": metrics.get("quote_count", 0),
+                        "bookmarks": metrics.get("bookmark_count", 0),
+                    },
+                })
+
+            return results
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get multiple tweet metrics: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to get tweet metrics: {str(e)}")
+
+    def get_user_metrics(self, access_token: str) -> dict:
+        """
+        Get the authenticated user's profile metrics.
+
+        Args:
+            access_token: Valid Twitter access token
+
+        Returns:
+            Dictionary with user metrics (followers, following, tweet count)
+        """
+        try:
+            response = requests.get(
+                self.USER_INFO_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "user.fields": "public_metrics,created_at,description,profile_image_url",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            user_data = data.get("data", {})
+            metrics = user_data.get("public_metrics", {})
+
+            return {
+                "user_id": user_data.get("id"),
+                "username": user_data.get("username"),
+                "name": user_data.get("name"),
+                "description": user_data.get("description"),
+                "profile_image_url": user_data.get("profile_image_url"),
+                "created_at": user_data.get("created_at"),
+                "metrics": {
+                    "followers": metrics.get("followers_count", 0),
+                    "following": metrics.get("following_count", 0),
+                    "tweets": metrics.get("tweet_count", 0),
+                    "listed": metrics.get("listed_count", 0),
+                },
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get user metrics: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to get user metrics: {str(e)}")
+
     def validate_tweet_length(self, text: str, is_premium: bool = False) -> dict:
         """
         Validate tweet length against Twitter's limits.

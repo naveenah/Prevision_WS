@@ -26,6 +26,9 @@ from .views import (
     TwitterMediaUploadView,
     TwitterMediaStatusView,
     TwitterDeleteTweetView,
+    TwitterAnalyticsView,
+    TwitterWebhookView,
+    TwitterWebhookEventsView,
 )
 
 router = DefaultRouter()
@@ -100,6 +103,28 @@ urlpatterns = [
         "twitter/tweet/<str:tweet_id>/",
         TwitterDeleteTweetView.as_view(),
         name="twitter-delete-tweet",
+    ),
+    # Twitter Analytics
+    path(
+        "twitter/analytics/",
+        TwitterAnalyticsView.as_view(),
+        name="twitter-analytics",
+    ),
+    path(
+        "twitter/analytics/<str:tweet_id>/",
+        TwitterAnalyticsView.as_view(),
+        name="twitter-analytics-tweet",
+    ),
+    # Twitter Webhooks
+    path(
+        "twitter/webhook/",
+        TwitterWebhookView.as_view(),
+        name="twitter-webhook",
+    ),
+    path(
+        "twitter/webhooks/events/",
+        TwitterWebhookEventsView.as_view(),
+        name="twitter-webhook-events",
     ),
     # Router URLs
     path("", include(router.urls)),

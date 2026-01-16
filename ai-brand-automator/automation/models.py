@@ -293,3 +293,43 @@ class OAuthState(models.Model):
 
     def __str__(self):
         return f"{self.platform} OAuth for {self.user.email}"
+
+
+class TwitterWebhookEvent(models.Model):
+    """
+    Stores incoming webhook events from Twitter Account Activity API.
+    
+    Events include likes, retweets, mentions, follows, and DMs.
+    """
+
+    EVENT_TYPE_CHOICES = [
+        ("tweet_create", "Tweet Created"),
+        ("favorite", "Like/Favorite"),
+        ("follow", "New Follower"),
+        ("unfollow", "Unfollowed"),
+        ("direct_message", "Direct Message"),
+        ("tweet_delete", "Tweet Deleted"),
+        ("mention", "Mentioned"),
+        ("retweet", "Retweeted"),
+        ("quote", "Quote Tweet"),
+    ]
+
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPE_CHOICES)
+    for_user_id = models.CharField(
+        max_length=50, db_index=True, help_text="Twitter user ID this event is for"
+    )
+    payload = models.JSONField(default=dict, help_text="Full event payload from Twitter")
+    read = models.BooleanField(default=False, help_text="Whether user has seen this event")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Twitter Webhook Event"
+        verbose_name_plural = "Twitter Webhook Events"
+        indexes = [
+            models.Index(fields=["for_user_id", "-created_at"]),
+            models.Index(fields=["for_user_id", "read"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} for {self.for_user_id} at {self.created_at}"
