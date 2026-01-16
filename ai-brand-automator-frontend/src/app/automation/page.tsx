@@ -323,6 +323,77 @@ function AutomationPageContent() {
   // Deleting Facebook post
   const [deletingFbPostId, setDeletingFbPostId] = useState<string | null>(null);
 
+  // Facebook multi-page state
+  interface FacebookPage {
+    id: string;
+    name: string;
+    category?: string;
+    picture?: { data?: { url?: string } };
+    access_token?: string;
+  }
+  const [fbPages, setFbPages] = useState<FacebookPage[]>([]);
+  const [loadingFbPages, setLoadingFbPages] = useState(false);
+  const [showFbPageSwitcher, setShowFbPageSwitcher] = useState(false);
+  const [switchingFbPage, setSwitchingFbPage] = useState(false);
+  const [currentFbPage, setCurrentFbPage] = useState<{ id: string; name: string } | null>(null);
+
+  // Fetch Facebook pages
+  const fetchFacebookPages = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setLoadingFbPages(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/pages/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbPages(data.pages || []);
+        if (data.current_page) {
+          setCurrentFbPage(data.current_page);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook pages:', error);
+    } finally {
+      setLoadingFbPages(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Switch Facebook page
+  const handleSwitchFacebookPage = async (pageId: string) => {
+    setSwitchingFbPage(true);
+    try {
+      const response = await apiClient.post('/automation/facebook/pages/select/', {
+        page_id: pageId,
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentFbPage({ id: data.page_id, name: data.page_name });
+        setShowFbPageSwitcher(false);
+        setMessage({
+          type: 'success',
+          text: `Switched to page: ${data.page_name}`,
+        });
+        // Refresh profiles to update status
+        fetchProfiles();
+      } else {
+        const errorData = await response.json();
+        setMessage({
+          type: 'error',
+          text: errorData.error || 'Failed to switch page',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to switch Facebook page:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to switch page. Please try again.',
+      });
+    } finally {
+      setSwitchingFbPage(false);
+    }
+  };
+
   // Check for OAuth callback results
   useEffect(() => {
     const success = searchParams.get('success');
@@ -390,6 +461,19 @@ function AutomationPageContent() {
     fetchData();
   }, []);
 
+  // Fetch social profiles (for refresh after actions)
+  const fetchProfiles = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/automation/social-profiles/status/');
+      if (response.ok) {
+        const data = await response.json();
+        setProfiles(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch profiles:', error);
+    }
+  }, []);
+
   // Fetch scheduled posts function (for refresh after actions)
   const fetchScheduledPosts = useCallback(async () => {
     try {
@@ -447,6 +531,13 @@ function AutomationPageContent() {
 
     return () => clearInterval(interval);
   }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
+
+  // Fetch Facebook pages when connected
+  useEffect(() => {
+    if (profiles?.facebook?.connected) {
+      fetchFacebookPages();
+    }
+  }, [profiles?.facebook?.connected, fetchFacebookPages]);
 
   const handleConnect = async (platform: string) => {
     if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') {
@@ -1392,6 +1483,72 @@ function AutomationPageContent() {
                         </svg>
                         Create Post
                       </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Page Switcher */}
+                {platform === 'facebook' && isConnected && fbPages.length > 0 && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70">
+                        {currentFbPage ? `Page: ${currentFbPage.name}` : 'Select a page'}
+                      </span>
+                      <button
+                        onClick={() => setShowFbPageSwitcher(!showFbPageSwitcher)}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showFbPageSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {fbPages.length > 1 ? 'Switch Page' : 'View Pages'}
+                      </button>
+                    </div>
+                    
+                    {showFbPageSwitcher && (
+                      <div className="bg-white/5 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                        {loadingFbPages ? (
+                          <div className="text-center py-2">
+                            <span className="text-brand-silver/50 text-sm">Loading pages...</span>
+                          </div>
+                        ) : (
+                          fbPages.map((page) => (
+                            <button
+                              key={page.id}
+                              onClick={() => handleSwitchFacebookPage(page.id)}
+                              disabled={switchingFbPage || currentFbPage?.id === page.id}
+                              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                currentFbPage?.id === page.id
+                                  ? 'bg-brand-electric/20 border border-brand-electric/30'
+                                  : 'hover:bg-white/10'
+                              } disabled:opacity-50`}
+                            >
+                              {page.picture?.data?.url ? (
+                                <img
+                                  src={page.picture.data.url}
+                                  alt={page.name}
+                                  className="w-8 h-8 rounded-full"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-[#1877F2] flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                  </svg>
+                                </div>
+                              )}
+                              <div className="flex-1 text-left">
+                                <p className="text-sm text-white font-medium">{page.name}</p>
+                                {page.category && (
+                                  <p className="text-xs text-brand-silver/50">{page.category}</p>
+                                )}
+                              </div>
+                              {currentFbPage?.id === page.id && (
+                                <span className="text-brand-mint text-xs">Active</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

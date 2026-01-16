@@ -440,6 +440,9 @@ FACEBOOK_REDIRECT_URI = config(
     "FACEBOOK_REDIRECT_URI",
     default="http://localhost:8000/api/v1/automation/facebook/callback/",
 )
+# Facebook Webhook Configuration
+# Set this to a random string and use the same value in Facebook Developer Portal
+FACEBOOK_WEBHOOK_VERIFY_TOKEN = config("FACEBOOK_WEBHOOK_VERIFY_TOKEN", default="")
 
 # Frontend URL for OAuth redirects
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")

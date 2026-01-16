@@ -2026,6 +2026,7 @@ class FacebookService:
         link: Optional[str] = None,
         published: bool = True,
         scheduled_publish_time: Optional[int] = None,
+        no_story: bool = False,
     ) -> dict:
         """
         Create a text or link post on a Facebook Page.
@@ -2034,9 +2035,10 @@ class FacebookService:
             page_id: The Facebook Page ID
             page_access_token: The page access token
             message: The post content
-            link: Optional URL to share
+            link: Optional URL to share (generates link preview)
             published: If False, post is unpublished (draft)
             scheduled_publish_time: Unix timestamp for scheduled post
+            no_story: If True, the post won't appear in the Page's story
 
         Returns:
             Dictionary with the created post id
@@ -2052,6 +2054,9 @@ class FacebookService:
 
         if scheduled_publish_time and not published:
             payload["scheduled_publish_time"] = scheduled_publish_time
+
+        if no_story:
+            payload["no_story"] = "true"
 
         try:
             response = requests.post(
@@ -2070,6 +2075,54 @@ class FacebookService:
             if hasattr(e, "response") and e.response is not None:
                 logger.error(f"Response: {e.response.text}")
             raise Exception(f"Failed to create post: {str(e)}")
+
+    def get_link_preview(self, url: str, access_token: str) -> dict:
+        """
+        Fetch Open Graph data for a URL to show link preview.
+
+        Args:
+            url: The URL to fetch preview for
+            access_token: A valid access token
+
+        Returns:
+            Dictionary with Open Graph data (title, description, image)
+        """
+        try:
+            # Use the Facebook scrape endpoint to get OG data
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/",
+                data={
+                    "id": url,
+                    "scrape": "true",
+                    "access_token": access_token,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            return {
+                "url": url,
+                "title": data.get("og_object", {}).get("title", ""),
+                "description": data.get("og_object", {}).get("description", ""),
+                "image": data.get("og_object", {}).get("image", [{}])[0].get("url")
+                if isinstance(data.get("og_object", {}).get("image"), list)
+                else data.get("og_object", {}).get("image", {}).get("url"),
+                "site_name": data.get("og_object", {}).get("site_name", ""),
+                "type": data.get("og_object", {}).get("type", "website"),
+                "id": data.get("id"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook link preview fetch failed: {e}")
+            # Return basic data if scrape fails
+            return {
+                "url": url,
+                "title": "",
+                "description": "",
+                "image": None,
+                "error": str(e),
+            }
 
     def create_page_photo_post(
         self,
@@ -2164,6 +2217,146 @@ class FacebookService:
             if hasattr(e, "response") and e.response is not None:
                 logger.error(f"Response: {e.response.text}")
             raise Exception(f"Failed to upload photo: {str(e)}")
+
+    def create_unpublished_photo(
+        self,
+        page_id: str,
+        page_access_token: str,
+        photo_url: str,
+    ) -> dict:
+        """
+        Create an unpublished photo for use in carousel posts.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            photo_url: URL of the image
+
+        Returns:
+            Dictionary with the photo id (for use in attached_media)
+        """
+        payload = {
+            "url": photo_url,
+            "access_token": page_access_token,
+            "published": "false",  # Must be unpublished for carousel
+        }
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/photos",
+                data=payload,
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook unpublished photo created: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook unpublished photo creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create unpublished photo: {str(e)}")
+
+    def upload_unpublished_photo(
+        self,
+        page_id: str,
+        page_access_token: str,
+        image_data: bytes,
+        content_type: str = "image/jpeg",
+    ) -> dict:
+        """
+        Upload an unpublished photo from bytes for use in carousel posts.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            image_data: Raw bytes of the image
+            content_type: MIME type of the image
+
+        Returns:
+            Dictionary with the photo id (for use in attached_media)
+        """
+        extension = content_type.split("/")[-1] if "/" in content_type else "jpg"
+        files = {"source": (f"image.{extension}", image_data, content_type)}
+        payload = {
+            "access_token": page_access_token,
+            "published": "false",  # Must be unpublished for carousel
+        }
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/photos",
+                data=payload,
+                files=files,
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook unpublished photo uploaded: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook unpublished photo upload failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to upload unpublished photo: {str(e)}")
+
+    def create_carousel_post(
+        self,
+        page_id: str,
+        page_access_token: str,
+        message: str,
+        photo_ids: List[str],
+    ) -> dict:
+        """
+        Create a carousel (multi-photo) post on a Facebook Page.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            message: The post caption/text
+            photo_ids: List of unpublished photo IDs (2-10 photos)
+
+        Returns:
+            Dictionary with the created post id
+        """
+        if len(photo_ids) < 2:
+            raise ValueError("Carousel posts require at least 2 photos")
+        if len(photo_ids) > 10:
+            raise ValueError("Carousel posts support maximum 10 photos")
+
+        # Build attached_media parameter
+        attached_media = [
+            {"media_fbid": photo_id} for photo_id in photo_ids
+        ]
+
+        payload = {
+            "message": message,
+            "attached_media": attached_media,
+            "access_token": page_access_token,
+        }
+
+        try:
+            # Use json for complex nested data
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/feed",
+                json=payload,
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook carousel post created: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook carousel post creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create carousel post: {str(e)}")
 
     def start_video_upload(
         self,
@@ -2545,6 +2738,370 @@ class FacebookService:
         except requests.exceptions.RequestException as e:
             logger.error(f"Facebook page posts fetch failed: {e}")
             raise Exception(f"Failed to fetch page posts: {str(e)}")
+
+    def verify_webhook_signature(self, payload: bytes, signature: str) -> bool:
+        """
+        Verify the webhook signature from Facebook.
+
+        Facebook sends a SHA256 signature in the X-Hub-Signature-256 header.
+
+        Args:
+            payload: Raw request body
+            signature: The X-Hub-Signature-256 header value
+
+        Returns:
+            True if signature is valid
+        """
+        import hmac
+        import hashlib
+
+        if not self.app_secret:
+            logger.warning("Facebook app secret not configured, skipping signature check")
+            return True  # Allow in development
+
+        if not signature or not signature.startswith("sha256="):
+            logger.warning("Invalid Facebook webhook signature format")
+            return False
+
+        expected_signature = "sha256=" + hmac.new(
+            self.app_secret.encode("utf-8"),
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+        return hmac.compare_digest(signature, expected_signature)
+
+    def verify_webhook_token(self, verify_token: str) -> bool:
+        """
+        Verify the webhook subscription verify token.
+
+        Args:
+            verify_token: The hub.verify_token from Facebook
+
+        Returns:
+            True if token matches configured value
+        """
+        configured_token = getattr(settings, "FACEBOOK_WEBHOOK_VERIFY_TOKEN", None)
+        if not configured_token:
+            logger.warning("FACEBOOK_WEBHOOK_VERIFY_TOKEN not configured")
+            return False
+        return verify_token == configured_token
+
+    def subscribe_to_page_webhooks(
+        self,
+        page_id: str,
+        page_access_token: str,
+        subscribed_fields: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Subscribe a page to receive webhook events.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            subscribed_fields: List of fields to subscribe to
+
+        Returns:
+            Dictionary with subscription status
+        """
+        if subscribed_fields is None:
+            subscribed_fields = [
+                "feed",  # Post updates (likes, comments, shares)
+                "mention",  # Page mentions
+                "ratings",  # Page ratings
+            ]
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/subscribed_apps",
+                data={
+                    "access_token": page_access_token,
+                    "subscribed_fields": ",".join(subscribed_fields),
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook page {page_id} subscribed to webhooks: {data}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook webhook subscription failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to subscribe to webhooks: {str(e)}")
+
+    def unsubscribe_from_page_webhooks(
+        self,
+        page_id: str,
+        page_access_token: str,
+    ) -> dict:
+        """
+        Unsubscribe a page from webhook events.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+
+        Returns:
+            Dictionary with unsubscription status
+        """
+        try:
+            response = requests.delete(
+                f"{self.GRAPH_API_URL}/{page_id}/subscribed_apps",
+                params={"access_token": page_access_token},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook page {page_id} unsubscribed from webhooks: {data}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook webhook unsubscription failed: {e}")
+            raise Exception(f"Failed to unsubscribe from webhooks: {str(e)}")
+
+    def get_page_webhook_subscriptions(
+        self,
+        page_id: str,
+        page_access_token: str,
+    ) -> list:
+        """
+        Get current webhook subscriptions for a page.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+
+        Returns:
+            List of subscribed apps with their fields
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{page_id}/subscribed_apps",
+                params={"access_token": page_access_token},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook webhook subscriptions fetch failed: {e}")
+            raise Exception(f"Failed to get webhook subscriptions: {str(e)}")
+
+    # =========================================================================
+    # Facebook Stories Support
+    # =========================================================================
+
+    def create_photo_story(
+        self,
+        page_id: str,
+        page_access_token: str,
+        photo_url: Optional[str] = None,
+        photo_data: Optional[bytes] = None,
+    ) -> dict:
+        """
+        Create a photo story on a Facebook Page.
+
+        Facebook Page Stories require the pages_manage_posts permission.
+        Photo requirements:
+        - Recommended aspect ratio: 9:16 (vertical)
+        - Minimum resolution: 1080x1920 pixels
+        - Supported formats: JPEG, PNG
+        - Maximum file size: 4MB
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            photo_url: URL of the photo (mutually exclusive with photo_data)
+            photo_data: Raw bytes of the photo (mutually exclusive with photo_url)
+
+        Returns:
+            Dictionary with the story id
+        """
+        if not photo_url and not photo_data:
+            raise ValueError("Either photo_url or photo_data must be provided")
+        if photo_url and photo_data:
+            raise ValueError("Only one of photo_url or photo_data can be provided")
+
+        try:
+            if photo_url:
+                # Create story from URL
+                response = requests.post(
+                    f"{self.GRAPH_API_URL}/{page_id}/photo_stories",
+                    data={
+                        "photo_url": photo_url,
+                        "access_token": page_access_token,
+                    },
+                    timeout=60,
+                )
+            else:
+                # Create story from uploaded file
+                files = {"photo": ("story.jpg", photo_data, "image/jpeg")}
+                response = requests.post(
+                    f"{self.GRAPH_API_URL}/{page_id}/photo_stories",
+                    data={"access_token": page_access_token},
+                    files=files,
+                    timeout=120,
+                )
+
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook photo story created: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook photo story creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create photo story: {str(e)}")
+
+    def create_video_story(
+        self,
+        page_id: str,
+        page_access_token: str,
+        video_url: Optional[str] = None,
+        video_data: Optional[bytes] = None,
+        title: Optional[str] = None,
+    ) -> dict:
+        """
+        Create a video story on a Facebook Page.
+
+        Facebook Page Stories require the pages_manage_posts permission.
+        Video requirements:
+        - Recommended aspect ratio: 9:16 (vertical)
+        - Minimum resolution: 720x1280 pixels
+        - Duration: 1-60 seconds (recommended 3-15 seconds)
+        - Supported formats: MP4, MOV
+        - Maximum file size: 4GB
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            video_url: URL of the video (mutually exclusive with video_data)
+            video_data: Raw bytes of the video (mutually exclusive with video_url)
+            title: Optional title for the video
+
+        Returns:
+            Dictionary with the story id and status
+        """
+        if not video_url and not video_data:
+            raise ValueError("Either video_url or video_data must be provided")
+        if video_url and video_data:
+            raise ValueError("Only one of video_url or video_data can be provided")
+
+        try:
+            if video_url:
+                # Create story from URL
+                payload = {
+                    "video_url": video_url,
+                    "access_token": page_access_token,
+                }
+                if title:
+                    payload["title"] = title
+
+                response = requests.post(
+                    f"{self.GRAPH_API_URL}/{page_id}/video_stories",
+                    data=payload,
+                    timeout=60,
+                )
+            else:
+                # Create story from uploaded file
+                files = {"video": ("story.mp4", video_data, "video/mp4")}
+                payload = {"access_token": page_access_token}
+                if title:
+                    payload["title"] = title
+
+                response = requests.post(
+                    f"{self.GRAPH_API_URL}/{page_id}/video_stories",
+                    data=payload,
+                    files=files,
+                    timeout=300,  # 5 minutes for video upload
+                )
+
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook video story created: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook video story creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create video story: {str(e)}")
+
+    def get_page_stories(
+        self,
+        page_id: str,
+        page_access_token: str,
+        limit: int = 25,
+    ) -> list:
+        """
+        Get active stories from a Facebook Page.
+
+        Stories are ephemeral and expire after 24 hours.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            limit: Number of stories to retrieve
+
+        Returns:
+            List of story objects with their status
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{page_id}/stories",
+                params={
+                    "access_token": page_access_token,
+                    "fields": "id,media_type,status,creation_time,url",
+                    "limit": limit,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook page stories fetch failed: {e}")
+            raise Exception(f"Failed to fetch page stories: {str(e)}")
+
+    def delete_story(
+        self,
+        story_id: str,
+        page_access_token: str,
+    ) -> dict:
+        """
+        Delete a story from a Facebook Page.
+
+        Args:
+            story_id: The story ID to delete
+            page_access_token: The page access token
+
+        Returns:
+            Dictionary with deletion status
+        """
+        try:
+            response = requests.delete(
+                f"{self.GRAPH_API_URL}/{story_id}",
+                params={"access_token": page_access_token},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook story {story_id} deleted")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook story deletion failed: {e}")
+            raise Exception(f"Failed to delete story: {str(e)}")
 
 
 # Singleton instance

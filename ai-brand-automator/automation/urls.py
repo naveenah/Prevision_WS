@@ -41,8 +41,17 @@ from .views import (
     FacebookSelectPageView,
     FacebookPostView,
     FacebookMediaUploadView,
+    FacebookResumableUploadView,
     FacebookDeletePostView,
     FacebookAnalyticsView,
+    FacebookLinkPreviewView,
+    FacebookCarouselPostView,
+    FacebookCarouselUploadView,
+    FacebookStoryView,
+    FacebookStoryDeleteView,
+    FacebookWebhookView,
+    FacebookWebhookEventsView,
+    FacebookWebhookSubscribeView,
 )
 
 router = DefaultRouter()
@@ -189,6 +198,17 @@ urlpatterns = [
         FacebookMediaUploadView.as_view(),
         name="facebook-media-upload",
     ),
+    # Facebook Resumable Upload (for large videos > 1GB)
+    path(
+        "facebook/upload/resumable/",
+        FacebookResumableUploadView.as_view(),
+        name="facebook-resumable-upload",
+    ),
+    path(
+        "facebook/upload/resumable/<str:action>/",
+        FacebookResumableUploadView.as_view(),
+        name="facebook-resumable-upload-action",
+    ),
     path(
         "facebook/post/<str:post_id>/",
         FacebookDeletePostView.as_view(),
@@ -204,6 +224,50 @@ urlpatterns = [
         "facebook/analytics/<str:post_id>/",
         FacebookAnalyticsView.as_view(),
         name="facebook-analytics-post",
+    ),
+    # Facebook Link Preview
+    path(
+        "facebook/link-preview/",
+        FacebookLinkPreviewView.as_view(),
+        name="facebook-link-preview",
+    ),
+    # Facebook Carousel Posts
+    path(
+        "facebook/carousel/post/",
+        FacebookCarouselPostView.as_view(),
+        name="facebook-carousel-post",
+    ),
+    path(
+        "facebook/carousel/upload/",
+        FacebookCarouselUploadView.as_view(),
+        name="facebook-carousel-upload",
+    ),
+    # Facebook Stories
+    path(
+        "facebook/stories/",
+        FacebookStoryView.as_view(),
+        name="facebook-stories",
+    ),
+    path(
+        "facebook/stories/<str:story_id>/",
+        FacebookStoryDeleteView.as_view(),
+        name="facebook-story-delete",
+    ),
+    # Facebook Webhooks
+    path(
+        "facebook/webhook/",
+        FacebookWebhookView.as_view(),
+        name="facebook-webhook",
+    ),
+    path(
+        "facebook/webhooks/events/",
+        FacebookWebhookEventsView.as_view(),
+        name="facebook-webhook-events",
+    ),
+    path(
+        "facebook/webhooks/subscribe/",
+        FacebookWebhookSubscribeView.as_view(),
+        name="facebook-webhook-subscribe",
     ),
     # Router URLs
     path("", include(router.urls)),
