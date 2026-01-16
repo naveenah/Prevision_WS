@@ -1,7 +1,7 @@
 # LinkedIn Integration - Complete Implementation Report
 
-**Last Updated:** January 15, 2026  
-**Status:** MVP Complete ✅
+**Last Updated:** January 16, 2026  
+**Status:** MVP Complete ✅ + Analytics & Webhooks ✅
 
 ---
 
@@ -14,6 +14,9 @@ The LinkedIn integration is **fully implemented** for MVP functionality includin
 - Token encryption at rest
 - Celery-based automatic publishing
 - Full-featured frontend UI
+- **Media Upload** (images, videos, documents)
+- **Analytics Dashboard** with engagement metrics
+- **Webhook Notifications** for real-time event handling
 
 ---
 
@@ -149,9 +152,71 @@ CELERY_BEAT_SCHEDULE = {
 | Button Styling | ✅ Complete | Consistent brand palette across all buttons |
 | Automation Tasks View | ✅ Complete | Status badges, task type icons, timestamps, error messages |
 | Media Upload UI | ✅ Complete | Image & video upload in Compose/Schedule/Edit modals |
+| Analytics Dashboard | ✅ Complete | Collapsible metrics view with engagement stats |
+| Notifications | ✅ Complete | Bell icon with unread count and dropdown |
 
 **Files:**
-- `src/app/automation/page.tsx` - Main automation page (1650+ lines)
+- `src/app/automation/page.tsx` - Main automation page (3200+ lines)
+
+### 7. Analytics Dashboard
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Profile Info | ✅ Complete | Name and profile picture display |
+| Network Stats | ✅ Complete | Connections/network size count |
+| Post Metrics | ✅ Complete | Likes, comments, shares per post |
+| Engagement Rate | ✅ Complete | Calculated from total engagements |
+| Recent Posts List | ✅ Complete | Scrollable list with individual metrics |
+| Test Mode Analytics | ✅ Complete | Mock data for development |
+
+**Analytics Metrics Displayed:**
+- **Profile**: Name, email, profile picture
+- **Network**: Connection count (via networkSizes API)
+- **Post Performance**: Likes, Comments, Shares, Impressions (where available)
+- **Totals**: Total posts, total likes, total comments
+- **Engagement Rate**: (likes + comments) / connections × 100
+
+**Endpoints:**
+- `GET /api/v1/automation/linkedin/analytics/` - Get profile, network, and post analytics
+- `GET /api/v1/automation/linkedin/analytics/<post_urn>/` - Get specific post metrics
+
+**Files:**
+- `automation/services.py` - LinkedInService: `get_organization_followers()`, `get_share_statistics()`, `get_user_posts()`, `get_analytics_summary()`
+- `automation/views.py` - LinkedInAnalyticsView
+
+### 8. Webhook Notifications
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Webhook Receiver | ✅ Complete | HMAC-SHA256 signature validation |
+| Event Storage | ✅ Complete | LinkedInWebhookEvent model |
+| Notification UI | ✅ Complete | Bell icon with unread badge |
+| Mark Events Read | ✅ Complete | Single or bulk mark as read |
+| Test Mode Events | ✅ Complete | Mock notifications for development |
+
+**Webhook Event Types Supported:**
+- `share_reaction` - Likes/reactions on posts
+- `share_comment` - Comments on posts
+- `mention` - @mentions in posts
+- `connection_update` - New connections
+- `organization_update` - Company page updates
+- `share_update` - Post/share updates
+- `message` - LinkedIn messages
+
+**Endpoints:**
+- `POST /api/v1/automation/linkedin/webhook/` - Receive webhook events from LinkedIn
+- `GET /api/v1/automation/linkedin/webhooks/events/` - List stored events for user
+- `POST /api/v1/automation/linkedin/webhooks/events/` - Mark events as read
+
+**Webhook Setup:**
+To receive webhooks in production, register your webhook URL in the LinkedIn Developer Portal:
+```
+POST https://your-domain.com/api/v1/automation/linkedin/webhook/
+```
+
+**Files:**
+- `automation/views.py` - LinkedInWebhookView, LinkedInWebhookEventsView
+- `automation/models.py` - LinkedInWebhookEvent model
 
 ---
 
@@ -160,10 +225,13 @@ CELERY_BEAT_SCHEDULE = {
 *All previously partial features have been fully implemented!*
 
 ### Recently Completed:
+- ✅ **LinkedIn Analytics Dashboard** (2026-01-16) - Full analytics with profile info, network stats, and post metrics
+- ✅ **LinkedIn Webhook Notifications** (2026-01-16) - Real-time event handling with bell icon and dropdown
 - ✅ **Automation Tasks View** - Displays recent tasks with status badges, task type icons, timestamps, and error messages
-- ✅ **Media Attachments (Images + Videos)** - Full media upload support for LinkedIn posts:
+- ✅ **Media Attachments (Images + Videos + Documents)** - Full media upload support for LinkedIn posts:
   - Backend: `LinkedInMediaUploadView` at `/api/v1/automation/linkedin/media/upload/`
   - Backend: `LinkedInVideoStatusView` at `/api/v1/automation/linkedin/video/status/<asset_urn>/`
+  - Backend: `LinkedInDocumentStatusView` at `/api/v1/automation/linkedin/document/status/<document_urn>/`
   - Image Service: `register_image_upload()`, `upload_image()`, `upload_image_from_url()` in LinkedInService
   - Video Service: `register_video_upload()`, `upload_video()`, `check_video_status()`, `upload_video_file()` in LinkedInService
   - Frontend: Media upload UI in Compose, Schedule, and Edit modals
@@ -204,22 +272,13 @@ CELERY_BEAT_SCHEDULE = {
 
 | Feature | Notes | Priority | Effort |
 |---------|-------|----------|--------|
-| Twitter/X Integration | UI shows "Coming Soon", OAuth 2.0 similar to LinkedIn | HIGH | 2-3 days |
 | Instagram Integration | Via Facebook Graph API, requires Business account | MEDIUM | 3-4 days |
 | Facebook Integration | Page posting via Graph API | MEDIUM | 2-3 days |
-| Analytics Fetch | Task type in model, fetch post metrics | LOW | 2-3 days |
-| Profile Sync | Task type in model, sync profile data | LOW | 1 day |
-| Multi-platform Simultaneous Post | Post to multiple platforms at once | MEDIUM | 1 day |
+| Historical Analytics Charts | Visualize engagement trends over time | LOW | 2-3 days |
+| Scheduled Analytics Reports | Auto-generate weekly/monthly reports | LOW | 2-3 days |
+| Organization Page Posting | Post to company pages (requires additional permissions) | MEDIUM | 1-2 days |
 
 ### Implementation Guides:
-
-**Twitter/X Integration:**
-1. Create Twitter Developer App
-2. Implement OAuth 2.0 with PKCE (similar to LinkedIn)
-3. Add TwitterService class in services.py
-4. Add twitter connect/callback views
-5. Update create_share equivalent for Twitter API v2
-6. Update frontend to enable Twitter card
 
 **Instagram Integration:**
 1. Requires Facebook Business account + Instagram Business/Creator account
@@ -360,11 +419,10 @@ curl -X POST http://localhost:8000/api/v1/automation/content-calendar/ \
 
 | Date | Changes |
 |------|---------|
-| 2026-01-15 | Added Edit Scheduled Post feature (backend + frontend) |
-| 2026-01-15 | Changed Celery schedule from 60s to 5 minutes for efficiency |
-| 2026-01-15 | Addressed PR review: constants, encryption security, version bounds |
-| 2026-01-14 | Initial MVP complete - OAuth, posting, scheduling, Celery |
-| 2026-01-14 | Added token encryption, auto-refresh |
-| 2026-01-14 | Added title field to Compose Post modal |
+| 2026-01-16 | Added LinkedIn Analytics dashboard with profile, network, and post metrics |
+| 2026-01-16 | Added LinkedIn Webhook notifications with bell icon and event dropdown |
+| 2026-01-16 | Added LinkedInWebhookEvent model for event persistence |
+| 2026-01-16 | Added test mode support for analytics and webhooks |
+| 2026-01-15 | Added document upload support (PDF, DOC, DOCX, PPT, PPTX) |
 | 2026-01-14 | Added configurable published posts limit (3/6/10) |
 | 2026-01-14 | Fixed button color palette consistency |
