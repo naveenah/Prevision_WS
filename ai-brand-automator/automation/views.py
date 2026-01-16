@@ -203,7 +203,7 @@ class LinkedInCallbackView(APIView):
             # Note: profile_id may be in URN format, not suitable for /in/ URLs
             profile_url = "https://www.linkedin.com/feed/"
 
-            _social_profile, _created = SocialProfile.objects.update_or_create(
+            SocialProfile.objects.update_or_create(
                 user=user,
                 platform="linkedin",
                 defaults={
@@ -1535,6 +1535,8 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         """Manually publish a scheduled post immediately."""
+        from .publish_helpers import publish_content, update_content_status
+
         content = self.get_object()
 
         if content.status == "published":
@@ -1543,70 +1545,8 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        results = {}
-        errors = []
-
-        # Get media URNs if any
-        media_urns = content.media_urls if content.media_urls else []
-
-        # Publish to each connected platform
-        for profile in content.social_profiles.all():
-            if profile.platform == "linkedin" and profile.status == "connected":
-                try:
-                    # Check if test mode
-                    if profile.access_token == TEST_ACCESS_TOKEN:
-                        results["linkedin"] = {
-                            "test_mode": True,
-                            "message": "Post simulated in test mode",
-                            "has_media": len(media_urns) > 0,
-                        }
-                        logger.info(f"Test publish to LinkedIn: {content.title}")
-                    else:
-                        access_token = profile.get_valid_access_token()
-                        result = linkedin_service.create_share(
-                            access_token=access_token,
-                            user_urn=profile.profile_id,
-                            text=content.content,
-                            image_urns=media_urns if media_urns else None,
-                        )
-                        results["linkedin"] = result
-                except Exception as e:
-                    errors.append(f"LinkedIn: {str(e)}")
-                    logger.error(f"Failed to publish to LinkedIn: {e}")
-
-            elif profile.platform == "twitter" and profile.status == "connected":
-                try:
-                    # Check if test mode
-                    if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
-                        results["twitter"] = {
-                            "test_mode": True,
-                            "message": "Tweet simulated in test mode",
-                            "has_media": len(media_urns) > 0,
-                        }
-                        logger.info(f"Test publish to Twitter: {content.title}")
-                    else:
-                        access_token = profile.get_valid_access_token()
-                        # Twitter uses media_ids instead of URNs
-                        result = twitter_service.create_tweet(
-                            access_token=access_token,
-                            text=content.content,
-                            media_ids=media_urns if media_urns else None,
-                        )
-                        results["twitter"] = result
-                except Exception as e:
-                    errors.append(f"Twitter: {str(e)}")
-                    logger.error(f"Failed to publish to Twitter: {e}")
-
-        # Update content status
-        if errors and not results:
-            content.status = "failed"
-            content.post_results = {"errors": errors}
-        else:
-            content.status = "published"
-            content.published_at = timezone.now()
-            content.post_results = results
-
-        content.save()
+        results, errors = publish_content(content, log_prefix="Manual ")
+        update_content_status(content, results, errors)
 
         return Response(
             {

@@ -90,7 +90,7 @@ SHARED_APPS = [
     "ai_services",  # AI integration (shared for logging)
     "onboarding",  # Company data (has FK to Tenant)
     "subscriptions",  # Stripe payment integration
-    "automation",  # Social media automation (shared - models reference User)
+    "automation",  # Social media automation
 ]
 
 TENANT_APPS = [
@@ -452,6 +452,6 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "publish-scheduled-posts": {
         "task": "automation.publish_scheduled_posts",
-        "schedule": 300.0,  # Run every 5 minutes (reduced from 60s for efficiency)
+        "schedule": 60.0,  # Run every 60 seconds (1 minute)
     },
 }
