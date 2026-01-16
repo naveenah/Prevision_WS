@@ -244,6 +244,7 @@ function AutomationPageContent() {
   const [postText, setPostText] = useState('');
   const [posting, setPosting] = useState(false);
   const [postMediaUrns, setPostMediaUrns] = useState<string[]>([]);
+  const [postMediaPreview, setPostMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   
   // Schedule post state
@@ -257,6 +258,7 @@ function AutomationPageContent() {
   const [publishedPosts, setPublishedPosts] = useState<ScheduledPost[]>([]);
   const [publishedPostsLimit, setPublishedPostsLimit] = useState<number>(6);
   const [scheduleMediaUrns, setScheduleMediaUrns] = useState<string[]>([]);
+  const [scheduleMediaPreview, setScheduleMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingScheduleMedia, setUploadingScheduleMedia] = useState(false);
   const [schedulePlatforms, setSchedulePlatforms] = useState<string[]>(['linkedin']);
 
@@ -659,6 +661,10 @@ function AutomationPageContent() {
         setPostTitle('');
         setPostText('');
         setPostMediaUrns([]);
+        if (postMediaPreview) {
+          URL.revokeObjectURL(postMediaPreview.url);
+          setPostMediaPreview(null);
+        }
         setShowComposeModal(false);
         // Refresh published posts list
         fetchPublishedPosts();
@@ -806,6 +812,10 @@ function AutomationPageContent() {
         setScheduleDate('');
         setScheduleTime('');
         setScheduleMediaUrns([]);
+        if (scheduleMediaPreview) {
+          URL.revokeObjectURL(scheduleMediaPreview.url);
+          setScheduleMediaPreview(null);
+        }
         setSchedulePlatforms(['linkedin']);
         setShowScheduleModal(false);
         fetchScheduledPosts();
@@ -1565,6 +1575,10 @@ function AutomationPageContent() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setPostMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
                           handleMediaUpload(file, setPostMediaUrns, setUploadingMedia, ['linkedin']);
                         }
                         e.target.value = '';
@@ -1578,7 +1592,13 @@ function AutomationPageContent() {
                       </svg>
                       {postMediaUrns.length} file{postMediaUrns.length > 1 ? 's' : ''} attached
                       <button
-                        onClick={() => setPostMediaUrns([])}
+                        onClick={() => {
+                          setPostMediaUrns([]);
+                          if (postMediaPreview) {
+                            URL.revokeObjectURL(postMediaPreview.url);
+                            setPostMediaPreview(null);
+                          }
+                        }}
                         className="text-red-400 hover:text-red-300 ml-2"
                         title="Remove media"
                       >
@@ -1589,6 +1609,35 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
+                {/* Media Preview */}
+                {postMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {postMediaPreview.type === 'video' ? (
+                      <video 
+                        src={postMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={postMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['linkedin'])}</p>
               </div>
             </div>
@@ -1601,6 +1650,10 @@ function AutomationPageContent() {
                   setPostTitle('');
                   setPostText('');
                   setPostMediaUrns([]);
+                  if (postMediaPreview) {
+                    URL.revokeObjectURL(postMediaPreview.url);
+                    setPostMediaPreview(null);
+                  }
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1835,7 +1888,7 @@ function AutomationPageContent() {
       {/* Schedule Post Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="glass-card w-full max-w-lg p-6 relative">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
             {/* Close button */}
             <button
               onClick={() => {
@@ -2000,6 +2053,10 @@ function AutomationPageContent() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setScheduleMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
                           handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia, schedulePlatforms);
                         }
                         e.target.value = '';
@@ -2013,7 +2070,13 @@ function AutomationPageContent() {
                       </svg>
                       {scheduleMediaUrns.length} file{scheduleMediaUrns.length > 1 ? 's' : ''} attached
                       <button
-                        onClick={() => setScheduleMediaUrns([])}
+                        onClick={() => {
+                          setScheduleMediaUrns([]);
+                          if (scheduleMediaPreview) {
+                            URL.revokeObjectURL(scheduleMediaPreview.url);
+                            setScheduleMediaPreview(null);
+                          }
+                        }}
                         className="text-red-400 hover:text-red-300 ml-2"
                         title="Remove media"
                       >
@@ -2024,6 +2087,35 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
+                {/* Media Preview */}
+                {scheduleMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {scheduleMediaPreview.type === 'video' ? (
+                      <video 
+                        src={scheduleMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={scheduleMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingScheduleMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(schedulePlatforms)}</p>
               </div>
             </div>
@@ -2038,6 +2130,10 @@ function AutomationPageContent() {
                   setScheduleDate('');
                   setScheduleTime('');
                   setScheduleMediaUrns([]);
+                  if (scheduleMediaPreview) {
+                    URL.revokeObjectURL(scheduleMediaPreview.url);
+                    setScheduleMediaPreview(null);
+                  }
                   setSchedulePlatforms(['linkedin']);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"

@@ -1345,7 +1345,7 @@ class TwitterCallbackView(APIView):
         oauth_state.save()
 
         # Check if state is expired (5 minutes)
-        if (timezone.now() - oauth_state.created_at).seconds > 300:
+        if (timezone.now() - oauth_state.created_at).total_seconds() > 300:
             return HttpResponseRedirect(f"{frontend_url}/automation?error=state_expired")
 
         try:
@@ -1379,7 +1379,7 @@ class TwitterCallbackView(APIView):
             )
 
             return HttpResponseRedirect(
-                f"{frontend_url}/automation?twitter_connected=true"
+                f"{frontend_url}/automation?success=true&platform=twitter"
             )
 
         except Exception as e:

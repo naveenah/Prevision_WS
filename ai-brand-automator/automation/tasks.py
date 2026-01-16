@@ -34,6 +34,9 @@ def publish_scheduled_posts():
 
         results = {}
         errors = []
+        
+        # Get media URLs/IDs if any
+        media_urls = content.media_urls if content.media_urls else []
 
         # Publish to each connected platform
         for profile in content.social_profiles.all():
@@ -44,6 +47,7 @@ def publish_scheduled_posts():
                         results["linkedin"] = {
                             "test_mode": True,
                             "message": "Post simulated in test mode",
+                            "has_media": len(media_urls) > 0,
                         }
                         logger.info(f"Test auto-publish to LinkedIn: {content.title}")
                     else:
@@ -52,6 +56,7 @@ def publish_scheduled_posts():
                             access_token=access_token,
                             user_urn=profile.profile_id,
                             text=content.content,
+                            image_urns=media_urls if media_urls else None,
                         )
                         results["linkedin"] = result
                         logger.info(
@@ -68,13 +73,16 @@ def publish_scheduled_posts():
                         results["twitter"] = {
                             "test_mode": True,
                             "message": "Tweet simulated in test mode",
+                            "has_media": len(media_urls) > 0,
                         }
                         logger.info(f"Test auto-publish to Twitter: {content.title}")
                     else:
                         access_token = profile.get_valid_access_token()
+                        # Twitter uses media_ids
                         result = twitter_service.create_tweet(
                             access_token=access_token,
                             text=content.content,
+                            media_ids=media_urls if media_urls else None,
                         )
                         results["twitter"] = result
                         logger.info(
@@ -132,6 +140,9 @@ def publish_single_post(content_id):
 
     results = {}
     errors = []
+    
+    # Get media URLs/IDs if any
+    media_urls = content.media_urls if content.media_urls else []
 
     # Publish to each connected platform
     for profile in content.social_profiles.all():
@@ -142,6 +153,7 @@ def publish_single_post(content_id):
                     results["linkedin"] = {
                         "test_mode": True,
                         "message": "Post simulated in test mode",
+                        "has_media": len(media_urls) > 0,
                     }
                     logger.info(f"Test publish to LinkedIn: {content.title}")
                 else:
@@ -150,6 +162,7 @@ def publish_single_post(content_id):
                         access_token=access_token,
                         user_urn=profile.profile_id,
                         text=content.content,
+                        image_urns=media_urls if media_urls else None,
                     )
                     results["linkedin"] = result
                     logger.info(f"Successfully published to LinkedIn: {content.title}")
@@ -164,13 +177,16 @@ def publish_single_post(content_id):
                     results["twitter"] = {
                         "test_mode": True,
                         "message": "Tweet simulated in test mode",
+                        "has_media": len(media_urls) > 0,
                     }
                     logger.info(f"Test publish to Twitter: {content.title}")
                 else:
                     access_token = profile.get_valid_access_token()
+                    # Twitter uses media_ids
                     result = twitter_service.create_tweet(
                         access_token=access_token,
                         text=content.content,
+                        media_ids=media_urls if media_urls else None,
                     )
                     results["twitter"] = result
                     logger.info(f"Successfully published to Twitter: {content.title}")
