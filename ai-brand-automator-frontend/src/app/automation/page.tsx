@@ -199,6 +199,65 @@ const getMediaLimits = (platforms: string[]) => {
   };
 };
 
+// Helper function to extract post ID for a specific platform from post_results
+// Handles both single-platform and multi-platform post structures
+// Returns 'test_mode' for test mode posts without an ID (allows calendar deletion)
+const getPostIdForPlatform = (postResults: Record<string, unknown> | undefined, platform: string): string | null => {
+  if (!postResults) return null;
+
+  // Check for platform-specific nested structure (multi-platform posts)
+  const platformData = postResults[platform] as Record<string, unknown> | undefined;
+  if (platformData) {
+    // LinkedIn: { linkedin: { post_urn: "..." } } or { linkedin: { id: "..." } }
+    if (platform === 'linkedin') {
+      return (platformData.post_urn as string) || (platformData.id as string) || 
+        (platformData.test_mode ? 'test_mode' : null);
+    }
+    // Twitter: { twitter: { id: "..." } } or { twitter: { tweet: { id: "..." } } }
+    if (platform === 'twitter') {
+      const tweetData = platformData.tweet as Record<string, unknown> | undefined;
+      return (platformData.id as string) || (tweetData?.id as string) || 
+        (platformData.test_mode ? 'test_mode' : null);
+    }
+    // Facebook: { facebook: { id: "...", post_id: "...", video_id: "..." } }
+    if (platform === 'facebook') {
+      return (platformData.id as string) || (platformData.post_id as string) || (platformData.video_id as string) || 
+        (platformData.test_mode ? 'test_mode' : null);
+    }
+  }
+
+  // Check for direct structure (single-platform posts)
+  // Twitter: { tweet: { id: "..." } } or { id: "..." }
+  if (platform === 'twitter') {
+    const tweetData = postResults.tweet as Record<string, unknown> | undefined;
+    return (postResults.id as string) || (tweetData?.id as string) || 
+      (postResults.test_mode ? 'test_mode' : null);
+  }
+  // LinkedIn: { post_urn: "..." } or { id: "..." }
+  if (platform === 'linkedin') {
+    return (postResults.post_urn as string) || (postResults.id as string) || 
+      (postResults.test_mode ? 'test_mode' : null);
+  }
+  // Facebook: { id: "...", post_id: "...", video_id: "..." }
+  if (platform === 'facebook') {
+    return (postResults.id as string) || (postResults.post_id as string) || (postResults.video_id as string) || 
+      (postResults.test_mode ? 'test_mode' : null);
+  }
+
+  return null;
+};
+
+// Helper function to check if any platform has a deletable post ID
+// Returns true if we should show delete button (even for posts without IDs to allow calendar cleanup)
+const hasAnyDeletablePostId = (postResults: Record<string, unknown> | undefined | null, platforms: string[]): boolean => {
+  // Always allow deletion if there are platforms - allows cleaning up posts from calendar
+  // even if they don't have post_results (failed posts, old posts, etc.)
+  if (platforms && platforms.length > 0) {
+    return true;
+  }
+  return false;
+};
+
 // Helper function to get media helper text based on selected platforms
 const getMediaHelperText = (platforms: string[]) => {
   const limits = getMediaLimits(platforms);
@@ -311,6 +370,8 @@ function AutomationPageContent() {
   const [threadTweets, setThreadTweets] = useState<string[]>(['']);
   // Deleting tweet
   const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
+  // Deleting LinkedIn post
+  const [deletingLinkedInPostId, setDeletingLinkedInPostId] = useState<string | null>(null);
 
   // Facebook compose state
   const [showFacebookComposeModal, setShowFacebookComposeModal] = useState(false);
@@ -320,8 +381,49 @@ function AutomationPageContent() {
   const [fbMediaPreview, setFbMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingFbMedia, setUploadingFbMedia] = useState(false);
   const [fbPosting, setFbPosting] = useState(false);
+  // Carousel mode state
+  const [fbCarouselMode, setFbCarouselMode] = useState(false);
+  const [fbCarouselImages, setFbCarouselImages] = useState<{ url: string; file?: File }[]>([]);
+  const [uploadingCarouselImage, setUploadingCarouselImage] = useState(false);
+  // Stories state
+  const [showFacebookStoriesModal, setShowFacebookStoriesModal] = useState(false);
+  const [fbStories, setFbStories] = useState<Array<{ id: string; media_type: string; created_at: string; expires_at?: string }>>([]);
+  const [loadingFbStories, setLoadingFbStories] = useState(false);
+  // Multi-file story queue
+  interface StoryQueueItem {
+    id: string;
+    file: File;
+    type: 'photo' | 'video';
+    preview: string;
+    status: 'pending' | 'uploading' | 'success' | 'failed';
+  }
+  const [fbStoryQueue, setFbStoryQueue] = useState<StoryQueueItem[]>([]);
+  const [postingFbStory, setPostingFbStory] = useState(false);
+  const [storyUploadProgress, setStoryUploadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [deletingFbStoryId, setDeletingFbStoryId] = useState<string | null>(null);
+  
+  // Facebook Resumable Upload state (for large videos > 1GB)
+  interface ResumableUpload {
+    upload_session_id: string;
+    file_name: string;
+    file_size: number;
+    bytes_uploaded: number;
+    progress_percent: number;
+    status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
+  }
+  const [fbResumableUploads, setFbResumableUploads] = useState<ResumableUpload[]>([]);
+  const [showResumableUploadModal, setShowResumableUploadModal] = useState(false);
+  const [resumableUploadFile, setResumableUploadFile] = useState<File | null>(null);
+  const [resumableUploadProgress, setResumableUploadProgress] = useState(0);
+  const [resumableUploadStatus, setResumableUploadStatus] = useState<'idle' | 'uploading' | 'paused' | 'completed' | 'failed'>('idle');
+  const [resumableUploadTitle, setResumableUploadTitle] = useState('');
+  const [resumableUploadDescription, setResumableUploadDescription] = useState('');
+  const [currentUploadSessionId, setCurrentUploadSessionId] = useState<string | null>(null);
+  
   // Deleting Facebook post
   const [deletingFbPostId, setDeletingFbPostId] = useState<string | null>(null);
+  // Deleting multi-platform post
+  const [deletingPostId, setDeletingPostId] = useState<number | null>(null);
 
   // Facebook multi-page state
   interface FacebookPage {
@@ -391,6 +493,94 @@ function AutomationPageContent() {
       });
     } finally {
       setSwitchingFbPage(false);
+    }
+  };
+
+  // LinkedIn multi-organization (Company Page) state
+  interface LinkedInOrganization {
+    id: string;
+    urn: string;
+    name: string;
+    vanity_name?: string;
+    logo_url?: string;
+  }
+  const [linkedInOrgs, setLinkedInOrgs] = useState<LinkedInOrganization[]>([]);
+  const [loadingLinkedInOrgs, setLoadingLinkedInOrgs] = useState(false);
+  const [showLinkedInOrgSwitcher, setShowLinkedInOrgSwitcher] = useState(false);
+  const [switchingLinkedInOrg, setSwitchingLinkedInOrg] = useState(false);
+  const [currentLinkedInOrg, setCurrentLinkedInOrg] = useState<{ id: string; name: string } | null>(null);
+  const [linkedInPostingAs, setLinkedInPostingAs] = useState<'personal' | 'organization'>('personal');
+
+  // Twitter account panel state
+  const [showTwitterAccountPanel, setShowTwitterAccountPanel] = useState(false);
+
+  // Fetch LinkedIn organizations
+  const fetchLinkedInOrganizations = useCallback(async () => {
+    if (!profiles?.linkedin?.connected) return;
+    
+    setLoadingLinkedInOrgs(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/organizations/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInOrgs(data.organizations || []);
+        setLinkedInPostingAs(data.posting_as || 'personal');
+        if (data.current_organization && data.organizations) {
+          const currentOrg = data.organizations.find((org: LinkedInOrganization) => org.id === data.current_organization);
+          if (currentOrg) {
+            setCurrentLinkedInOrg({ id: currentOrg.id, name: currentOrg.name });
+          }
+        } else {
+          setCurrentLinkedInOrg(null);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn organizations:', error);
+    } finally {
+      setLoadingLinkedInOrgs(false);
+    }
+  }, [profiles?.linkedin?.connected]);
+
+  // Switch LinkedIn posting entity (personal or organization)
+  const handleSwitchLinkedInOrg = async (organizationId: string | null) => {
+    setSwitchingLinkedInOrg(true);
+    try {
+      const response = await apiClient.post('/automation/linkedin/organizations/select/', {
+        organization_id: organizationId,
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (organizationId) {
+          const selectedOrg = linkedInOrgs.find(org => org.id === organizationId);
+          setCurrentLinkedInOrg(selectedOrg ? { id: selectedOrg.id, name: selectedOrg.name } : null);
+        } else {
+          setCurrentLinkedInOrg(null);
+        }
+        setLinkedInPostingAs(data.posting_as);
+        setShowLinkedInOrgSwitcher(false);
+        setMessage({
+          type: 'success',
+          text: data.posting_as === 'personal' 
+            ? 'Now posting as personal profile' 
+            : `Now posting as: ${linkedInOrgs.find(org => org.id === organizationId)?.name || 'Organization'}`,
+        });
+        fetchProfiles();
+      } else {
+        const errorData = await response.json();
+        setMessage({
+          type: 'error',
+          text: errorData.error || 'Failed to switch posting entity',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to switch LinkedIn organization:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to switch. Please try again.',
+      });
+    } finally {
+      setSwitchingLinkedInOrg(false);
     }
   };
 
@@ -538,6 +728,13 @@ function AutomationPageContent() {
       fetchFacebookPages();
     }
   }, [profiles?.facebook?.connected, fetchFacebookPages]);
+
+  // Fetch LinkedIn organizations when connected
+  useEffect(() => {
+    if (profiles?.linkedin?.connected) {
+      fetchLinkedInOrganizations();
+    }
+  }, [profiles?.linkedin?.connected, fetchLinkedInOrganizations]);
 
   const handleConnect = async (platform: string) => {
     if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') {
@@ -1063,6 +1260,440 @@ function AutomationPageContent() {
     }
   };
 
+  // Handle Facebook Carousel Post
+  const handleFacebookCarouselPost = async () => {
+    if (fbCarouselImages.length < 2) {
+      setMessage({ type: 'error', text: 'Carousel posts require at least 2 images' });
+      return;
+    }
+    if (fbCarouselImages.length > 10) {
+      setMessage({ type: 'error', text: 'Carousel posts can have at most 10 images' });
+      return;
+    }
+
+    setFbPosting(true);
+    try {
+      // For test mode, send placeholder URLs (backend will simulate the carousel)
+      // For production, images would need to be uploaded first
+      const photoUrls = fbCarouselImages.map((_, index) => `carousel_image_${index + 1}`);
+      
+      const response = await apiClient.post('/automation/facebook/carousel/post/', {
+        message: fbPostText || 'Check out these photos!',
+        photo_urls: photoUrls,
+        title: fbPostTitle || undefined,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Carousel post simulated (Test Mode)' 
+            : '✅ Carousel post published successfully!',
+        });
+        resetFacebookComposeForm();
+        setShowFacebookComposeModal(false);
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create carousel post',
+        });
+      }
+    } catch (error) {
+      console.error('Carousel post error:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create carousel post',
+      });
+    } finally {
+      setFbPosting(false);
+    }
+  };
+
+  // Add files to story queue
+  const addToStoryQueue = (files: FileList | null) => {
+    if (!files) return;
+    
+    const newItems: StoryQueueItem[] = [];
+    
+    Array.from(files).forEach((file) => {
+      // Determine type based on file mime type
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      
+      if (!isVideo && !isImage) {
+        setMessage({ type: 'error', text: `${file.name} is not a valid image or video file` });
+        return;
+      }
+      
+      // Validate file sizes
+      if (isImage && file.size > 4 * 1024 * 1024) {
+        setMessage({ type: 'error', text: `${file.name} is too large. Max 4MB for photos.` });
+        return;
+      }
+      if (isVideo && file.size > 4 * 1024 * 1024 * 1024) {
+        setMessage({ type: 'error', text: `${file.name} is too large. Max 4GB for videos.` });
+        return;
+      }
+      
+      newItems.push({
+        id: `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        type: isVideo ? 'video' : 'photo',
+        preview: URL.createObjectURL(file),
+        status: 'pending',
+      });
+    });
+    
+    setFbStoryQueue(prev => [...prev, ...newItems]);
+  };
+
+  // Remove item from story queue
+  const removeFromStoryQueue = (id: string) => {
+    setFbStoryQueue(prev => {
+      const item = prev.find(i => i.id === id);
+      if (item) {
+        URL.revokeObjectURL(item.preview);
+      }
+      return prev.filter(i => i.id !== id);
+    });
+  };
+
+  // Handle Facebook Story Post - posts all items in queue
+  const handleFacebookStoryPost = async () => {
+    if (fbStoryQueue.length === 0) {
+      setMessage({ type: 'error', text: 'Please add at least one photo or video to your story' });
+      return;
+    }
+
+    setPostingFbStory(true);
+    setStoryUploadProgress({ current: 0, total: fbStoryQueue.length });
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    // Update queue with uploading status
+    setFbStoryQueue(prev => prev.map(item => ({ ...item, status: 'pending' as const })));
+
+    try {
+      for (let i = 0; i < fbStoryQueue.length; i++) {
+        const item = fbStoryQueue[i];
+        setStoryUploadProgress({ current: i + 1, total: fbStoryQueue.length });
+        
+        // Mark current item as uploading
+        setFbStoryQueue(prev => prev.map(q => 
+          q.id === item.id ? { ...q, status: 'uploading' as const } : q
+        ));
+        
+        try {
+          const formData = new FormData();
+          formData.append('type', item.type);
+          formData.append('file', item.file);
+
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/stories/`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+              },
+              body: formData,
+            }
+          );
+
+          if (response.ok) {
+            successCount++;
+            setFbStoryQueue(prev => prev.map(q => 
+              q.id === item.id ? { ...q, status: 'success' as const } : q
+            ));
+          } else {
+            failCount++;
+            setFbStoryQueue(prev => prev.map(q => 
+              q.id === item.id ? { ...q, status: 'failed' as const } : q
+            ));
+          }
+        } catch {
+          failCount++;
+          setFbStoryQueue(prev => prev.map(q => 
+            q.id === item.id ? { ...q, status: 'failed' as const } : q
+          ));
+        }
+        
+        // Small delay between uploads to avoid rate limiting
+        if (i < fbStoryQueue.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      // Show result message
+      if (failCount === 0) {
+        setMessage({
+          type: 'success',
+          text: `✅ ${successCount} ${successCount === 1 ? 'story' : 'stories'} published successfully!`,
+        });
+        resetFacebookStoryForm();
+        setShowFacebookStoriesModal(false);
+      } else if (successCount === 0) {
+        setMessage({
+          type: 'error',
+          text: `Failed to post ${failCount} ${failCount === 1 ? 'story' : 'stories'}`,
+        });
+      } else {
+        setMessage({
+          type: 'success',
+          text: `Posted ${successCount} stories, ${failCount} failed`,
+        });
+      }
+      
+      fetchFacebookStories();
+      
+    } finally {
+      setPostingFbStory(false);
+      setStoryUploadProgress({ current: 0, total: 0 });
+    }
+  };
+
+  // Fetch Facebook Stories
+  const fetchFacebookStories = async () => {
+    setLoadingFbStories(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/stories/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbStories(data.stories || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch stories:', error);
+    } finally {
+      setLoadingFbStories(false);
+    }
+  };
+
+  // Delete Facebook Story
+  const handleDeleteFacebookStory = async (storyId: string) => {
+    if (!confirm('Are you sure you want to delete this story?')) {
+      return;
+    }
+
+    setDeletingFbStoryId(storyId);
+    try {
+      const response = await apiClient.delete(`/automation/facebook/stories/${storyId}/`);
+      if (response.ok) {
+        setMessage({ type: 'success', text: 'Story deleted successfully' });
+        fetchFacebookStories();
+      } else {
+        const error = await response.json();
+        setMessage({ type: 'error', text: error.error || 'Failed to delete story' });
+      }
+    } catch (error) {
+      console.error('Failed to delete story:', error);
+      setMessage({ type: 'error', text: 'Failed to delete story' });
+    } finally {
+      setDeletingFbStoryId(null);
+    }
+  };
+
+  // Reset Facebook Story Form
+  const resetFacebookStoryForm = () => {
+    // Clean up all preview URLs
+    fbStoryQueue.forEach(item => URL.revokeObjectURL(item.preview));
+    setFbStoryQueue([]);
+    setStoryUploadProgress({ current: 0, total: 0 });
+  };
+
+  // ========== RESUMABLE UPLOAD FUNCTIONS ==========
+  // Chunk size: 4MB (Facebook recommends 4MB-1GB chunks)
+  const CHUNK_SIZE = 4 * 1024 * 1024;
+  const ONE_GB = 1 * 1024 * 1024 * 1024;
+
+  // Check if a file should use resumable upload (> 1GB)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const shouldUseResumableUpload = (file: File) => file.size > ONE_GB;
+
+  // Fetch active resumable uploads
+  const fetchResumableUploads = async () => {
+    try {
+      const response = await apiClient.get('/automation/facebook/upload/resumable/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbResumableUploads(data.uploads || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch resumable uploads:', error);
+    }
+  };
+
+  // Start a resumable upload session
+  const startResumableUpload = async () => {
+    if (!resumableUploadFile) {
+      setMessage({ type: 'error', text: 'Please select a video file' });
+      return;
+    }
+
+    if (resumableUploadFile.size <= ONE_GB) {
+      setMessage({ type: 'error', text: 'Use regular upload for videos under 1GB. Resumable upload is for large files > 1GB.' });
+      return;
+    }
+
+    try {
+      setResumableUploadStatus('uploading');
+      setResumableUploadProgress(0);
+
+      // Step 1: Start the upload session
+      const startResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/upload/resumable/start/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+          body: JSON.stringify({
+            file_size: resumableUploadFile.size,
+            file_name: resumableUploadFile.name,
+            title: resumableUploadTitle || resumableUploadFile.name,
+            description: resumableUploadDescription,
+          }),
+        }
+      );
+
+      if (!startResponse.ok) {
+        const errorData = await startResponse.json();
+        throw new Error(errorData.error || 'Failed to start upload');
+      }
+
+      const startData = await startResponse.json();
+      const uploadSessionId = startData.upload_session_id;
+      setCurrentUploadSessionId(uploadSessionId);
+
+      // Step 2: Upload chunks
+      let offset = 0;
+      const totalChunks = Math.ceil(resumableUploadFile.size / CHUNK_SIZE);
+      let chunkIndex = 0;
+
+      while (offset < resumableUploadFile.size) {
+        // Check if paused (via ref to avoid stale closure)
+        if (resumableUploadStatus === 'paused') {
+          setMessage({ type: 'success', text: 'Upload paused. You can resume later.' });
+          return;
+        }
+
+        const chunk = resumableUploadFile.slice(offset, offset + CHUNK_SIZE);
+        const formData = new FormData();
+        formData.append('upload_session_id', uploadSessionId);
+        formData.append('start_offset', String(offset));
+        formData.append('file', chunk);
+
+        const chunkResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/upload/resumable/chunk/`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: formData,
+          }
+        );
+
+        if (!chunkResponse.ok) {
+          const errorData = await chunkResponse.json();
+          throw new Error(errorData.error || 'Chunk upload failed');
+        }
+
+        const chunkData = await chunkResponse.json();
+        offset = chunkData.start_offset || offset + CHUNK_SIZE;
+        chunkIndex++;
+        setResumableUploadProgress(Math.min(100, Math.round((chunkIndex / totalChunks) * 100)));
+      }
+
+      // Step 3: Finish the upload
+      const finishResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/upload/resumable/finish/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+          body: JSON.stringify({
+            upload_session_id: uploadSessionId,
+            title: resumableUploadTitle || resumableUploadFile.name,
+            description: resumableUploadDescription,
+          }),
+        }
+      );
+
+      if (!finishResponse.ok) {
+        const errorData = await finishResponse.json();
+        throw new Error(errorData.error || 'Failed to finalize upload');
+      }
+
+      setResumableUploadStatus('completed');
+      setResumableUploadProgress(100);
+      setMessage({ type: 'success', text: 'Large video uploaded successfully!' });
+      
+      // Refresh uploads list
+      fetchResumableUploads();
+      
+      // Reset form after delay
+      setTimeout(() => {
+        resetResumableUploadForm();
+      }, 2000);
+
+    } catch (error: unknown) {
+      console.error('Resumable upload failed:', error);
+      setResumableUploadStatus('failed');
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed';
+      setMessage({ type: 'error', text: errorMessage });
+    }
+  };
+
+  // Resume an interrupted upload
+  const resumeUpload = async (uploadSessionId: string) => {
+    try {
+      const response = await apiClient.get(`/automation/facebook/upload/resumable/?upload_session_id=${uploadSessionId}`);
+      if (!response.ok) {
+        throw new Error('Failed to get upload status');
+      }
+      
+      const data = await response.json();
+      const { start_offset, file_size, file_name } = data;
+
+      setMessage({ type: 'success', text: `Resuming upload of ${file_name} from ${Math.round((start_offset / file_size) * 100)}%` });
+      
+      // User needs to select the same file again to resume
+      setCurrentUploadSessionId(uploadSessionId);
+      setResumableUploadStatus('paused');
+      setResumableUploadProgress(Math.round((start_offset / file_size) * 100));
+      setShowResumableUploadModal(true);
+      
+    } catch (error) {
+      console.error('Failed to get upload status:', error);
+      setMessage({ type: 'error', text: 'Failed to resume upload. The session may have expired.' });
+    }
+  };
+
+  // Reset resumable upload form
+  const resetResumableUploadForm = () => {
+    setResumableUploadFile(null);
+    setResumableUploadProgress(0);
+    setResumableUploadStatus('idle');
+    setResumableUploadTitle('');
+    setResumableUploadDescription('');
+    setCurrentUploadSessionId(null);
+    setShowResumableUploadModal(false);
+  };
+
+  // Format file size for display
+  const formatFileSize = (bytes: number): string => {
+    if (bytes >= ONE_GB) {
+      return `${(bytes / ONE_GB).toFixed(2)} GB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
   // Reset Facebook compose form
   const resetFacebookComposeForm = () => {
     setFbPostTitle('');
@@ -1072,6 +1703,14 @@ function AutomationPageContent() {
       URL.revokeObjectURL(fbMediaPreview.url);
       setFbMediaPreview(null);
     }
+    // Reset carousel state
+    setFbCarouselMode(false);
+    fbCarouselImages.forEach(img => {
+      if (img.url.startsWith('blob:')) {
+        URL.revokeObjectURL(img.url);
+      }
+    });
+    setFbCarouselImages([]);
   };
 
   // Handle deleting a Facebook post
@@ -1138,6 +1777,136 @@ function AutomationPageContent() {
       });
     } finally {
       setDeletingTweetId(null);
+    }
+  };
+
+  // Handle deleting a LinkedIn post
+  const handleDeleteLinkedInPost = async (postUrn: string) => {
+    if (!confirm('Are you sure you want to delete this LinkedIn post? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingLinkedInPostId(postUrn);
+    try {
+      const response = await apiClient.delete(`/automation/linkedin/post/${encodeURIComponent(postUrn)}/`);
+
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'LinkedIn post deleted successfully',
+        });
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to delete LinkedIn post',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete LinkedIn post:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to delete LinkedIn post',
+      });
+    } finally {
+      setDeletingLinkedInPostId(null);
+    }
+  };
+
+  // Handle deleting a post from all platforms
+  const handleDeletePost = async (post: ScheduledPost) => {
+    const platformCount = post.platforms.length;
+    const platformNames = post.platforms.join(', ');
+    
+    if (!confirm(`Are you sure you want to delete this post from ${platformNames}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingPostId(post.id);
+    const errors: string[] = [];
+    let successCount = 0;
+    let hasAnyPostId = false;
+
+    try {
+      // Delete from each platform
+      for (const platform of post.platforms) {
+        try {
+          let response: Response;
+          
+          // Extract post ID using helper that handles both single and multi-platform structures
+          const postId = getPostIdForPlatform(post.post_results as Record<string, unknown>, platform);
+          
+          if (!postId) {
+            // No post ID for this platform, skip the platform API call
+            // The post will be deleted from ContentCalendar at the end
+            continue;
+          }
+          
+          hasAnyPostId = true;
+          
+          // For test mode posts without real IDs, the delete API will still clean up ContentCalendar
+          // The backend handles test_mode detection and skips actual platform API calls
+          if (platform === 'twitter') {
+            response = await apiClient.delete(`/automation/twitter/tweet/${postId}/`);
+          } else if (platform === 'facebook') {
+            response = await apiClient.delete(`/automation/facebook/post/${postId}/`);
+          } else if (platform === 'linkedin') {
+            response = await apiClient.delete(`/automation/linkedin/post/${encodeURIComponent(postId)}/`);
+          } else {
+            // Platform not supported for deletion
+            continue;
+          }
+
+          if (response.ok) {
+            successCount++;
+          } else {
+            const error = await response.json();
+            errors.push(`${platform}: ${error.error || 'Failed to delete'}`);
+          }
+        } catch (error) {
+          console.error(`Failed to delete from ${platform}:`, error);
+          errors.push(`${platform}: Network error`);
+        }
+      }
+
+      // If no platform had a post ID, delete directly from ContentCalendar
+      if (!hasAnyPostId) {
+        try {
+          const response = await apiClient.delete(`/automation/content-calendar/${post.id}/`);
+          if (response.ok) {
+            successCount = platformCount;
+          } else {
+            const error = await response.json();
+            errors.push(`Calendar: ${error.error || 'Failed to delete'}`);
+          }
+        } catch (error) {
+          console.error('Failed to delete from calendar:', error);
+          errors.push('Calendar: Network error');
+        }
+      }
+
+      // Show result message
+      if (successCount === platformCount || (successCount > 0 && !hasAnyPostId)) {
+        setMessage({
+          type: 'success',
+          text: `Post deleted successfully`,
+        });
+      } else if (successCount > 0) {
+        setMessage({
+          type: 'success',
+          text: `Post deleted from ${successCount}/${platformCount} platforms. Errors: ${errors.join('; ')}`,
+        });
+      } else {
+        setMessage({
+          type: 'error',
+          text: `Failed to delete post: ${errors.join('; ')}`,
+        });
+      }
+
+      fetchPublishedPosts();
+    } finally {
+      setDeletingPostId(null);
     }
   };
 
@@ -1553,6 +2322,160 @@ function AutomationPageContent() {
                   </div>
                 )}
 
+                {/* LinkedIn Organization Switcher */}
+                {platform === 'linkedin' && isConnected && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70">
+                        {linkedInPostingAs === 'organization' && currentLinkedInOrg 
+                          ? `Posting as: ${currentLinkedInOrg.name}` 
+                          : `Posting as: ${profiles?.linkedin?.profile_name || 'Personal Profile'}`}
+                      </span>
+                      <button
+                        onClick={() => setShowLinkedInOrgSwitcher(!showLinkedInOrgSwitcher)}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showLinkedInOrgSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {linkedInOrgs.length > 0 ? 'Switch Account' : 'View Account'}
+                      </button>
+                    </div>
+                    
+                    {showLinkedInOrgSwitcher && (
+                      <div className="bg-white/5 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                        {loadingLinkedInOrgs ? (
+                          <div className="text-center py-2">
+                            <span className="text-brand-silver/50 text-sm">Loading...</span>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Personal Profile Option */}
+                            <button
+                              onClick={() => handleSwitchLinkedInOrg(null)}
+                              disabled={switchingLinkedInOrg || linkedInPostingAs === 'personal'}
+                              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                linkedInPostingAs === 'personal'
+                                  ? 'bg-brand-electric/20 border border-brand-electric/30'
+                                  : 'hover:bg-white/10'
+                              } disabled:opacity-50`}
+                            >
+                              {profiles?.linkedin?.profile_image_url ? (
+                                <img
+                                  src={profiles.linkedin.profile_image_url}
+                                  alt={profiles.linkedin.profile_name || 'Profile'}
+                                  className="w-8 h-8 rounded-full"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-[#0A66C2] flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                  </svg>
+                                </div>
+                              )}
+                              <div className="flex-1 text-left">
+                                <p className="text-sm text-white font-medium">{profiles?.linkedin?.profile_name || 'Personal Profile'}</p>
+                                <p className="text-xs text-brand-silver/50">Personal Account</p>
+                              </div>
+                              {linkedInPostingAs === 'personal' && (
+                                <span className="text-brand-mint text-xs">Active</span>
+                              )}
+                            </button>
+                            
+                            {/* Organization Options */}
+                            {linkedInOrgs.map((org) => (
+                              <button
+                                key={org.id}
+                                onClick={() => handleSwitchLinkedInOrg(org.id)}
+                                disabled={switchingLinkedInOrg || currentLinkedInOrg?.id === org.id}
+                                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                  currentLinkedInOrg?.id === org.id
+                                    ? 'bg-brand-electric/20 border border-brand-electric/30'
+                                    : 'hover:bg-white/10'
+                                } disabled:opacity-50`}
+                              >
+                                {org.logo_url ? (
+                                  <img
+                                    src={org.logo_url}
+                                    alt={org.name}
+                                    className="w-8 h-8 rounded-full"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-[#0A66C2] flex items-center justify-center">
+                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                    </svg>
+                                  </div>
+                                )}
+                                <div className="flex-1 text-left">
+                                  <p className="text-sm text-white font-medium">{org.name}</p>
+                                  <p className="text-xs text-brand-silver/50">Company Page</p>
+                                </div>
+                                {currentLinkedInOrg?.id === org.id && (
+                                  <span className="text-brand-mint text-xs">Active</span>
+                                )}
+                              </button>
+                            ))}
+                            
+                            {linkedInOrgs.length === 0 && (
+                              <p className="text-xs text-brand-silver/50 text-center py-2">
+                                No company pages available. You&apos;re posting as your personal profile.
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Twitter Account Switcher */}
+                {platform === 'twitter' && isConnected && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70">
+                        Posting as: @{profiles?.twitter?.profile_name || 'Twitter Account'}
+                      </span>
+                      <button
+                        onClick={() => setShowTwitterAccountPanel(!showTwitterAccountPanel)}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showTwitterAccountPanel ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        View Account
+                      </button>
+                    </div>
+                    {showTwitterAccountPanel && (
+                    <div className="bg-white/5 rounded-lg p-3">
+                      <div className="flex items-center gap-3 p-2 rounded-lg bg-brand-electric/20 border border-brand-electric/30">
+                        {profiles?.twitter?.profile_image_url ? (
+                          <img
+                            src={profiles.twitter.profile_image_url}
+                            alt={profiles.twitter.profile_name || 'Profile'}
+                            className="w-8 h-8 rounded-full"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center">
+                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                            </svg>
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <p className="text-sm text-white font-medium">{profiles?.twitter?.profile_name || 'Twitter Account'}</p>
+                          <p className="text-xs text-brand-silver/50">Personal Account</p>
+                        </div>
+                        <span className="text-brand-mint text-xs">Active</span>
+                      </div>
+                      <p className="text-xs text-brand-silver/40 mt-2 text-center">
+                        Twitter/X only supports personal account posting
+                      </p>
+                    </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 <div className="mt-6 space-y-2">
                   {isConnected ? (
@@ -1574,12 +2497,32 @@ function AutomationPageContent() {
                         </button>
                       )}
                       {platform === 'facebook' && (
-                        <button
-                          onClick={() => setShowFacebookComposeModal(true)}
-                          className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
-                        >
-                          📘 Compose Post
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setShowFacebookComposeModal(true)}
+                            className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                          >
+                            📘 Compose Post
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowFacebookStoriesModal(true);
+                              fetchFacebookStories();
+                            }}
+                            className="w-full py-2 px-4 rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
+                          >
+                            📸 Create Story
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowResumableUploadModal(true);
+                              fetchResumableUploads();
+                            }}
+                            className="w-full py-2 px-4 rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-colors"
+                          >
+                            📹 Upload Large Video (&gt;1GB)
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={() => handleDisconnect(platform)}
@@ -1848,15 +2791,15 @@ function AutomationPageContent() {
                             minute: '2-digit'
                           })}
                         </span>
-                        {/* Delete Button for Twitter posts */}
-                        {post.platforms.includes('twitter') && post.post_results?.id && (
+                        {/* Delete Button - works for all platforms */}
+                        {hasAnyDeletablePostId(post.post_results as Record<string, unknown>, post.platforms) ? (
                           <button
-                            onClick={() => handleDeleteTweet(post.post_results!.id!)}
-                            disabled={deletingTweetId === post.post_results!.id}
+                            onClick={() => handleDeletePost(post)}
+                            disabled={deletingPostId === post.id}
                             className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
-                            title="Delete tweet"
+                            title={`Delete from ${post.platforms.join(', ')}`}
                           >
-                            {deletingTweetId === post.post_results!.id ? (
+                            {deletingPostId === post.id ? (
                               <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1866,30 +2809,9 @@ function AutomationPageContent() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             )}
-                            Delete
+                            {post.platforms.length > 1 ? 'Delete All' : 'Delete'}
                           </button>
-                        )}
-                        {/* Delete Button for Facebook posts */}
-                        {post.platforms.includes('facebook') && post.post_results?.id && (
-                          <button
-                            onClick={() => handleDeleteFacebookPost(post.post_results!.id!)}
-                            disabled={deletingFbPostId === post.post_results!.id}
-                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
-                            title="Delete Facebook post"
-                          >
-                            {deletingFbPostId === post.post_results!.id ? (
-                              <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                            ) : (
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            )}
-                            Delete
-                          </button>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -2567,6 +3489,33 @@ function AutomationPageContent() {
               </p>
             </div>
 
+            {/* Post Type Toggle */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-brand-silver mb-2">Post Type</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFbCarouselMode(false)}
+                  className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                    !fbCarouselMode
+                      ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                      : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                  }`}
+                >
+                  📝 Single Post
+                </button>
+                <button
+                  onClick={() => setFbCarouselMode(true)}
+                  className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                    fbCarouselMode
+                      ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                      : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                  }`}
+                >
+                  🎠 Carousel (2-10 images)
+                </button>
+              </div>
+            </div>
+
             {/* Form Fields */}
             <div className="space-y-4 mb-6">
               <div>
@@ -2603,7 +3552,8 @@ function AutomationPageContent() {
                 </div>
               </div>
 
-              {/* Media Upload for Facebook */}
+              {/* Media Upload for Facebook - Single Post Mode */}
+              {!fbCarouselMode && (
               <div>
                 <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
                 <div className="flex items-center gap-3">
@@ -2685,6 +3635,105 @@ function AutomationPageContent() {
                 )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['facebook'])}</p>
               </div>
+              )}
+
+              {/* Carousel Images - Carousel Mode */}
+              {fbCarouselMode && (
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">
+                  Carousel Images ({fbCarouselImages.length}/10)
+                </label>
+                <p className="text-xs text-brand-silver/50 mb-3">
+                  Add 2-10 images for your carousel post. Images will be displayed in the order shown.
+                </p>
+                
+                {/* Image Grid */}
+                <div className="grid grid-cols-5 gap-2 mb-3">
+                  {fbCarouselImages.map((img, index) => (
+                    <div key={index} className="relative aspect-square group">
+                      <img
+                        src={img.url}
+                        alt={`Carousel image ${index + 1}`}
+                        className="w-full h-full object-cover rounded-lg border border-brand-ghost/30"
+                      />
+                      <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                        {index + 1}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newImages = [...fbCarouselImages];
+                          if (newImages[index].url.startsWith('blob:')) {
+                            URL.revokeObjectURL(newImages[index].url);
+                          }
+                          newImages.splice(index, 1);
+                          setFbCarouselImages(newImages);
+                        }}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Add Image Button */}
+                  {fbCarouselImages.length < 10 && (
+                    <label className={`aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer ${uploadingCarouselImage ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                      {uploadingCarouselImage ? (
+                        <svg className="animate-spin w-6 h-6 text-brand-silver" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        <>
+                          <svg className="w-6 h-6 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          <span className="text-xs text-brand-silver mt-1">Add</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        disabled={uploadingCarouselImage}
+                        onChange={(e) => {
+                          const files = e.target.files;
+                          if (files) {
+                            const newImages: { url: string; file: File }[] = [];
+                            const maxToAdd = 10 - fbCarouselImages.length;
+                            
+                            Array.from(files).slice(0, maxToAdd).forEach(file => {
+                              if (file.type.startsWith('image/')) {
+                                const previewUrl = URL.createObjectURL(file);
+                                newImages.push({ url: previewUrl, file });
+                              }
+                            });
+                            
+                            if (newImages.length > 0) {
+                              setFbCarouselImages(prev => [...prev, ...newImages]);
+                            }
+                            
+                            if (files.length > maxToAdd) {
+                              setMessage({ type: 'error', text: `Only added ${maxToAdd} images. Maximum is 10.` });
+                            }
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+                
+                {/* Validation Message */}
+                {fbCarouselImages.length > 0 && fbCarouselImages.length < 2 && (
+                  <p className="text-xs text-amber-400">⚠️ Add at least 2 images for a carousel post</p>
+                )}
+                {fbCarouselImages.length >= 2 && (
+                  <p className="text-xs text-green-400">✓ Ready to post carousel with {fbCarouselImages.length} images</p>
+                )}
+              </div>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -2699,11 +3748,13 @@ function AutomationPageContent() {
                 Cancel
               </button>
               <button
-                onClick={handleFacebookPost}
+                onClick={fbCarouselMode ? handleFacebookCarouselPost : handleFacebookPost}
                 disabled={
                   fbPosting || 
                   uploadingFbMedia || 
-                  !fbPostText.trim() || 
+                  uploadingCarouselImage ||
+                  (!fbCarouselMode && !fbPostText.trim()) ||
+                  (fbCarouselMode && fbCarouselImages.length < 2) ||
                   fbPostText.length > FACEBOOK_MAX_POST_LENGTH
                 }
                 className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
@@ -2717,9 +3768,460 @@ function AutomationPageContent() {
                     Posting...
                   </>
                 ) : (
-                  'Post to Facebook'
+                  fbCarouselMode ? `Post Carousel (${fbCarouselImages.length} images)` : 'Post to Facebook'
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Facebook Stories Modal */}
+      {showFacebookStoriesModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowFacebookStoriesModal(false);
+                resetFacebookStoryForm();
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Facebook Stories</h2>
+                <p className="text-sm text-brand-silver/70">Create 24-hour ephemeral content</p>
+              </div>
+            </div>
+
+            {/* Active Stories */}
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-brand-silver mb-3">Active Stories</h3>
+              {loadingFbStories ? (
+                <div className="flex justify-center py-4">
+                  <svg className="animate-spin w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                </div>
+              ) : fbStories.length === 0 ? (
+                <div className="text-center py-4 text-brand-silver/50 text-sm">
+                  No active stories. Stories disappear after 24 hours.
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {fbStories.map((story) => (
+                    <div key={story.id} className="flex-shrink-0 relative group">
+                      <div className="w-20 h-32 rounded-lg bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-orange-500/20 border border-brand-ghost/30 flex items-center justify-center">
+                        <span className="text-2xl">{story.media_type === 'VIDEO' ? '🎬' : '📷'}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteFacebookStory(story.id)}
+                        disabled={deletingFbStoryId === story.id}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                      >
+                        {deletingFbStoryId === story.id ? '...' : '×'}
+                      </button>
+                      <p className="text-xs text-brand-silver/50 text-center mt-1">
+                        {new Date(story.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Create Story Section */}
+            <div className="border-t border-brand-ghost/30 pt-6">
+              <h3 className="text-sm font-medium text-brand-silver mb-3">Create New Stories</h3>
+              
+              {/* Info Banner */}
+              <div className="mb-4 p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
+                <p className="text-purple-400 text-xs">
+                  📸 Add multiple photos and videos to post as a sequence of stories. Each file becomes a separate story.
+                </p>
+                <p className="text-purple-400/70 text-xs mt-1">
+                  Photos: JPEG/PNG, max 4MB • Videos: MP4/MOV, max 4GB, 1-60 seconds
+                </p>
+              </div>
+
+              {/* File Upload Area */}
+              <div className="mb-4">
+                <label className={`flex flex-col items-center justify-center w-full h-32 rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-purple-500 hover:bg-purple-500/10 transition-colors cursor-pointer ${postingFbStory ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <svg className="w-8 h-8 text-brand-silver mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  <span className="text-brand-silver text-sm">
+                    Click to add photos or videos
+                  </span>
+                  <span className="text-brand-silver/50 text-xs mt-1">
+                    Select multiple files at once
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    className="hidden"
+                    disabled={postingFbStory}
+                    onChange={(e) => {
+                      addToStoryQueue(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Story Queue */}
+              {fbStoryQueue.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-sm text-brand-silver">Story Queue ({fbStoryQueue.length} items)</h4>
+                    <button
+                      onClick={resetFacebookStoryForm}
+                      disabled={postingFbStory}
+                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {fbStoryQueue.map((item, index) => (
+                      <div key={item.id} className="flex-shrink-0 relative group">
+                        <div className={`w-16 h-24 rounded-lg overflow-hidden border-2 ${
+                          item.status === 'uploading' ? 'border-blue-500' :
+                          item.status === 'success' ? 'border-green-500' :
+                          item.status === 'failed' ? 'border-red-500' :
+                          'border-brand-ghost/30'
+                        }`}>
+                          {item.type === 'video' ? (
+                            <video 
+                              src={item.preview} 
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <img 
+                              src={item.preview} 
+                              alt={`Story ${index + 1}`} 
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                          {/* Status overlay */}
+                          {item.status !== 'pending' && (
+                            <div className={`absolute inset-0 flex items-center justify-center ${
+                              item.status === 'uploading' ? 'bg-blue-500/50' :
+                              item.status === 'success' ? 'bg-green-500/50' :
+                              item.status === 'failed' ? 'bg-red-500/50' : ''
+                            }`}>
+                              {item.status === 'uploading' && (
+                                <svg className="animate-spin w-6 h-6 text-white" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                              )}
+                              {item.status === 'success' && <span className="text-white text-lg">✓</span>}
+                              {item.status === 'failed' && <span className="text-white text-lg">✗</span>}
+                            </div>
+                          )}
+                        </div>
+                        {/* Type indicator */}
+                        <div className="absolute bottom-1 left-1 text-xs">
+                          {item.type === 'video' ? '🎬' : '📷'}
+                        </div>
+                        {/* Remove button */}
+                        {!postingFbStory && item.status === 'pending' && (
+                          <button
+                            onClick={() => removeFromStoryQueue(item.id)}
+                            className="absolute top-0 right-0 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-1 -translate-y-1"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Progress */}
+              {postingFbStory && storyUploadProgress.total > 0 && (
+                <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-blue-400 text-sm">Uploading stories...</span>
+                    <span className="text-blue-400 text-sm">{storyUploadProgress.current} / {storyUploadProgress.total}</span>
+                  </div>
+                  <div className="h-2 bg-brand-ghost/30 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 transition-all duration-300"
+                      style={{ width: `${(storyUploadProgress.current / storyUploadProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Post Story Button */}
+              <button
+                onClick={handleFacebookStoryPost}
+                disabled={postingFbStory || fbStoryQueue.length === 0}
+                className="w-full py-2.5 px-4 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 hover:from-purple-600 hover:via-pink-600 hover:to-orange-600"
+              >
+                {postingFbStory ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Posting {storyUploadProgress.current} of {storyUploadProgress.total}...
+                  </>
+                ) : fbStoryQueue.length === 0 ? (
+                  '✨ Add media to share'
+                ) : fbStoryQueue.length === 1 ? (
+                  '✨ Share to Story'
+                ) : (
+                  `✨ Share ${fbStoryQueue.length} Stories`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Facebook Resumable Upload Modal (for large videos > 1GB) */}
+      {showResumableUploadModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={resetResumableUploadForm}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Large Video Upload</h2>
+                <p className="text-sm text-brand-silver/70">Resumable upload for videos &gt; 1GB</p>
+              </div>
+            </div>
+
+            {/* Info Banner */}
+            <div className="mb-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30">
+              <p className="text-purple-400 text-sm">
+                📹 This upload method supports videos larger than 1GB with:
+              </p>
+              <ul className="text-purple-400/80 text-sm mt-2 ml-4 list-disc space-y-1">
+                <li>Chunked upload (4MB chunks)</li>
+                <li>Resume interrupted uploads</li>
+                <li>Progress tracking</li>
+              </ul>
+            </div>
+
+            {/* Active Uploads */}
+            {fbResumableUploads.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-brand-silver mb-3">In-Progress Uploads</h3>
+                <div className="space-y-2">
+                  {fbResumableUploads.map((upload) => (
+                    <div key={upload.upload_session_id} className="p-3 rounded-lg bg-brand-obsidian/50 border border-brand-ghost/30">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-white text-sm truncate flex-1">{upload.file_name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          upload.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                          upload.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                          upload.status === 'uploading' ? 'bg-blue-500/20 text-blue-400' :
+                          'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {upload.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-2 bg-brand-ghost/30 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
+                            style={{ width: `${upload.progress_percent}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-brand-silver">{upload.progress_percent}%</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-2 text-xs text-brand-silver/50">
+                        <span>{formatFileSize(upload.bytes_uploaded)} / {formatFileSize(upload.file_size)}</span>
+                        {upload.status !== 'completed' && upload.status !== 'failed' && (
+                          <button
+                            onClick={() => resumeUpload(upload.upload_session_id)}
+                            className="text-blue-400 hover:text-blue-300"
+                          >
+                            Resume
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* New Upload Section */}
+            <div className="border-t border-brand-ghost/30 pt-6">
+              <h3 className="text-sm font-medium text-brand-silver mb-3">Upload New Video</h3>
+              
+              {/* Title Input */}
+              <div className="mb-4">
+                <label className="block text-sm text-brand-silver mb-1">Video Title</label>
+                <input
+                  type="text"
+                  value={resumableUploadTitle}
+                  onChange={(e) => setResumableUploadTitle(e.target.value)}
+                  placeholder="Enter video title..."
+                  disabled={resumableUploadStatus === 'uploading'}
+                  className="w-full p-3 rounded-lg bg-brand-obsidian border border-brand-ghost/30 text-white placeholder-brand-silver/50 focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+
+              {/* Description Input */}
+              <div className="mb-4">
+                <label className="block text-sm text-brand-silver mb-1">Description</label>
+                <textarea
+                  value={resumableUploadDescription}
+                  onChange={(e) => setResumableUploadDescription(e.target.value)}
+                  placeholder="Enter video description..."
+                  rows={3}
+                  disabled={resumableUploadStatus === 'uploading'}
+                  className="w-full p-3 rounded-lg bg-brand-obsidian border border-brand-ghost/30 text-white placeholder-brand-silver/50 focus:border-purple-500 focus:outline-none resize-none disabled:opacity-50"
+                />
+              </div>
+
+              {/* File Selection */}
+              <div className="mb-4">
+                <label className={`flex flex-col items-center justify-center w-full h-32 rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-purple-500 hover:bg-purple-500/10 transition-colors cursor-pointer ${resumableUploadStatus === 'uploading' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {resumableUploadFile ? (
+                    <div className="text-center px-4">
+                      <span className="text-3xl">📹</span>
+                      <p className="text-white text-sm mt-2 truncate max-w-full">{resumableUploadFile.name}</p>
+                      <p className="text-purple-400 text-xs mt-1">{formatFileSize(resumableUploadFile.size)}</p>
+                      {resumableUploadFile.size <= ONE_GB && (
+                        <p className="text-yellow-400 text-xs mt-1">⚠️ File is under 1GB - use regular upload</p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <svg className="w-10 h-10 text-brand-silver mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <span className="text-brand-silver text-sm">Click to select video file (&gt;1GB)</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    disabled={resumableUploadStatus === 'uploading'}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setResumableUploadFile(file);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Upload Progress */}
+              {resumableUploadStatus !== 'idle' && (
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-brand-silver">Upload Progress</span>
+                    <span className={`text-sm ${
+                      resumableUploadStatus === 'completed' ? 'text-green-400' :
+                      resumableUploadStatus === 'failed' ? 'text-red-400' :
+                      resumableUploadStatus === 'paused' ? 'text-yellow-400' :
+                      'text-blue-400'
+                    }`}>
+                      {resumableUploadStatus === 'uploading' ? `Uploading... ${resumableUploadProgress}%` :
+                       resumableUploadStatus === 'completed' ? 'Completed!' :
+                       resumableUploadStatus === 'paused' ? 'Paused' :
+                       resumableUploadStatus === 'failed' ? 'Failed' : ''}
+                    </span>
+                  </div>
+                  <div className="h-3 bg-brand-ghost/30 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 ${
+                        resumableUploadStatus === 'completed' ? 'bg-green-500' :
+                        resumableUploadStatus === 'failed' ? 'bg-red-500' :
+                        'bg-gradient-to-r from-blue-500 to-purple-500'
+                      }`}
+                      style={{ width: `${resumableUploadProgress}%` }}
+                    />
+                  </div>
+                  {resumableUploadStatus === 'uploading' && resumableUploadFile && (
+                    <p className="text-xs text-brand-silver/50 mt-1 text-center">
+                      Uploading in 4MB chunks... Do not close this window.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                {resumableUploadStatus === 'uploading' ? (
+                  <button
+                    onClick={() => setResumableUploadStatus('paused')}
+                    className="flex-1 py-2.5 px-4 rounded-lg border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 transition-colors"
+                  >
+                    ⏸️ Pause Upload
+                  </button>
+                ) : resumableUploadStatus === 'paused' ? (
+                  <button
+                    onClick={startResumableUpload}
+                    className="flex-1 py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 transition-colors"
+                  >
+                    ▶️ Resume Upload
+                  </button>
+                ) : (
+                  <button
+                    onClick={startResumableUpload}
+                    disabled={!resumableUploadFile || (resumableUploadFile && resumableUploadFile.size <= ONE_GB) || resumableUploadStatus === 'completed'}
+                    className="flex-1 py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {resumableUploadStatus === 'completed' ? (
+                      '✅ Upload Complete'
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        Start Upload
+                      </>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={resetResumableUploadForm}
+                  className="py-2.5 px-4 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

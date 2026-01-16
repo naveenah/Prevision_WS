@@ -187,6 +187,66 @@ class LinkedInService:
             logger.error(f"LinkedIn profile fetch failed: {e}")
             raise Exception(f"Failed to fetch profile: {str(e)}")
 
+    def get_organizations(self, access_token: str) -> list:
+        """
+        Get LinkedIn Organizations (Company Pages) the user can post to.
+        
+        Requires 'w_organization_social' scope to post to organizations.
+        
+        Args:
+            access_token: Valid LinkedIn access token
+            
+        Returns:
+            List of organizations the user can administer
+        """
+        # Get organization access control (pages user can post to)
+        url = "https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&projection=(elements*(organization~(id,localizedName,vanityName,logoV2(original~:playableStreams))))"
+        
+        try:
+            response = requests.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            
+            if response.status_code == 403:
+                # User doesn't have permission or no organization scope
+                logger.info("User does not have organization access permissions")
+                return []
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            organizations = []
+            for element in data.get("elements", []):
+                org = element.get("organization~", {})
+                if org:
+                    org_id = org.get("id")
+                    logo_url = None
+                    logo_v2 = org.get("logoV2", {})
+                    if logo_v2:
+                        original = logo_v2.get("original~", {})
+                        elements = original.get("elements", [])
+                        if elements:
+                            logo_url = elements[0].get("identifiers", [{}])[0].get("identifier")
+                    
+                    organizations.append({
+                        "id": org_id,
+                        "urn": f"urn:li:organization:{org_id}",
+                        "name": org.get("localizedName"),
+                        "vanity_name": org.get("vanityName"),
+                        "logo_url": logo_url,
+                    })
+            
+            return organizations
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn organizations fetch failed: {e}")
+            return []
+
     def create_share(
         self,
         access_token: str,
@@ -1020,6 +1080,52 @@ class LinkedInService:
                 else 0,
             },
         }
+
+    def delete_share(self, access_token: str, share_urn: str) -> bool:
+        """
+        Delete a LinkedIn share/post.
+
+        LinkedIn API v2 allows deleting shares via DELETE request.
+        The share URN format is: urn:li:share:12345 or urn:li:ugcPost:12345
+
+        Args:
+            access_token: Valid LinkedIn access token
+            share_urn: The share URN to delete
+
+        Returns:
+            True if deletion was successful
+        """
+        try:
+            # URL encode the URN for the API call
+            encoded_urn = share_urn.replace(":", "%3A")
+            
+            # LinkedIn uses different endpoints for different post types
+            if "ugcPost" in share_urn:
+                url = f"https://api.linkedin.com/v2/ugcPosts/{encoded_urn}"
+            else:
+                url = f"https://api.linkedin.com/v2/shares/{encoded_urn}"
+
+            response = requests.delete(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+
+            if response.status_code in [200, 204]:
+                logger.info(f"LinkedIn share deleted: {share_urn}")
+                return True
+            else:
+                logger.error(
+                    f"LinkedIn share deletion failed: {response.status_code} - {response.text}"
+                )
+                return False
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn share deletion failed: {e}")
+            raise Exception(f"Failed to delete share: {str(e)}")
 
 
 # Singleton instance

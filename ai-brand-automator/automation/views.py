@@ -314,6 +314,101 @@ class LinkedInDisconnectView(APIView):
             )
 
 
+class LinkedInOrganizationsView(APIView):
+    """
+    Get LinkedIn Organizations (Company Pages) the user can post to.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get list of organizations the user administers."""
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response({
+                "organizations": [
+                    {
+                        "id": "test_org_123",
+                        "urn": "urn:li:organization:test_org_123",
+                        "name": "Test Company Page",
+                        "vanity_name": "test-company",
+                        "logo_url": None,
+                    }
+                ],
+                "current_organization": profile.page_id,
+                "posting_as": "personal" if not profile.page_id else "organization",
+                "test_mode": True,
+            })
+
+        try:
+            access_token = profile.get_valid_access_token()
+            organizations = linkedin_service.get_organizations(access_token)
+            
+            return Response({
+                "organizations": organizations,
+                "current_organization": profile.page_id,
+                "posting_as": "personal" if not profile.page_id else "organization",
+            })
+        except Exception as e:
+            logger.error(f"Failed to fetch LinkedIn organizations: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LinkedInSelectOrganizationView(APIView):
+    """
+    Select which LinkedIn entity to post as (personal profile or organization).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Select organization to post to, or clear to post as personal profile."""
+        organization_id = request.data.get("organization_id")  # None = personal profile
+        
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if organization_id:
+            # Set to post as organization
+            profile.page_id = organization_id
+            profile.save()
+            
+            return Response({
+                "message": "Now posting as organization",
+                "organization_id": organization_id,
+                "posting_as": "organization",
+            })
+        else:
+            # Clear to post as personal profile
+            profile.page_id = None
+            profile.save()
+            
+            return Response({
+                "message": "Now posting as personal profile",
+                "posting_as": "personal",
+            })
+
+
 class LinkedInPostView(APIView):
     """
     Create a post on LinkedIn.
@@ -936,6 +1031,100 @@ class LinkedInAnalyticsView(APIView):
             logger.error(f"Failed to get LinkedIn analytics: {e}")
             return Response(
                 {"error": f"Failed to get analytics: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LinkedInDeletePostView(APIView):
+    """
+    Delete a LinkedIn share/post.
+
+    DELETE /linkedin/post/<post_urn>/ - Delete a post
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, post_urn):
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode post deletion by {request.user.email}: {post_urn}")
+
+            # Delete from ContentCalendar
+            deleted_count = 0
+            for calendar_entry in ContentCalendar.objects.filter(
+                user=request.user,
+                status="published",
+            ):
+                # Check if this is a LinkedIn post with matching URN
+                if calendar_entry.post_results:
+                    post_id = calendar_entry.post_results.get("id") or calendar_entry.post_results.get("post_urn")
+                    if post_id == post_urn:
+                        # Verify it's a LinkedIn post
+                        if hasattr(calendar_entry, 'platforms') and "linkedin" in (calendar_entry.platforms or []):
+                            calendar_entry.delete()
+                            deleted_count = 1
+                            break
+                        elif calendar_entry.social_profiles.filter(platform="linkedin").exists():
+                            calendar_entry.delete()
+                            deleted_count = 1
+                            break
+
+            return Response({
+                "test_mode": True,
+                "message": "Post deleted (test mode)",
+                "post_urn": post_urn,
+                "calendar_entries_deleted": deleted_count,
+            })
+
+        try:
+            access_token = profile.get_valid_access_token()
+            success = linkedin_service.delete_share(access_token, post_urn)
+
+            if success:
+                # Delete from ContentCalendar
+                deleted_count = 0
+                for calendar_entry in ContentCalendar.objects.filter(
+                    user=request.user,
+                    status="published",
+                ):
+                    if calendar_entry.post_results:
+                        post_id = calendar_entry.post_results.get("id") or calendar_entry.post_results.get("post_urn")
+                        if post_id == post_urn:
+                            if hasattr(calendar_entry, 'platforms') and "linkedin" in (calendar_entry.platforms or []):
+                                calendar_entry.delete()
+                                deleted_count += 1
+                                break
+                            elif calendar_entry.social_profiles.filter(platform="linkedin").exists():
+                                calendar_entry.delete()
+                                deleted_count += 1
+                                break
+
+                logger.info(f"LinkedIn post deleted by {request.user.email}: {post_urn}")
+                return Response({
+                    "message": "Post deleted successfully",
+                    "post_urn": post_urn,
+                    "calendar_entries_deleted": deleted_count,
+                })
+            else:
+                return Response(
+                    {"error": "Failed to delete post"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to delete LinkedIn post: {e}")
+            return Response(
+                {"error": f"Failed to delete post: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -2036,38 +2225,73 @@ class TwitterDeleteTweetView(APIView):
         if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
             logger.info(f"Test mode tweet deletion by {request.user.email}: {tweet_id}")
 
-            # Update ContentCalendar if exists
-            ContentCalendar.objects.filter(
+            # Delete from ContentCalendar
+            deleted_count = 0
+            for calendar_entry in ContentCalendar.objects.filter(
                 user=request.user,
-                post_results__tweet__id=tweet_id,
-            ).update(status="cancelled")
+                status="published",
+            ):
+                # Check if this is a Twitter post with matching ID
+                if calendar_entry.post_results:
+                    # Twitter stores as tweet.id or just id
+                    post_id = None
+                    if "tweet" in calendar_entry.post_results:
+                        post_id = calendar_entry.post_results.get("tweet", {}).get("id")
+                    else:
+                        post_id = calendar_entry.post_results.get("id")
+                    
+                    if post_id == tweet_id:
+                        # Verify it's a Twitter post
+                        if hasattr(calendar_entry, 'platforms') and "twitter" in (calendar_entry.platforms or []):
+                            calendar_entry.delete()
+                            deleted_count = 1
+                            break
+                        elif calendar_entry.social_profiles.filter(platform="twitter").exists():
+                            calendar_entry.delete()
+                            deleted_count = 1
+                            break
 
-            return Response(
-                {
-                    "message": "Tweet deleted (test mode)",
-                    "test_mode": True,
-                    "tweet_id": tweet_id,
-                }
-            )
+            return Response({
+                "test_mode": True,
+                "message": "Tweet deleted (test mode)",
+                "tweet_id": tweet_id,
+                "calendar_entries_deleted": deleted_count,
+            })
 
         try:
             access_token = profile.get_valid_access_token()
             success = twitter_service.delete_tweet(access_token, tweet_id)
 
             if success:
-                # Update ContentCalendar if exists
-                ContentCalendar.objects.filter(
+                # Delete from ContentCalendar
+                deleted_count = 0
+                for calendar_entry in ContentCalendar.objects.filter(
                     user=request.user,
-                    post_results__id=tweet_id,
-                ).update(status="cancelled")
+                    status="published",
+                ):
+                    if calendar_entry.post_results:
+                        post_id = None
+                        if "tweet" in calendar_entry.post_results:
+                            post_id = calendar_entry.post_results.get("tweet", {}).get("id")
+                        else:
+                            post_id = calendar_entry.post_results.get("id")
+                        
+                        if post_id == tweet_id:
+                            if hasattr(calendar_entry, 'platforms') and "twitter" in (calendar_entry.platforms or []):
+                                calendar_entry.delete()
+                                deleted_count += 1
+                                break
+                            elif calendar_entry.social_profiles.filter(platform="twitter").exists():
+                                calendar_entry.delete()
+                                deleted_count += 1
+                                break
 
                 logger.info(f"Tweet deleted by {request.user.email}: {tweet_id}")
-                return Response(
-                    {
-                        "message": "Tweet deleted successfully",
-                        "tweet_id": tweet_id,
-                    }
-                )
+                return Response({
+                    "message": "Tweet deleted successfully",
+                    "tweet_id": tweet_id,
+                    "calendar_entries_deleted": deleted_count,
+                })
             else:
                 return Response(
                     {"error": "Failed to delete tweet"},
@@ -2193,8 +2417,19 @@ class TwitterAnalyticsView(APIView):
                 metrics = twitter_service.get_tweet_metrics(access_token, tweet_id)
                 return Response(metrics)
             else:
-                # Get user metrics and published tweets from ContentCalendar
-                user_metrics = twitter_service.get_user_metrics(access_token)
+                # Get user metrics first (more likely to succeed)
+                user_metrics = None
+                rate_limited = False
+                
+                try:
+                    user_metrics = twitter_service.get_user_metrics(access_token)
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if "429" in str(e) or "too many requests" in error_str or "rate" in error_str:
+                        rate_limited = True
+                        logger.warning(f"Twitter rate limit hit for user metrics: {e}")
+                    else:
+                        raise
 
                 # Get tweet IDs from published posts
                 published_posts = ContentCalendar.objects.filter(
@@ -2207,18 +2442,27 @@ class TwitterAnalyticsView(APIView):
                 for post in published_posts:
                     # post_results can have tweet id in different locations
                     post_results = post.post_results or {}
-                    tweet_data = post_results.get("tweet", post_results)
-                    if isinstance(tweet_data, dict) and tweet_data.get("id"):
-                        tweet_ids.append(tweet_data["id"])
+                    # Check twitter nested key first
+                    twitter_data = post_results.get("twitter", {})
+                    if isinstance(twitter_data, dict) and twitter_data.get("id"):
+                        tweet_ids.append(twitter_data["id"])
                     elif post_results.get("id"):
                         tweet_ids.append(post_results["id"])
 
-                # Get metrics for all tweets
+                # Get metrics for all tweets (skip if rate limited)
                 tweets_metrics = []
-                if tweet_ids:
-                    tweets_metrics = twitter_service.get_multiple_tweet_metrics(
-                        access_token, tweet_ids
-                    )
+                if tweet_ids and not rate_limited:
+                    try:
+                        tweets_metrics = twitter_service.get_multiple_tweet_metrics(
+                            access_token, tweet_ids
+                        )
+                    except Exception as e:
+                        error_str = str(e).lower()
+                        if "429" in str(e) or "too many requests" in error_str or "rate" in error_str:
+                            rate_limited = True
+                            logger.warning(f"Twitter rate limit hit for tweet metrics: {e}")
+                        else:
+                            raise
 
                 # Calculate totals
                 totals = {
@@ -2252,16 +2496,49 @@ class TwitterAnalyticsView(APIView):
                 else:
                     totals["engagement_rate"] = 0
 
-                return Response(
-                    {
-                        "user": user_metrics,
-                        "tweets": tweets_metrics,
-                        "totals": totals,
-                    }
-                )
+                response_data = {
+                    "user": user_metrics,
+                    "tweets": tweets_metrics,
+                    "totals": totals,
+                }
+                
+                # Add rate limit warning if applicable
+                if rate_limited:
+                    response_data["rate_limited"] = True
+                    response_data["rate_limit_message"] = (
+                        "Twitter API rate limit reached. Some data may be unavailable. "
+                        "Please try again in a few minutes."
+                    )
+                
+                return Response(response_data)
 
         except Exception as e:
             logger.error(f"Failed to get Twitter analytics: {e}")
+            error_str = str(e).lower()
+            
+            # Check if it's a rate limit error
+            if "429" in str(e) or "too many requests" in error_str or "rate" in error_str:
+                return Response(
+                    {
+                        "rate_limited": True,
+                        "rate_limit_message": (
+                            "Twitter API rate limit reached. Please try again in 15 minutes."
+                        ),
+                        "user": None,
+                        "tweets": [],
+                        "totals": {
+                            "total_impressions": 0,
+                            "total_likes": 0,
+                            "total_retweets": 0,
+                            "total_replies": 0,
+                            "total_quotes": 0,
+                            "total_bookmarks": 0,
+                            "engagement_rate": 0,
+                        },
+                    },
+                    status=status.HTTP_200_OK,  # Return 200 with warning instead of error
+                )
+            
             return Response(
                 {"error": f"Failed to get analytics: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -3554,8 +3831,13 @@ class FacebookDeletePostView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Check for test mode
-        if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+        # Check for test mode - handle both test page token and test_mode post IDs
+        is_test_mode = (
+            profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
+            or post_id.startswith("test_")
+        )
+        
+        if is_test_mode:
             # In test mode, delete the ContentCalendar record
             deleted_count = 0
             # Find by searching in post_results JSON
@@ -3563,8 +3845,26 @@ class FacebookDeletePostView(APIView):
                 user=request.user,
                 status="published",
             ):
-                # Check if this is a Facebook post with matching ID
-                if calendar_entry.post_results and calendar_entry.post_results.get("id") == post_id:
+                if not calendar_entry.post_results:
+                    continue
+                    
+                # Check multiple possible locations for the post ID
+                # Direct: { "id": "..." }
+                direct_id = calendar_entry.post_results.get("id")
+                # Nested: { "facebook": { "id": "..." } }
+                facebook_data = calendar_entry.post_results.get("facebook", {})
+                nested_id = facebook_data.get("id") if isinstance(facebook_data, dict) else None
+                # Also check for test_mode flag in nested structure (for posts without ID)
+                has_test_mode = facebook_data.get("test_mode") if isinstance(facebook_data, dict) else calendar_entry.post_results.get("test_mode")
+                
+                # Match if any ID matches, or if this is a test_mode post and we're deleting test_mode
+                id_matches = (
+                    (direct_id and direct_id == post_id) or
+                    (nested_id and nested_id == post_id) or
+                    (post_id == "test_mode" and has_test_mode)
+                )
+                
+                if id_matches:
                     # Verify it's a Facebook post by checking platforms
                     if hasattr(calendar_entry, 'platforms') and "facebook" in (calendar_entry.platforms or []):
                         calendar_entry.delete()
@@ -3844,6 +4144,26 @@ class FacebookCarouselPostView(APIView):
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
             test_post_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
+            
+            # Save to ContentCalendar for history (even in test mode)
+            ContentCalendar.objects.create(
+                user=request.user,
+                title=f"[Carousel] {message[:40]}..." if len(message) > 40 else f"[Carousel] {message}",
+                content=message,
+                platforms=["facebook"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "facebook": {
+                        "test_mode": True,
+                        "post_id": test_post_id,
+                        "type": "carousel",
+                        "photo_count": total_photos,
+                    }
+                },
+            )
+            
             return Response({
                 "test_mode": True,
                 "message": "Carousel post simulated in test mode",
@@ -4459,6 +4779,9 @@ class FacebookWebhookSubscribeView(APIView):
 # Facebook Stories Views
 # =============================================================================
 
+# In-memory cache for test mode stories (clears on server restart)
+_test_stories_cache = {}
+
 
 class FacebookStoryView(APIView):
     """
@@ -4567,12 +4890,36 @@ class FacebookStoryView(APIView):
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
             story_id = f"test_story_{uuid.uuid4().hex[:8]}"
+            created_at = timezone.now().isoformat()
             expires_at = (timezone.now() + timedelta(hours=24)).isoformat()
+            
+            # Store in test cache
+            user_id = request.user.id
+            if user_id not in _test_stories_cache:
+                _test_stories_cache[user_id] = []
+            
+            # Add new story to cache
+            _test_stories_cache[user_id].append({
+                "id": story_id,
+                "media_type": story_type.upper(),
+                "status": "ACTIVE",
+                "created_at": created_at,
+                "expires_at": expires_at,
+            })
+            
+            # Clean up expired stories (older than 24 hours)
+            now = timezone.now()
+            _test_stories_cache[user_id] = [
+                s for s in _test_stories_cache[user_id]
+                if (now - timezone.datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))).total_seconds() < 86400
+            ]
+            
             return Response({
                 "test_mode": True,
                 "story_id": story_id,
                 "type": story_type,
                 "status": "created",
+                "created_at": created_at,
                 "expires_at": expires_at,
                 "message": f"Story created in test mode (expires in 24 hours)",
             })
@@ -4645,18 +4992,29 @@ class FacebookStoryView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+            user_id = request.user.id
+            
+            # Get stories from cache, filtering out expired ones
+            now = timezone.now()
+            cached_stories = _test_stories_cache.get(user_id, [])
+            
+            # Filter active stories (less than 24 hours old)
+            active_stories = []
+            for story in cached_stories:
+                try:
+                    created = timezone.datetime.fromisoformat(story["created_at"].replace("Z", "+00:00"))
+                    if (now - created).total_seconds() < 86400:
+                        active_stories.append(story)
+                except (ValueError, KeyError):
+                    pass
+            
+            # Update cache with only active stories
+            _test_stories_cache[user_id] = active_stories
+            
             return Response({
                 "test_mode": True,
                 "page_id": profile.page_id,
-                "stories": [
-                    {
-                        "id": "test_story_abc123",
-                        "media_type": "PHOTO",
-                        "status": "ACTIVE",
-                        "creation_time": timezone.now().isoformat(),
-                        "expires_at": (timezone.now() + timedelta(hours=12)).isoformat(),
-                    },
-                ],
+                "stories": active_stories,
             })
 
         try:
@@ -4712,6 +5070,13 @@ class FacebookStoryDeleteView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+            # Remove from test cache
+            user_id = request.user.id
+            if user_id in _test_stories_cache:
+                _test_stories_cache[user_id] = [
+                    s for s in _test_stories_cache[user_id] if s["id"] != story_id
+                ]
+            
             return Response({
                 "test_mode": True,
                 "success": True,

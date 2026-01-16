@@ -12,11 +12,14 @@ from .views import (
     LinkedInCallbackView,
     LinkedInDisconnectView,
     LinkedInTestConnectView,
+    LinkedInOrganizationsView,
+    LinkedInSelectOrganizationView,
     LinkedInPostView,
     LinkedInMediaUploadView,
     LinkedInVideoStatusView,
     LinkedInDocumentStatusView,
     LinkedInAnalyticsView,
+    LinkedInDeletePostView,
     LinkedInWebhookView,
     LinkedInWebhookEventsView,
     # Twitter views
@@ -77,6 +80,17 @@ urlpatterns = [
         LinkedInTestConnectView.as_view(),
         name="linkedin-test-connect",
     ),
+    # LinkedIn Organizations (Company Pages)
+    path(
+        "linkedin/organizations/",
+        LinkedInOrganizationsView.as_view(),
+        name="linkedin-organizations",
+    ),
+    path(
+        "linkedin/organizations/select/",
+        LinkedInSelectOrganizationView.as_view(),
+        name="linkedin-select-organization",
+    ),
     path("linkedin/post/", LinkedInPostView.as_view(), name="linkedin-post"),
     path(
         "linkedin/media/upload/",
@@ -103,7 +117,14 @@ urlpatterns = [
         "linkedin/analytics/<path:post_urn>/",
         LinkedInAnalyticsView.as_view(),
         name="linkedin-analytics-post",
-    ),  # LinkedIn Webhooks
+    ),
+    # LinkedIn Delete Post
+    path(
+        "linkedin/post/<path:post_urn>/",
+        LinkedInDeletePostView.as_view(),
+        name="linkedin-delete-post",
+    ),
+    # LinkedIn Webhooks
     path(
         "linkedin/webhook/",
         LinkedInWebhookView.as_view(),

@@ -39,6 +39,8 @@ interface TwitterAnalyticsData {
     engagement_rate: number;
   };
   test_mode?: boolean;
+  rate_limited?: boolean;
+  rate_limit_message?: string;
 }
 
 interface LinkedInAnalyticsData {
@@ -70,6 +72,30 @@ interface LinkedInAnalyticsData {
   test_mode?: boolean;
 }
 
+interface FacebookAnalyticsData {
+  page_id?: string;
+  page_name?: string;
+  insights?: {
+    page_impressions?: number;
+    page_engaged_users?: number;
+    page_fans?: number;
+    page_fan_adds?: number;
+    page_post_engagements?: number;
+    page_views_total?: number;
+  };
+  recent_posts?: Array<{
+    id: string;
+    message: string;
+    created_time: string;
+    permalink_url?: string;
+    full_picture?: string;
+    likes: number;
+    comments: number;
+    shares: number;
+  }>;
+  test_mode?: boolean;
+}
+
 interface WebhookEvent {
   id: number;
   event_type: string;
@@ -82,6 +108,7 @@ interface WebhookEvent {
 interface SocialProfiles {
   twitter?: { connected: boolean };
   linkedin?: { connected: boolean };
+  facebook?: { connected: boolean };
 }
 
 export default function SocialAnalytics() {
@@ -108,6 +135,16 @@ export default function SocialAnalytics() {
   const [linkedInWebhookEvents, setLinkedInWebhookEvents] = useState<WebhookEvent[]>([]);
   const [linkedInUnreadCount, setLinkedInUnreadCount] = useState(0);
   const [showLinkedInNotifications, setShowLinkedInNotifications] = useState(false);
+
+  // Facebook Analytics state
+  const [showFacebookAnalytics, setShowFacebookAnalytics] = useState(true);
+  const [facebookAnalyticsLoading, setFacebookAnalyticsLoading] = useState(false);
+  const [facebookAnalyticsData, setFacebookAnalyticsData] = useState<FacebookAnalyticsData | null>(null);
+
+  // Facebook Webhook notifications state
+  const [facebookWebhookEvents, setFacebookWebhookEvents] = useState<WebhookEvent[]>([]);
+  const [facebookUnreadCount, setFacebookUnreadCount] = useState(0);
+  const [showFacebookNotifications, setShowFacebookNotifications] = useState(false);
 
   // Fetch profile status
   const fetchProfiles = useCallback(async () => {
@@ -226,6 +263,57 @@ export default function SocialAnalytics() {
     }
   };
 
+  // Fetch Facebook analytics
+  const fetchFacebookAnalytics = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setFacebookAnalyticsLoading(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setFacebookAnalyticsData(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook analytics:', error);
+    } finally {
+      setFacebookAnalyticsLoading(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Fetch Facebook webhook events
+  const fetchFacebookWebhookEvents = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    try {
+      const response = await apiClient.get('/automation/facebook/webhooks/events/?limit=20');
+      if (response.ok) {
+        const data = await response.json();
+        setFacebookWebhookEvents(data.events || []);
+        setFacebookUnreadCount(data.unread_count || 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook webhook events:', error);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Mark Facebook events as read
+  const markFacebookEventsAsRead = async (eventIds: number[]) => {
+    try {
+      const response = await apiClient.post('/automation/facebook/webhooks/events/', {
+        event_ids: eventIds,
+      });
+      if (response.ok) {
+        setFacebookWebhookEvents(prev => 
+          prev.map(e => eventIds.includes(e.id) ? { ...e, read: true } : e)
+        );
+        setFacebookUnreadCount(prev => Math.max(0, prev - eventIds.length));
+      }
+    } catch (error) {
+      console.error('Failed to mark Facebook events as read:', error);
+    }
+  };
+
   // Initial data fetch
   useEffect(() => {
     fetchProfiles();
@@ -239,7 +327,10 @@ export default function SocialAnalytics() {
     if (profiles?.linkedin?.connected) {
       fetchLinkedInAnalytics();
     }
-  }, [profiles, fetchTwitterAnalytics, fetchLinkedInAnalytics]);
+    if (profiles?.facebook?.connected) {
+      fetchFacebookAnalytics();
+    }
+  }, [profiles, fetchTwitterAnalytics, fetchLinkedInAnalytics, fetchFacebookAnalytics]);
 
   if (loadingProfiles) {
     return (
@@ -251,7 +342,7 @@ export default function SocialAnalytics() {
     );
   }
 
-  const hasConnectedPlatforms = profiles?.twitter?.connected || profiles?.linkedin?.connected;
+  const hasConnectedPlatforms = profiles?.twitter?.connected || profiles?.linkedin?.connected || profiles?.facebook?.connected;
 
   if (!hasConnectedPlatforms) {
     return (
@@ -387,6 +478,12 @@ export default function SocialAnalytics() {
                   {twitterAnalyticsData.test_mode && (
                     <div className="mb-4 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
                       🧪 Test Mode - Showing simulated analytics data
+                    </div>
+                  )}
+                  
+                  {twitterAnalyticsData.rate_limited && (
+                    <div className="mb-4 px-3 py-2 bg-orange-500/10 border border-orange-500/30 rounded-lg text-orange-400 text-sm">
+                      ⚠️ {twitterAnalyticsData.rate_limit_message || 'Twitter API rate limit reached. Please try again in a few minutes.'}
                     </div>
                   )}
                   
@@ -628,6 +725,211 @@ export default function SocialAnalytics() {
                 <div className="text-center py-4 text-brand-silver/70">
                   <p>Failed to load analytics.</p>
                   <button onClick={fetchLinkedInAnalytics} className="text-[#0A66C2] hover:underline mt-1 text-sm">
+                    Try again
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Facebook Analytics */}
+      {profiles?.facebook?.connected && (
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-heading font-bold text-white flex items-center gap-2">
+              <svg className="w-5 h-5 text-[#1877F2]" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+              Facebook Analytics
+            </h2>
+            <div className="flex items-center gap-2">
+              {/* Notifications Bell */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setShowFacebookNotifications(!showFacebookNotifications);
+                    if (!showFacebookNotifications) fetchFacebookWebhookEvents();
+                  }}
+                  className="p-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 transition-colors relative"
+                  title="Notifications"
+                >
+                  <svg className="w-5 h-5 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                  {facebookUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {facebookUnreadCount > 9 ? '9+' : facebookUnreadCount}
+                    </span>
+                  )}
+                </button>
+                
+                {/* Facebook Notifications Dropdown */}
+                {showFacebookNotifications && (
+                  <div className="absolute right-0 top-full mt-2 w-80 bg-brand-midnight border border-brand-ghost/30 rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+                    <div className="p-3 border-b border-brand-ghost/20 flex items-center justify-between">
+                      <span className="text-white font-medium">Facebook Notifications</span>
+                      {facebookUnreadCount > 0 && (
+                        <button
+                          onClick={() => markFacebookEventsAsRead(facebookWebhookEvents.filter(e => !e.read).map(e => e.id))}
+                          className="text-xs text-[#1877F2] hover:underline"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    {facebookWebhookEvents.length === 0 ? (
+                      <div className="p-4 text-center text-brand-silver/70">
+                        <p>No notifications yet</p>
+                        <p className="text-xs mt-1">Facebook events will appear here</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-brand-ghost/20">
+                        {facebookWebhookEvents.map(event => (
+                          <div 
+                            key={event.id}
+                            className={`p-3 ${!event.read ? 'bg-[#1877F2]/5' : ''} hover:bg-brand-ghost/10 cursor-pointer`}
+                            onClick={() => !event.read && markFacebookEventsAsRead([event.id])}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className={`w-2 h-2 rounded-full mt-2 ${!event.read ? 'bg-[#1877F2]' : 'bg-transparent'}`} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-white">
+                                  {event.event_type === 'feed' && '📝 New feed activity'}
+                                  {event.event_type === 'reaction' && '👍 Someone reacted to your post'}
+                                  {event.event_type === 'comment' && '💬 New comment on your post'}
+                                  {event.event_type === 'mention' && '🔔 You were mentioned'}
+                                  {event.event_type === 'message' && '✉️ New message'}
+                                  {!['feed', 'reaction', 'comment', 'mention', 'message'].includes(event.event_type) && `📌 ${event.event_type}`}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">
+                                  {new Date(event.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              <button
+                onClick={() => setShowFacebookAnalytics(!showFacebookAnalytics)}
+                className="px-3 py-1.5 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 text-brand-silver transition-colors flex items-center gap-2 text-sm"
+              >
+                {showFacebookAnalytics ? 'Hide' : 'Show'}
+                <svg className={`w-4 h-4 transition-transform ${showFacebookAnalytics ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <button
+                onClick={fetchFacebookAnalytics}
+                disabled={facebookAnalyticsLoading}
+                className="p-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 transition-colors disabled:opacity-50"
+                title="Refresh analytics"
+              >
+                <svg className={`w-4 h-4 text-brand-silver ${facebookAnalyticsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {showFacebookAnalytics && (
+            <>
+              {facebookAnalyticsLoading && !facebookAnalyticsData ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#1877F2]"></div>
+                </div>
+              ) : facebookAnalyticsData ? (
+                <div>
+                  {facebookAnalyticsData.test_mode && (
+                    <div className="mb-4 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                      🧪 Test Mode - Showing simulated analytics data
+                    </div>
+                  )}
+                  
+                  {/* Page Info */}
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-8 h-8 rounded-full bg-[#1877F2] flex items-center justify-center">
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                        </svg>
+                      </div>
+                      <span className="text-sm text-white">{facebookAnalyticsData.page_name || 'Your Facebook Page'}</span>
+                    </div>
+                    
+                    {/* Page Stats Grid */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-brand-ghost/10 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold text-[#1877F2]">{(facebookAnalyticsData.insights?.page_fans || 0).toLocaleString()}</div>
+                        <div className="text-xs text-brand-silver/70">Page Fans</div>
+                      </div>
+                      <div className="bg-brand-ghost/10 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold text-white">{(facebookAnalyticsData.insights?.page_fan_adds || 0).toLocaleString()}</div>
+                        <div className="text-xs text-brand-silver/70">New Fans</div>
+                      </div>
+                      <div className="bg-brand-ghost/10 rounded-lg p-3 text-center">
+                        <div className="text-lg font-bold text-white">{(facebookAnalyticsData.recent_posts?.length || 0)}</div>
+                        <div className="text-xs text-brand-silver/70">Recent Posts</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Engagement Stats */}
+                  {facebookAnalyticsData.insights && (
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                      <div className="bg-gradient-to-br from-[#1877F2]/20 to-[#1877F2]/10 rounded-lg p-3 text-center border border-[#1877F2]/20">
+                        <div className="text-lg font-bold text-[#1877F2]">{(facebookAnalyticsData.insights.page_impressions || 0).toLocaleString()}</div>
+                        <div className="text-xs text-brand-silver/70">Impressions</div>
+                      </div>
+                      <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 rounded-lg p-3 text-center border border-green-500/20">
+                        <div className="text-lg font-bold text-green-400">{(facebookAnalyticsData.insights.page_engaged_users || 0).toLocaleString()}</div>
+                        <div className="text-xs text-brand-silver/70">Engaged Users</div>
+                      </div>
+                      <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 rounded-lg p-3 text-center border border-purple-500/20">
+                        <div className="text-lg font-bold text-purple-400">{(facebookAnalyticsData.insights.page_post_engagements || 0).toLocaleString()}</div>
+                        <div className="text-xs text-brand-silver/70">Post Engagements</div>
+                      </div>
+                      <div className="bg-gradient-to-br from-orange-500/20 to-orange-600/10 rounded-lg p-3 text-center border border-orange-500/20">
+                        <div className="text-lg font-bold text-orange-400">{(facebookAnalyticsData.insights.page_views_total || 0).toLocaleString()}</div>
+                        <div className="text-xs text-brand-silver/70">Page Views</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recent Posts */}
+                  {facebookAnalyticsData.recent_posts && facebookAnalyticsData.recent_posts.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-white mb-3">Recent Posts</h3>
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {facebookAnalyticsData.recent_posts.slice(0, 5).map((post) => (
+                          <div key={post.id} className="bg-brand-ghost/10 rounded-lg p-3">
+                            <p className="text-sm text-white line-clamp-2 mb-2">
+                              {post.message || '(No message)'}
+                            </p>
+                            <div className="flex items-center gap-4 text-xs text-brand-silver/70">
+                              <span>👍 {post.likes}</span>
+                              <span>💬 {post.comments}</span>
+                              <span>🔄 {post.shares}</span>
+                              <span className="ml-auto">
+                                {new Date(post.created_time).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-brand-silver/70">
+                  <p>Failed to load analytics.</p>
+                  <button onClick={fetchFacebookAnalytics} className="text-[#1877F2] hover:underline mt-1 text-sm">
                     Try again
                   </button>
                 </div>
