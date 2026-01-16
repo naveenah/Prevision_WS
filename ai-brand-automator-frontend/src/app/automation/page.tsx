@@ -122,17 +122,12 @@ const LINKEDIN_MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
 // Twitter media size limits
 const TWITTER_MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
 const TWITTER_MAX_VIDEO_SIZE = 512 * 1024 * 1024;  // 512MB
-const TWITTER_MAX_GIF_SIZE = 15 * 1024 * 1024;  // 15MB
 
-// Legacy constants (kept for backward compatibility)
+// Shared image size limit (use smaller of the two platforms)
 const MAX_IMAGE_SIZE = LINKEDIN_MAX_IMAGE_SIZE;
-const MAX_VIDEO_SIZE = LINKEDIN_MAX_VIDEO_SIZE;
-const MAX_DOCUMENT_SIZE = LINKEDIN_MAX_DOCUMENT_SIZE;
 
 // Twitter constants
 const TWITTER_MAX_LENGTH = 280;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const TWITTER_PREMIUM_MAX_LENGTH = 25000;  // Reserved for premium Twitter accounts
 
 // Helper function to get media limits based on selected platforms
 const getMediaLimits = (platforms: string[]) => {

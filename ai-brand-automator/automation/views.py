@@ -203,7 +203,7 @@ class LinkedInCallbackView(APIView):
             # Note: profile_id may be in URN format, not suitable for /in/ URLs
             profile_url = "https://www.linkedin.com/feed/"
 
-            SocialProfile.objects.update_or_create(
+            _, created = SocialProfile.objects.update_or_create(
                 user=user,
                 platform="linkedin",
                 defaults={
@@ -221,7 +221,8 @@ class LinkedInCallbackView(APIView):
             # Clean up the OAuth state
             oauth_state.delete()
 
-            logger.info(f"LinkedIn connected for user {user.email}")
+            action = "created" if created else "updated"
+            logger.info(f"LinkedIn profile {action} for user {user.email}")
 
             profile_name = profile_data.get("name", "")
             redirect_url = (
@@ -978,7 +979,6 @@ class LinkedInWebhookView(APIView):
             logger.warning("LinkedIn webhook received without signature")
             # For development, we may still process the event
             # In production, you should require signature validation
-            pass
 
         # Get LinkedIn client secret for signature validation
         client_secret = getattr(settings, "LINKEDIN_CLIENT_SECRET", None)
@@ -1685,7 +1685,7 @@ class TwitterCallbackView(APIView):
             user_info = twitter_service.get_user_info(token_data["access_token"])
 
             # Create or update social profile
-            profile, created = SocialProfile.objects.update_or_create(
+            _, created = SocialProfile.objects.update_or_create(
                 user=oauth_state.user,
                 platform="twitter",
                 defaults={
@@ -1700,8 +1700,9 @@ class TwitterCallbackView(APIView):
                 },
             )
 
+            action = "created" if created else "updated"
             logger.info(
-                f"Twitter connected for user {oauth_state.user.email}: "
+                f"Twitter profile {action} for user {oauth_state.user.email}: "
                 f"@{user_info.get('username')}"
             )
 
