@@ -7,7 +7,12 @@ from typing import Optional
 
 from django.utils import timezone
 
-from .constants import TEST_ACCESS_TOKEN, TWITTER_TEST_ACCESS_TOKEN
+from .constants import (
+    TEST_ACCESS_TOKEN,
+    TWITTER_TEST_ACCESS_TOKEN,
+    FACEBOOK_TEST_ACCESS_TOKEN,
+    FACEBOOK_TEST_PAGE_TOKEN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,7 @@ def publish_to_platform(
     Returns:
         Tuple of (result_dict, error_string) - one will be None
     """
-    from .services import linkedin_service, twitter_service
+    from .services import linkedin_service, twitter_service, facebook_service
 
     media_urls = media_urls or []
 
@@ -87,6 +92,47 @@ def publish_to_platform(
         except Exception as e:
             error = f"Twitter: {str(e)}"
             logger.error(f"{log_prefix}Failed to publish to Twitter: {e}")
+            return None, error
+
+    elif profile.platform == "facebook" and profile.status == "connected":
+        try:
+            if (
+                profile.access_token == FACEBOOK_TEST_ACCESS_TOKEN
+                or profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
+            ):
+                result = {
+                    "test_mode": True,
+                    "message": "Facebook post simulated in test mode",
+                    "has_media": len(media_urls) > 0,
+                }
+                logger.info(f"{log_prefix}Test publish to Facebook: {content_title}")
+                return result, None
+            else:
+                if not profile.page_access_token or not profile.page_id:
+                    return None, "Facebook: No page access token or page ID"
+
+                # For Facebook, media_urls are photo URLs
+                if media_urls and len(media_urls) > 0:
+                    # Post with first photo
+                    result = facebook_service.create_page_photo_post(
+                        page_id=profile.page_id,
+                        page_access_token=profile.page_access_token,
+                        photo_url=media_urls[0],
+                        message=content_text,
+                    )
+                else:
+                    result = facebook_service.create_page_post(
+                        page_id=profile.page_id,
+                        page_access_token=profile.page_access_token,
+                        message=content_text,
+                    )
+                logger.info(
+                    f"{log_prefix}Successfully published to Facebook: {content_title}"
+                )
+                return result, None
+        except Exception as e:
+            error = f"Facebook: {str(e)}"
+            logger.error(f"{log_prefix}Failed to publish to Facebook: {e}")
             return None, error
 
     return None, None

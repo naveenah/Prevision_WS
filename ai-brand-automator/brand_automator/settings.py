@@ -178,7 +178,7 @@ TENANT_DOMAIN_MODEL = "tenants.Domain"
 # CORS settings
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
-    default="http://localhost:3000,http://127.0.0.1:3000",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://localhost:3002",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 # Note: Add development IPs to CORS_ALLOWED_ORIGINS env var instead of using
@@ -431,6 +431,14 @@ TWITTER_CLIENT_SECRET = config("TWITTER_CLIENT_SECRET", default="")
 TWITTER_REDIRECT_URI = config(
     "TWITTER_REDIRECT_URI",
     default="http://localhost:8000/api/v1/automation/twitter/callback/",
+)
+
+# Facebook OAuth 2.0 Configuration
+FACEBOOK_APP_ID = config("FACEBOOK_APP_ID", default="")
+FACEBOOK_APP_SECRET = config("FACEBOOK_APP_SECRET", default="")
+FACEBOOK_REDIRECT_URI = config(
+    "FACEBOOK_REDIRECT_URI",
+    default="http://localhost:8000/api/v1/automation/facebook/callback/",
 )
 
 # Frontend URL for OAuth redirects

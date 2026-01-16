@@ -41,6 +41,14 @@ class SocialProfile(models.Model):
     _refresh_token = models.TextField(blank=True, null=True, db_column="refresh_token")
     token_expires_at = models.DateTimeField(blank=True, null=True)
 
+    # Facebook-specific: Page access token (for posting to pages)
+    # This is stored separately because Facebook uses user tokens for auth
+    # but requires page tokens for posting to pages
+    _page_access_token = models.TextField(
+        blank=True, null=True, db_column="page_access_token"
+    )
+    page_id = models.CharField(max_length=255, blank=True, null=True)
+
     # Profile information from the platform
     profile_id = models.CharField(max_length=255, blank=True, null=True)
     profile_name = models.CharField(max_length=255, blank=True, null=True)
@@ -86,6 +94,20 @@ class SocialProfile(models.Model):
         self._refresh_token = encrypt_token(value) if value else None
 
     @property
+    def page_access_token(self):
+        """Get the decrypted page access token (Facebook only)."""
+        return (
+            decrypt_token(self._page_access_token)
+            if self._page_access_token
+            else None
+        )
+
+    @page_access_token.setter
+    def page_access_token(self, value):
+        """Set and encrypt the page access token (Facebook only)."""
+        self._page_access_token = encrypt_token(value) if value else None
+
+    @property
     def is_token_valid(self):
         """Check if the access token is still valid."""
         if not self.token_expires_at:
@@ -110,6 +132,18 @@ class SocialProfile(models.Model):
             raise ValueError("Profile is not connected")
 
         if not self.is_token_expiring_soon:
+            # For Facebook, return page token for posting
+            if self.platform == "facebook" and self.page_access_token:
+                return self.page_access_token
+            return self.access_token
+
+        # Facebook page tokens don't expire if obtained from long-lived user token
+        # They remain valid as long as the page admin doesn't revoke access
+        if self.platform == "facebook":
+            # For Facebook, we use the page access token which doesn't expire
+            if self.page_access_token:
+                return self.page_access_token
+            # Fall back to user access token if no page token
             return self.access_token
 
         if not self.refresh_token:
@@ -151,6 +185,16 @@ class SocialProfile(models.Model):
         """
         return self.refresh_token_if_needed()
 
+    def get_page_token(self):
+        """
+        Get the Facebook page access token.
+        This is used for posting to Facebook pages.
+        """
+        if self.platform != "facebook":
+            raise ValueError("Page token is only available for Facebook")
+        if not self.page_access_token:
+            raise ValueError("No page access token available")
+        return self.page_access_token
     def disconnect(self):
         """Disconnect the social profile."""
         self.access_token = None

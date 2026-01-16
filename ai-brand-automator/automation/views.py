@@ -20,7 +20,7 @@ from .serializers import (
     AutomationTaskSerializer,
     ContentCalendarSerializer,
 )
-from .services import linkedin_service, twitter_service
+from .services import linkedin_service, twitter_service, facebook_service
 from .constants import (
     TEST_ACCESS_TOKEN,
     TEST_REFRESH_TOKEN,
@@ -39,6 +39,12 @@ from .constants import (
     TWITTER_MEDIA_MAX_IMAGE_SIZE,
     TWITTER_MEDIA_MAX_VIDEO_SIZE,
     TWITTER_MEDIA_MAX_GIF_SIZE,
+    FACEBOOK_TEST_ACCESS_TOKEN,
+    FACEBOOK_TEST_PAGE_TOKEN,
+    FACEBOOK_IMAGE_TYPES,
+    FACEBOOK_VIDEO_TYPES,
+    FACEBOOK_MEDIA_MAX_IMAGE_SIZE,
+    FACEBOOK_MEDIA_MAX_VIDEO_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -1497,6 +1503,28 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
             if twitter_profiles_on_instance.exists():
                 instance.social_profiles.remove(*twitter_profiles_on_instance)
 
+        # Handle Facebook platform
+        facebook_profiles_on_instance = instance.social_profiles.filter(
+            platform="facebook"
+        )
+
+        if "facebook" in instance.platforms:
+            # Ensure the user's connected Facebook profile is attached
+            facebook_profile = SocialProfile.objects.filter(
+                user=self.request.user, platform="facebook", status="connected"
+            ).first()
+
+            if facebook_profile:
+                # Add if not already linked
+                if not facebook_profiles_on_instance.filter(
+                    id=facebook_profile.id
+                ).exists():
+                    instance.social_profiles.add(facebook_profile)
+        else:
+            # Facebook removed from platforms - remove any Facebook profiles
+            if facebook_profiles_on_instance.exists():
+                instance.social_profiles.remove(*facebook_profiles_on_instance)
+
     def perform_create(self, serializer):
         """Auto-link social profiles based on selected platforms."""
         instance = serializer.save(user=self.request.user)
@@ -2526,4 +2554,685 @@ class TwitterWebhookEventsView(APIView):
             return Response(
                 {"error": "Twitter account not connected"},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+# =============================================================================
+# Facebook Views
+# =============================================================================
+
+
+class FacebookConnectView(APIView):
+    """
+    Initiate Facebook OAuth 2.0 flow.
+
+    Returns the authorization URL that the frontend should redirect to.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not facebook_service.is_configured:
+            return Response(
+                {"error": "Facebook OAuth not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # Generate unique state for CSRF protection
+        state = str(uuid.uuid4())
+
+        # Store state in database
+        OAuthState.objects.create(
+            user=request.user,
+            platform="facebook",
+            state=state,
+        )
+
+        try:
+            auth_url = facebook_service.get_authorization_url(state)
+            return Response({"authorization_url": auth_url})
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class FacebookCallbackView(APIView):
+    """
+    Handle Facebook OAuth 2.0 callback.
+
+    Exchanges authorization code for tokens, gets user pages, and stores page token.
+    """
+
+    # No authentication required - this is a callback from Facebook
+    permission_classes = []
+
+    def get(self, request):
+        code = request.GET.get("code")
+        state = request.GET.get("state")
+        error = request.GET.get("error")
+        page_id = request.GET.get("page_id")  # Optional: select specific page
+
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+        if error:
+            error_description = request.GET.get("error_description", error)
+            logger.error(f"Facebook OAuth error: {error} - {error_description}")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=facebook_auth_failed"
+            )
+
+        if not code or not state:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=missing_params"
+            )
+
+        # Validate state
+        try:
+            oauth_state = OAuthState.objects.get(
+                state=state,
+                platform="facebook",
+                used=False,
+            )
+        except OAuthState.DoesNotExist:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=invalid_state"
+            )
+
+        # Mark state as used
+        oauth_state.used = True
+        oauth_state.save()
+
+        # Check if state is expired (5 minutes)
+        if (timezone.now() - oauth_state.created_at).total_seconds() > 300:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=state_expired"
+            )
+
+        try:
+            # Exchange code for tokens
+            token_data = facebook_service.exchange_code_for_token(code)
+            short_lived_token = token_data["access_token"]
+
+            # Get long-lived token
+            long_lived_data = facebook_service.get_long_lived_token(short_lived_token)
+            user_token = long_lived_data["access_token"]
+            token_expires = long_lived_data.get("expires_at")
+
+            # Get user info
+            user_info = facebook_service.get_user_info(user_token)
+
+            # Get user's pages
+            pages = facebook_service.get_user_pages(user_token)
+
+            if not pages:
+                return HttpResponseRedirect(
+                    f"{frontend_url}/automation?error=no_pages_found"
+                    "&message=No%20Facebook%20Pages%20found.%20Please%20create%20a%20Page%20first."
+                )
+
+            # Select page - use provided page_id or first available page
+            selected_page = None
+
+            if page_id:
+                # Try to find the requested page
+                for page in pages:
+                    if page.get("id") == page_id:
+                        selected_page = page
+                        break
+
+            # Fall back to first page if no specific page requested or found
+            if not selected_page:
+                selected_page = pages[0]
+
+            page_access_token = selected_page.get("access_token")
+            
+            # Try to get page info, but don't fail if we can't
+            page_name = selected_page.get("name", "Facebook Page")
+            page_picture_url = None
+            page_link = f"https://facebook.com/{selected_page['id']}"
+            
+            try:
+                page_info = facebook_service.get_page_info(
+                    selected_page["id"], page_access_token
+                )
+                page_name = page_info.get("name", page_name)
+                page_link = page_info.get(
+                    "link", f"https://facebook.com/{selected_page['id']}"
+                )
+                page_picture_url = (
+                    page_info.get("picture", {}).get("data", {}).get("url")
+                )
+            except Exception as page_info_error:
+                # Log but continue - we have basic info from pages list
+                logger.warning(
+                    f"Could not fetch detailed page info: {page_info_error}"
+                )
+
+            # Create or update social profile with page token
+            _, created = SocialProfile.objects.update_or_create(
+                user=oauth_state.user,
+                platform="facebook",
+                defaults={
+                    "access_token": user_token,
+                    "token_expires_at": token_expires,
+                    "profile_id": user_info.get("id"),
+                    "profile_name": page_name,
+                    "profile_url": page_link,
+                    "profile_image_url": page_picture_url,
+                    "page_access_token": page_access_token,
+                    "page_id": selected_page["id"],
+                    "status": "connected",
+                },
+            )
+
+            action = "created" if created else "updated"
+            logger.info(
+                f"Facebook profile {action} for user {oauth_state.user.email}: "
+                f"Page '{page_name}'"
+            )
+
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?success=facebook&name={page_name}"
+            )
+
+        except Exception as e:
+            logger.error(f"Facebook OAuth callback failed: {e}")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=facebook_token_exchange_failed"
+            )
+
+
+class FacebookPagesView(APIView):
+    """
+    Get list of Facebook Pages the user can manage.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="facebook", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Facebook account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            pages = facebook_service.get_user_pages(profile.access_token)
+            return Response({
+                "pages": [
+                    {
+                        "id": page.get("id"),
+                        "name": page.get("name"),
+                        "category": page.get("category"),
+                        "picture": page.get("picture", {}).get("data", {}).get("url"),
+                        "is_selected": page.get("id") == profile.page_id,
+                    }
+                    for page in pages
+                ],
+                "selected_page_id": profile.page_id,
+            })
+        except Exception as e:
+            logger.error(f"Failed to fetch Facebook pages: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FacebookSelectPageView(APIView):
+    """
+    Select a different Facebook Page to post to.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        page_id = request.data.get("page_id")
+
+        if not page_id:
+            return Response(
+                {"error": "page_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="facebook", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Facebook account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            pages = facebook_service.get_user_pages(profile.access_token)
+            selected_page = None
+            for page in pages:
+                if page.get("id") == page_id:
+                    selected_page = page
+                    break
+
+            if not selected_page:
+                return Response(
+                    {"error": "Page not found or not accessible"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Update profile with new page
+            page_info = facebook_service.get_page_info(
+                page_id, selected_page.get("access_token")
+            )
+
+            profile.page_id = page_id
+            profile.page_access_token = selected_page.get("access_token")
+            profile.profile_name = page_info.get("name")
+            profile.profile_url = page_info.get(
+                "link", f"https://facebook.com/{page_id}"
+            )
+            profile.profile_image_url = (
+                page_info.get("picture", {}).get("data", {}).get("url")
+            )
+            profile.save()
+
+            return Response({
+                "message": f"Selected page: {page_info.get('name')}",
+                "page": {
+                    "id": page_id,
+                    "name": page_info.get("name"),
+                    "category": page_info.get("category"),
+                },
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to select Facebook page: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FacebookDisconnectView(APIView):
+    """Disconnect Facebook account."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            profile = SocialProfile.objects.get(user=request.user, platform="facebook")
+
+            # Clear tokens and mark as disconnected
+            profile.access_token = None
+            profile.page_access_token = None
+            profile.page_id = None
+            profile.token_expires_at = None
+            profile.status = "disconnected"
+            profile.save()
+
+            return Response({"message": "Facebook account disconnected successfully"})
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "No Facebook account connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class FacebookTestConnectView(APIView):
+    """
+    Create a mock Facebook connection for testing (DEBUG mode only).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not settings.DEBUG:
+            return Response(
+                {"error": "Test connect only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Create mock profile
+        profile, created = SocialProfile.objects.update_or_create(
+            user=request.user,
+            platform="facebook",
+            defaults={
+                "access_token": FACEBOOK_TEST_ACCESS_TOKEN,
+                "page_access_token": FACEBOOK_TEST_PAGE_TOKEN,
+                "page_id": "909373962269929",  # Test page ID
+                "token_expires_at": timezone.now() + timedelta(days=60),
+                "profile_id": f"test_facebook_{request.user.id}",
+                "profile_name": "Test Page (Development)",
+                "profile_url": "https://facebook.com/test_page",
+                "profile_image_url": None,
+                "status": "connected",
+            },
+        )
+
+        action = "updated" if not created else "created"
+        return Response(
+            {
+                "message": f"Test Facebook connection {action}",
+                "profile": SocialProfileSerializer(profile).data,
+            }
+        )
+
+
+class FacebookPostView(APIView):
+    """
+    Create a post on the connected Facebook Page.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        message = request.data.get("message", "")
+        link = request.data.get("link")
+        photo_url = request.data.get("photo_url")
+
+        if not message and not photo_url:
+            return Response(
+                {"error": "Message or photo_url is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="facebook", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Facebook account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not profile.page_access_token or not profile.page_id:
+            return Response(
+                {"error": "No Facebook Page selected"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Check for test mode - check both page token and access token
+            is_test_mode = (
+                profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
+                or profile.access_token == FACEBOOK_TEST_ACCESS_TOKEN
+                or profile.profile_id.startswith("test_facebook_")
+            )
+            
+            if is_test_mode:
+                test_post_id = f"test_post_{uuid.uuid4().hex[:8]}"
+                # Store in ContentCalendar for history even in test mode
+                ContentCalendar.objects.create(
+                    user=request.user,
+                    title=message[:50] + "..." if len(message) > 50 else message,
+                    content=message,
+                    platforms=["facebook"],
+                    scheduled_date=timezone.now(),
+                    status="published",
+                    published_at=timezone.now(),
+                    post_results={"facebook": {"id": test_post_id}, "id": test_post_id},
+                )
+                return Response({
+                    "test_mode": True,
+                    "message": "Post simulated in test mode",
+                    "post_id": test_post_id,
+                    "id": test_post_id,
+                })
+
+            # Create post
+            if photo_url:
+                result = facebook_service.create_page_photo_post(
+                    page_id=profile.page_id,
+                    page_access_token=profile.page_access_token,
+                    photo_url=photo_url,
+                    message=message if message else None,
+                )
+            else:
+                result = facebook_service.create_page_post(
+                    page_id=profile.page_id,
+                    page_access_token=profile.page_access_token,
+                    message=message,
+                    link=link,
+                )
+
+            # Store in ContentCalendar for history
+            ContentCalendar.objects.create(
+                user=request.user,
+                title=message[:50] + "..." if len(message) > 50 else message,
+                content=message,
+                platforms=["facebook"],
+                scheduled_date=timezone.now(),
+                status="published",
+                published_at=timezone.now(),
+                post_results={"facebook": result, "id": result.get("id")},
+            )
+
+            return Response({
+                "success": True,
+                "post_id": result.get("id"),
+                "message": "Posted to Facebook successfully",
+                **result,
+            })
+
+        except Exception as e:
+            logger.error(f"Facebook post creation failed: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FacebookMediaUploadView(APIView):
+    """
+    Upload media (photo/video) to Facebook.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        file = request.FILES.get("file")
+        message = request.data.get("message", "")
+
+        if not file:
+            return Response(
+                {"error": "No file provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="facebook", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Facebook account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not profile.page_access_token or not profile.page_id:
+            return Response(
+                {"error": "No Facebook Page selected"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check for test mode
+        if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+            return Response({
+                "test_mode": True,
+                "message": "Media upload simulated in test mode",
+                "id": f"test_media_{uuid.uuid4().hex[:8]}",
+            })
+
+        content_type = file.content_type
+        file_data = file.read()
+
+        try:
+            if content_type.startswith("image/"):
+                # Upload photo
+                result = facebook_service.upload_photo(
+                    page_id=profile.page_id,
+                    page_access_token=profile.page_access_token,
+                    image_data=file_data,
+                    message=message if message else None,
+                )
+            elif content_type.startswith("video/"):
+                # Upload video
+                result = facebook_service.upload_video_simple(
+                    page_id=profile.page_id,
+                    page_access_token=profile.page_access_token,
+                    video_data=file_data,
+                    description=message if message else None,
+                )
+            else:
+                return Response(
+                    {"error": f"Unsupported file type: {content_type}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            return Response(result)
+
+        except Exception as e:
+            logger.error(f"Facebook media upload failed: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FacebookDeletePostView(APIView):
+    """
+    Delete a post from Facebook Page.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, post_id):
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="facebook", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Facebook account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not profile.page_access_token:
+            return Response(
+                {"error": "No Facebook Page selected"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check for test mode
+        if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+            return Response({
+                "test_mode": True,
+                "message": "Post deletion simulated in test mode",
+            })
+
+        try:
+            success = facebook_service.delete_post(post_id, profile.page_access_token)
+            if success:
+                return Response({"message": "Post deleted successfully"})
+            else:
+                return Response(
+                    {"error": "Failed to delete post"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        except Exception as e:
+            logger.error(f"Facebook post deletion failed: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class FacebookAnalyticsView(APIView):
+    """
+    Get Facebook Page analytics and post insights.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_id=None):
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="facebook", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Facebook account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not profile.page_access_token or not profile.page_id:
+            return Response(
+                {"error": "No Facebook Page selected"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check for test mode
+        if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+            return Response({
+                "test_mode": True,
+                "insights": {
+                    "page_impressions": 1234,
+                    "page_engaged_users": 567,
+                    "page_fans": 890,
+                    "page_fan_adds": 12,
+                    "page_post_engagements": 345,
+                    "page_views_total": 678,
+                },
+                "recent_posts": [],
+            })
+
+        try:
+            if post_id:
+                # Get specific post insights
+                insights = facebook_service.get_post_insights(
+                    post_id, profile.page_access_token
+                )
+                post = facebook_service.get_post(post_id, profile.page_access_token)
+                return Response({
+                    "post": post,
+                    "insights": insights,
+                })
+            else:
+                # Get page insights
+                insights = facebook_service.get_page_insights(
+                    profile.page_id, profile.page_access_token
+                )
+                # Get recent posts
+                posts = facebook_service.get_page_posts(
+                    profile.page_id, profile.page_access_token, limit=10
+                )
+
+                return Response({
+                    "page_id": profile.page_id,
+                    "page_name": profile.profile_name,
+                    "insights": insights,
+                    "recent_posts": [
+                        {
+                            "id": post.get("id"),
+                            "message": post.get("message", ""),
+                            "created_time": post.get("created_time"),
+                            "permalink_url": post.get("permalink_url"),
+                            "full_picture": post.get("full_picture"),
+                            "likes": post.get("likes", {}).get("summary", {}).get("total_count", 0),
+                            "comments": post.get("comments", {}).get("summary", {}).get("total_count", 0),
+                            "shares": post.get("shares", {}).get("count", 0),
+                        }
+                        for post in posts
+                    ],
+                })
+
+        except Exception as e:
+            logger.error(f"Facebook analytics fetch failed: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

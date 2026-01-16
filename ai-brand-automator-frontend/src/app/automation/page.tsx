@@ -66,7 +66,7 @@ const PLATFORM_CONFIG = {
     ),
     color: 'bg-[#1877F2]',
     hoverColor: 'hover:bg-[#0d5fc7]',
-    available: false, // Coming soon
+    available: true, // Facebook Page integration enabled
   },
 };
 
@@ -123,7 +123,12 @@ const LINKEDIN_MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
 const TWITTER_MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
 const TWITTER_MAX_VIDEO_SIZE = 512 * 1024 * 1024;  // 512MB
 
-// Shared image size limit (use smaller of the two platforms)
+// Facebook media size limits
+const FACEBOOK_MAX_IMAGE_SIZE = 4 * 1024 * 1024;  // 4MB
+const FACEBOOK_MAX_VIDEO_SIZE = 1024 * 1024 * 1024;  // 1GB
+const FACEBOOK_MAX_POST_LENGTH = 63206;  // Facebook page post limit
+
+// Shared image size limit (use smaller of the platforms)
 const MAX_IMAGE_SIZE = LINKEDIN_MAX_IMAGE_SIZE;
 
 // Twitter constants
@@ -133,9 +138,10 @@ const TWITTER_MAX_LENGTH = 280;
 const getMediaLimits = (platforms: string[]) => {
   const hasTwitter = platforms.includes('twitter');
   const hasLinkedIn = platforms.includes('linkedin');
+  const hasFacebook = platforms.includes('facebook');
   
-  // If no platforms or only unknown platforms, use LinkedIn defaults
-  if (!hasTwitter && !hasLinkedIn) {
+  // If no platforms selected, use LinkedIn defaults (most permissive for documents)
+  if (!hasTwitter && !hasLinkedIn && !hasFacebook) {
     return {
       maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
       maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
@@ -147,41 +153,49 @@ const getMediaLimits = (platforms: string[]) => {
     };
   }
   
-  // If only Twitter selected
-  if (hasTwitter && !hasLinkedIn) {
-    return {
-      maxImageSize: TWITTER_MAX_IMAGE_SIZE,
-      maxVideoSize: TWITTER_MAX_VIDEO_SIZE,
-      maxDocumentSize: 0, // Twitter doesn't support documents
-      imageSizeLabel: '5MB',
-      videoSizeLabel: '512MB',
-      documentSizeLabel: 'N/A',
-      supportsDocuments: false,
-    };
+  // Calculate the most restrictive limits across all selected platforms
+  let maxImage = Infinity;
+  let maxVideo = Infinity;
+  let maxDocument = Infinity;
+  let supportsDocuments = true;
+  
+  if (hasLinkedIn) {
+    maxImage = Math.min(maxImage, LINKEDIN_MAX_IMAGE_SIZE);
+    maxVideo = Math.min(maxVideo, LINKEDIN_MAX_VIDEO_SIZE);
+    maxDocument = Math.min(maxDocument, LINKEDIN_MAX_DOCUMENT_SIZE);
   }
   
-  // If only LinkedIn selected
-  if (hasLinkedIn && !hasTwitter) {
-    return {
-      maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
-      maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
-      maxDocumentSize: LINKEDIN_MAX_DOCUMENT_SIZE,
-      imageSizeLabel: '8MB',
-      videoSizeLabel: '500MB',
-      documentSizeLabel: '100MB',
-      supportsDocuments: true,
-    };
+  if (hasTwitter) {
+    maxImage = Math.min(maxImage, TWITTER_MAX_IMAGE_SIZE);
+    maxVideo = Math.min(maxVideo, TWITTER_MAX_VIDEO_SIZE);
+    supportsDocuments = false; // Twitter doesn't support documents
   }
   
-  // If both platforms selected, use the most restrictive limits
+  if (hasFacebook) {
+    maxImage = Math.min(maxImage, FACEBOOK_MAX_IMAGE_SIZE);
+    maxVideo = Math.min(maxVideo, FACEBOOK_MAX_VIDEO_SIZE);
+    supportsDocuments = false; // Facebook doesn't support document uploads
+  }
+  
+  // If Twitter or Facebook selected, documents not supported
+  if (!supportsDocuments) {
+    maxDocument = 0;
+  }
+  
+  // Format size labels
+  const formatSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024 * 1024) return `${bytes / (1024 * 1024 * 1024)}GB`;
+    return `${bytes / (1024 * 1024)}MB`;
+  };
+  
   return {
-    maxImageSize: Math.min(LINKEDIN_MAX_IMAGE_SIZE, TWITTER_MAX_IMAGE_SIZE), // 5MB (Twitter limit)
-    maxVideoSize: Math.min(LINKEDIN_MAX_VIDEO_SIZE, TWITTER_MAX_VIDEO_SIZE), // 500MB (LinkedIn limit)
-    maxDocumentSize: 0, // Twitter doesn't support documents
-    imageSizeLabel: '5MB',
-    videoSizeLabel: '500MB',
-    documentSizeLabel: 'N/A',
-    supportsDocuments: false, // Twitter doesn't support documents
+    maxImageSize: maxImage === Infinity ? LINKEDIN_MAX_IMAGE_SIZE : maxImage,
+    maxVideoSize: maxVideo === Infinity ? LINKEDIN_MAX_VIDEO_SIZE : maxVideo,
+    maxDocumentSize: supportsDocuments ? maxDocument : 0,
+    imageSizeLabel: formatSize(maxImage === Infinity ? LINKEDIN_MAX_IMAGE_SIZE : maxImage),
+    videoSizeLabel: formatSize(maxVideo === Infinity ? LINKEDIN_MAX_VIDEO_SIZE : maxVideo),
+    documentSizeLabel: supportsDocuments ? formatSize(maxDocument) : 'N/A',
+    supportsDocuments,
   };
 };
 
@@ -189,9 +203,10 @@ const getMediaLimits = (platforms: string[]) => {
 const getMediaHelperText = (platforms: string[]) => {
   const limits = getMediaLimits(platforms);
   const hasTwitter = platforms.includes('twitter');
+  const hasFacebook = platforms.includes('facebook');
   
-  if (hasTwitter && !limits.supportsDocuments) {
-    return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Note: Documents not supported on Twitter`;
+  if ((hasTwitter || hasFacebook) && !limits.supportsDocuments) {
+    return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Note: Documents not supported on ${hasTwitter && hasFacebook ? 'Twitter/Facebook' : hasTwitter ? 'Twitter' : 'Facebook'}`;
   }
   
   return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Documents: PDF, DOC, PPT (max ${limits.documentSizeLabel})`;
@@ -296,6 +311,17 @@ function AutomationPageContent() {
   const [threadTweets, setThreadTweets] = useState<string[]>(['']);
   // Deleting tweet
   const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
+
+  // Facebook compose state
+  const [showFacebookComposeModal, setShowFacebookComposeModal] = useState(false);
+  const [fbPostTitle, setFbPostTitle] = useState('');
+  const [fbPostText, setFbPostText] = useState('');
+  const [fbMediaUrns, setFbMediaUrns] = useState<string[]>([]);
+  const [fbMediaPreview, setFbMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [uploadingFbMedia, setUploadingFbMedia] = useState(false);
+  const [fbPosting, setFbPosting] = useState(false);
+  // Deleting Facebook post
+  const [deletingFbPostId, setDeletingFbPostId] = useState<string | null>(null);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -423,7 +449,7 @@ function AutomationPageContent() {
   }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
 
   const handleConnect = async (platform: string) => {
-    if (platform !== 'linkedin' && platform !== 'twitter') {
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') {
       setMessage({
         type: 'error',
         text: `${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} integration coming soon!`,
@@ -458,7 +484,7 @@ function AutomationPageContent() {
 
   // Test connection (dev mode only - no real platform data)
   const handleTestConnect = async (platform: string) => {
-    if (platform !== 'linkedin' && platform !== 'twitter') return;
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') return;
 
     setConnecting(platform);
     try {
@@ -494,7 +520,7 @@ function AutomationPageContent() {
   };
 
   const handleDisconnect = async (platform: string) => {
-    if (platform !== 'linkedin' && platform !== 'twitter') return;
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') return;
 
     setConnecting(platform);
     try {
@@ -554,7 +580,7 @@ function AutomationPageContent() {
     if (isDocument && !limits.supportsDocuments) {
       setMessage({
         type: 'error',
-        text: 'Documents are not supported on Twitter. Please upload an image or video instead.',
+        text: 'Documents are not supported on Twitter or Facebook. Please upload an image or video instead.',
       });
       return;
     }
@@ -880,6 +906,113 @@ function AutomationPageContent() {
       });
     } finally {
       setTweetPosting(false);
+    }
+  };
+
+  // Handle posting to Facebook Page
+  const handleFacebookPost = async () => {
+    if (!fbPostText.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter some text for your Facebook post',
+      });
+      return;
+    }
+
+    if (fbPostText.length > FACEBOOK_MAX_POST_LENGTH) {
+      setMessage({
+        type: 'error',
+        text: `Post exceeds ${FACEBOOK_MAX_POST_LENGTH} characters`,
+      });
+      return;
+    }
+
+    setFbPosting(true);
+    try {
+      // Build request payload
+      const payload: Record<string, unknown> = {
+        title: fbPostTitle.trim() || undefined,
+        message: fbPostText,
+      };
+      
+      if (fbMediaUrns.length > 0) {
+        payload.media_urls = fbMediaUrns;
+      }
+      
+      const response = await apiClient.post('/automation/facebook/post/', payload);
+
+      if (response.ok) {
+        const data = await response.json();
+        const isTestMode = data.test_mode === true;
+        setMessage({
+          type: 'success',
+          text: isTestMode 
+            ? '🧪 Facebook post simulated (Test Mode - saved to history)' 
+            : `Posted to Facebook successfully! Post ID: ${data.post_id}`,
+        });
+        resetFacebookComposeForm();
+        setShowFacebookComposeModal(false);
+        // Refresh published posts to show the new post
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to post to Facebook',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to post to Facebook:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to post to Facebook',
+      });
+    } finally {
+      setFbPosting(false);
+    }
+  };
+
+  // Reset Facebook compose form
+  const resetFacebookComposeForm = () => {
+    setFbPostTitle('');
+    setFbPostText('');
+    setFbMediaUrns([]);
+    if (fbMediaPreview) {
+      URL.revokeObjectURL(fbMediaPreview.url);
+      setFbMediaPreview(null);
+    }
+  };
+
+  // Handle deleting a Facebook post
+  const handleDeleteFacebookPost = async (postId: string) => {
+    if (!confirm('Are you sure you want to delete this Facebook post? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingFbPostId(postId);
+    try {
+      const response = await apiClient.delete(`/automation/facebook/post/${postId}/`);
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'Facebook post deleted successfully',
+        });
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to delete Facebook post',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete Facebook post:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to delete Facebook post',
+      });
+    } finally {
+      setDeletingFbPostId(null);
     }
   };
 
@@ -1249,6 +1382,17 @@ function AutomationPageContent() {
                         Create Tweet
                       </button>
                     )}
+                    {platform === 'facebook' && (
+                      <button
+                        onClick={() => setShowFacebookComposeModal(true)}
+                        className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Post
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1272,6 +1416,14 @@ function AutomationPageContent() {
                           🐦 Compose Tweet
                         </button>
                       )}
+                      {platform === 'facebook' && (
+                        <button
+                          onClick={() => setShowFacebookComposeModal(true)}
+                          className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                        >
+                          📘 Compose Post
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDisconnect(platform)}
                         disabled={isLoading}
@@ -1290,7 +1442,7 @@ function AutomationPageContent() {
                         {isLoading ? 'Connecting...' : `Connect ${config.name}`}
                       </button>
                       {/* Test Connect Button - Dev Mode Only */}
-                      {(platform === 'linkedin' || platform === 'twitter') && (
+                      {(platform === 'linkedin' || platform === 'twitter' || platform === 'facebook') && (
                         <button
                           onClick={() => handleTestConnect(platform)}
                           disabled={isLoading || loading}
@@ -1374,6 +1526,13 @@ function AutomationPageContent() {
                             <div className="p-1 rounded bg-black" title="Twitter/X">
                               <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                              </svg>
+                            </div>
+                          )}
+                          {post.platforms.includes('facebook') && (
+                            <div className="p-1 rounded bg-[#1877F2]" title="Facebook">
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                               </svg>
                             </div>
                           )}
@@ -1498,6 +1657,13 @@ function AutomationPageContent() {
                           </svg>
                         </div>
                       )}
+                      {post.platforms.includes('facebook') && (
+                        <div className="p-1.5 rounded bg-[#1877F2]" title="Facebook">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                          </svg>
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1534,6 +1700,27 @@ function AutomationPageContent() {
                             title="Delete tweet"
                           >
                             {deletingTweetId === post.post_results!.id ? (
+                              <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                            ) : (
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            )}
+                            Delete
+                          </button>
+                        )}
+                        {/* Delete Button for Facebook posts */}
+                        {post.platforms.includes('facebook') && post.post_results?.id && (
+                          <button
+                            onClick={() => handleDeleteFacebookPost(post.post_results!.id!)}
+                            disabled={deletingFbPostId === post.post_results!.id}
+                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
+                            title="Delete Facebook post"
+                          >
+                            {deletingFbPostId === post.post_results!.id ? (
                               <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -2186,6 +2373,201 @@ function AutomationPageContent() {
         </div>
       )}
 
+      {/* Facebook Compose Modal */}
+      {showFacebookComposeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowFacebookComposeModal(false);
+                resetFacebookComposeForm();
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-blue-600 text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Create Facebook Post</h2>
+                <p className="text-sm text-brand-silver/70">Share content to your Facebook Page</p>
+              </div>
+            </div>
+
+            {/* Info about test mode */}
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <p className="text-blue-400 text-sm">
+                ℹ️ Test mode is automatically enabled when using test credentials. Connect real Facebook Page access to post live content.
+              </p>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title (for tracking)</label>
+                <input
+                  type="text"
+                  value={fbPostTitle}
+                  onChange={(e) => setFbPostTitle(e.target.value)}
+                  placeholder="Give your post a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                <textarea
+                  value={fbPostText}
+                  onChange={(e) => setFbPostText(e.target.value)}
+                  placeholder="What's on your mind?"
+                  rows={5}
+                  maxLength={FACEBOOK_MAX_POST_LENGTH}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="flex justify-between items-center mt-1 text-xs">
+                  <span className={`${
+                    fbPostText.length > FACEBOOK_MAX_POST_LENGTH - 1000 
+                      ? fbPostText.length > FACEBOOK_MAX_POST_LENGTH 
+                        ? 'text-red-400' 
+                        : 'text-amber-400' 
+                      : 'text-brand-silver/50'
+                  }`}>
+                    {fbPostText.length} / {FACEBOOK_MAX_POST_LENGTH} characters
+                  </span>
+                </div>
+              </div>
+
+              {/* Media Upload for Facebook */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingFbMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingFbMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={getAcceptedFileTypes(['facebook'])}
+                      className="hidden"
+                      disabled={uploadingFbMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setFbMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
+                          handleMediaUpload(file, setFbMediaUrns, setUploadingFbMedia, ['facebook']);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {fbMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {fbMediaUrns.length} file{fbMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => {
+                          setFbMediaUrns([]);
+                          if (fbMediaPreview) {
+                            URL.revokeObjectURL(fbMediaPreview.url);
+                            setFbMediaPreview(null);
+                          }
+                        }}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/* Media Preview */}
+                {fbMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {fbMediaPreview.type === 'video' ? (
+                      <video 
+                        src={fbMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={fbMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingFbMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['facebook'])}</p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowFacebookComposeModal(false);
+                  resetFacebookComposeForm();
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleFacebookPost}
+                disabled={
+                  fbPosting || 
+                  uploadingFbMedia || 
+                  !fbPostText.trim() || 
+                  fbPostText.length > FACEBOOK_MAX_POST_LENGTH
+                }
+                className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+              >
+                {fbPosting ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Posting...
+                  </>
+                ) : (
+                  'Post to Facebook'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Schedule Post Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -2320,6 +2702,29 @@ function AutomationPageContent() {
                     </div>
                     <span className="text-sm text-white">Twitter/X</span>
                     <span className="text-xs text-brand-silver/50 ml-auto">Max {TWITTER_MAX_LENGTH} chars</span>
+                  </label>
+                  
+                  {/* Facebook Option */}
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/5 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={schedulePlatforms.includes('facebook')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSchedulePlatforms([...schedulePlatforms, 'facebook']);
+                        } else {
+                          setSchedulePlatforms(schedulePlatforms.filter(p => p !== 'facebook'));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-brand-ghost/30 text-brand-electric focus:ring-brand-electric/50"
+                    />
+                    <div className="p-1.5 rounded bg-[#1877F2]">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-white">Facebook</span>
+                    <span className="text-xs text-brand-silver/50 ml-auto">Max 63,206 chars</span>
                   </label>
                 </div>
                 

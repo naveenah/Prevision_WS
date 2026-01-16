@@ -32,6 +32,17 @@ from .views import (
     TwitterAnalyticsView,
     TwitterWebhookView,
     TwitterWebhookEventsView,
+    # Facebook views
+    FacebookConnectView,
+    FacebookCallbackView,
+    FacebookDisconnectView,
+    FacebookTestConnectView,
+    FacebookPagesView,
+    FacebookSelectPageView,
+    FacebookPostView,
+    FacebookMediaUploadView,
+    FacebookDeletePostView,
+    FacebookAnalyticsView,
 )
 
 router = DefaultRouter()
@@ -148,6 +159,51 @@ urlpatterns = [
         "twitter/webhooks/events/",
         TwitterWebhookEventsView.as_view(),
         name="twitter-webhook-events",
+    ),
+    # Facebook OAuth
+    path("facebook/connect/", FacebookConnectView.as_view(), name="facebook-connect"),
+    path(
+        "facebook/callback/", FacebookCallbackView.as_view(), name="facebook-callback"
+    ),
+    path(
+        "facebook/disconnect/",
+        FacebookDisconnectView.as_view(),
+        name="facebook-disconnect",
+    ),
+    path(
+        "facebook/test-connect/",
+        FacebookTestConnectView.as_view(),
+        name="facebook-test-connect",
+    ),
+    # Facebook Pages
+    path("facebook/pages/", FacebookPagesView.as_view(), name="facebook-pages"),
+    path(
+        "facebook/pages/select/",
+        FacebookSelectPageView.as_view(),
+        name="facebook-select-page",
+    ),
+    # Facebook Posting
+    path("facebook/post/", FacebookPostView.as_view(), name="facebook-post"),
+    path(
+        "facebook/media/upload/",
+        FacebookMediaUploadView.as_view(),
+        name="facebook-media-upload",
+    ),
+    path(
+        "facebook/post/<str:post_id>/",
+        FacebookDeletePostView.as_view(),
+        name="facebook-delete-post",
+    ),
+    # Facebook Analytics
+    path(
+        "facebook/analytics/",
+        FacebookAnalyticsView.as_view(),
+        name="facebook-analytics",
+    ),
+    path(
+        "facebook/analytics/<str:post_id>/",
+        FacebookAnalyticsView.as_view(),
+        name="facebook-analytics-post",
     ),
     # Router URLs
     path("", include(router.urls)),

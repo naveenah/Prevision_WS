@@ -1789,3 +1789,763 @@ class TwitterService:
 
 # Singleton instance
 twitter_service = TwitterService()
+
+
+class FacebookService:
+    """
+    Service for Facebook OAuth 2.0 authentication and Graph API interactions.
+
+    Facebook Graph API for Page management and posting.
+    Documentation:
+    https://developers.facebook.com/docs/facebook-login/guides/access-tokens
+    https://developers.facebook.com/docs/pages-api/
+    """
+
+    AUTHORIZATION_URL = "https://www.facebook.com/v18.0/dialog/oauth"
+    TOKEN_URL = "https://graph.facebook.com/v18.0/oauth/access_token"
+    GRAPH_API_URL = "https://graph.facebook.com/v18.0"
+
+    # Scopes for Facebook Page management
+    # Note: Advanced permissions (pages_manage_posts, pages_manage_engagement,
+    # pages_read_user_content) require App Review. For development, we use only
+    # the basic permissions available without review.
+    # See: https://developers.facebook.com/docs/permissions/reference
+    #
+    # For test users added in the app's Roles section, all permissions work.
+    # For production, submit for App Review to get advanced permissions.
+    SCOPES = [
+        "public_profile",
+        "pages_show_list",  # List pages the user manages (no review needed)
+    ]
+
+    def __init__(self):
+        self.app_id = getattr(settings, "FACEBOOK_APP_ID", None)
+        self.app_secret = getattr(settings, "FACEBOOK_APP_SECRET", None)
+        self.redirect_uri = getattr(
+            settings,
+            "FACEBOOK_REDIRECT_URI",
+            "http://localhost:8000/api/v1/automation/facebook/callback/",
+        )
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if Facebook credentials are configured."""
+        return bool(self.app_id and self.app_secret)
+
+    def get_authorization_url(self, state: str) -> str:
+        """
+        Generate the Facebook OAuth authorization URL.
+
+        Args:
+            state: A unique state token to prevent CSRF attacks
+
+        Returns:
+            The full authorization URL to redirect the user to
+        """
+        if not self.is_configured:
+            raise ValueError("Facebook credentials not configured")
+
+        params = {
+            "client_id": self.app_id,
+            "redirect_uri": self.redirect_uri,
+            "state": state,
+            "scope": ",".join(self.SCOPES),
+            "response_type": "code",
+        }
+
+        return f"{self.AUTHORIZATION_URL}?{urlencode(params)}"
+
+    def exchange_code_for_token(self, code: str) -> dict:
+        """
+        Exchange the authorization code for access token.
+
+        Args:
+            code: The authorization code from Facebook callback
+
+        Returns:
+            Dictionary with access_token, expires_in, etc.
+        """
+        if not self.is_configured:
+            raise ValueError("Facebook credentials not configured")
+
+        params = {
+            "client_id": self.app_id,
+            "redirect_uri": self.redirect_uri,
+            "client_secret": self.app_secret,
+            "code": code,
+        }
+
+        try:
+            response = requests.get(
+                self.TOKEN_URL,
+                params=params,
+                timeout=30,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            # Calculate token expiration time
+            expires_in = token_data.get("expires_in", 5184000)  # Default 60 days
+            token_data["expires_at"] = timezone.now() + timedelta(seconds=expires_in)
+
+            return token_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook token exchange failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to exchange code for token: {str(e)}")
+
+    def get_long_lived_token(self, short_lived_token: str) -> dict:
+        """
+        Exchange a short-lived token for a long-lived token (60 days).
+
+        Args:
+            short_lived_token: The short-lived access token
+
+        Returns:
+            Dictionary with long-lived access_token
+        """
+        if not self.is_configured:
+            raise ValueError("Facebook credentials not configured")
+
+        params = {
+            "grant_type": "fb_exchange_token",
+            "client_id": self.app_id,
+            "client_secret": self.app_secret,
+            "fb_exchange_token": short_lived_token,
+        }
+
+        try:
+            response = requests.get(
+                self.TOKEN_URL,
+                params=params,
+                timeout=30,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            # Long-lived tokens last ~60 days
+            expires_in = token_data.get("expires_in", 5184000)
+            token_data["expires_at"] = timezone.now() + timedelta(seconds=expires_in)
+
+            return token_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook long-lived token exchange failed: {e}")
+            raise Exception(f"Failed to get long-lived token: {str(e)}")
+
+    def get_user_info(self, access_token: str) -> dict:
+        """
+        Get the authenticated user's profile information.
+
+        Args:
+            access_token: Valid Facebook access token
+
+        Returns:
+            Dictionary with user profile data (id, name, etc.)
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/me",
+                params={
+                    "access_token": access_token,
+                    "fields": "id,name,email,picture.type(large)",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook user info fetch failed: {e}")
+            raise Exception(f"Failed to fetch user info: {str(e)}")
+
+    def get_user_pages(self, access_token: str) -> list:
+        """
+        Get the list of pages the user manages.
+
+        Args:
+            access_token: Valid Facebook user access token
+
+        Returns:
+            List of pages with id, name, access_token, category
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/me/accounts",
+                params={
+                    "access_token": access_token,
+                    "fields": "id,name,access_token,category,picture.type(large)",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook pages fetch failed: {e}")
+            raise Exception(f"Failed to fetch user pages: {str(e)}")
+
+    def get_page_info(self, page_id: str, page_access_token: str) -> dict:
+        """
+        Get detailed page information.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+
+        Returns:
+            Dictionary with page details
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{page_id}",
+                params={
+                    "access_token": page_access_token,
+                    "fields": (
+                        "id,name,about,category,fan_count,followers_count,"
+                        "picture.type(large),link,username"
+                    ),
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook page info fetch failed: {e}")
+            raise Exception(f"Failed to fetch page info: {str(e)}")
+
+    def create_page_post(
+        self,
+        page_id: str,
+        page_access_token: str,
+        message: str,
+        link: Optional[str] = None,
+        published: bool = True,
+        scheduled_publish_time: Optional[int] = None,
+    ) -> dict:
+        """
+        Create a text or link post on a Facebook Page.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            message: The post content
+            link: Optional URL to share
+            published: If False, post is unpublished (draft)
+            scheduled_publish_time: Unix timestamp for scheduled post
+
+        Returns:
+            Dictionary with the created post id
+        """
+        payload = {
+            "message": message,
+            "access_token": page_access_token,
+            "published": str(published).lower(),
+        }
+
+        if link:
+            payload["link"] = link
+
+        if scheduled_publish_time and not published:
+            payload["scheduled_publish_time"] = scheduled_publish_time
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/feed",
+                data=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook post created: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook post creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create post: {str(e)}")
+
+    def create_page_photo_post(
+        self,
+        page_id: str,
+        page_access_token: str,
+        photo_url: str,
+        message: Optional[str] = None,
+        published: bool = True,
+    ) -> dict:
+        """
+        Create a photo post on a Facebook Page.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            photo_url: URL of the image to post
+            message: Optional caption
+            published: If False, post is unpublished
+
+        Returns:
+            Dictionary with the created photo post id
+        """
+        payload = {
+            "url": photo_url,
+            "access_token": page_access_token,
+            "published": str(published).lower(),
+        }
+
+        if message:
+            payload["message"] = message
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/photos",
+                data=payload,
+                timeout=60,  # Longer timeout for media
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook photo post created: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook photo post creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create photo post: {str(e)}")
+
+    def upload_photo(
+        self,
+        page_id: str,
+        page_access_token: str,
+        image_data: bytes,
+        message: Optional[str] = None,
+    ) -> dict:
+        """
+        Upload a photo directly from bytes.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            image_data: Raw bytes of the image
+            message: Optional caption
+
+        Returns:
+            Dictionary with the created photo id
+        """
+        files = {"source": ("image.jpg", image_data, "image/jpeg")}
+        payload = {
+            "access_token": page_access_token,
+        }
+
+        if message:
+            payload["message"] = message
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/photos",
+                data=payload,
+                files=files,
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook photo uploaded: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook photo upload failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to upload photo: {str(e)}")
+
+    def start_video_upload(
+        self,
+        page_id: str,
+        page_access_token: str,
+        file_size: int,
+    ) -> dict:
+        """
+        Start a resumable video upload session.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            file_size: Size of the video in bytes
+
+        Returns:
+            Dictionary with upload_session_id and video_id
+        """
+        payload = {
+            "upload_phase": "start",
+            "file_size": file_size,
+            "access_token": page_access_token,
+        }
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/videos",
+                data=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook video upload started: {data.get('video_id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook video upload start failed: {e}")
+            raise Exception(f"Failed to start video upload: {str(e)}")
+
+    def upload_video_chunk(
+        self,
+        page_id: str,
+        page_access_token: str,
+        upload_session_id: str,
+        start_offset: int,
+        chunk_data: bytes,
+    ) -> dict:
+        """
+        Upload a video chunk in a resumable upload session.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            upload_session_id: The upload session ID
+            start_offset: Byte offset to start from
+            chunk_data: The chunk bytes
+
+        Returns:
+            Dictionary with start_offset and end_offset for next chunk
+        """
+        files = {"video_file_chunk": ("chunk", chunk_data, "application/octet-stream")}
+        payload = {
+            "upload_phase": "transfer",
+            "upload_session_id": upload_session_id,
+            "start_offset": start_offset,
+            "access_token": page_access_token,
+        }
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/videos",
+                data=payload,
+                files=files,
+                timeout=120,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook video chunk upload failed: {e}")
+            raise Exception(f"Failed to upload video chunk: {str(e)}")
+
+    def finish_video_upload(
+        self,
+        page_id: str,
+        page_access_token: str,
+        upload_session_id: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        """
+        Finish a resumable video upload and publish.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            upload_session_id: The upload session ID
+            title: Optional video title
+            description: Optional video description
+
+        Returns:
+            Dictionary with the video post success status
+        """
+        payload = {
+            "upload_phase": "finish",
+            "upload_session_id": upload_session_id,
+            "access_token": page_access_token,
+        }
+
+        if title:
+            payload["title"] = title
+        if description:
+            payload["description"] = description
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/videos",
+                data=payload,
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook video upload finished: {data}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook video upload finish failed: {e}")
+            raise Exception(f"Failed to finish video upload: {str(e)}")
+
+    def upload_video_simple(
+        self,
+        page_id: str,
+        page_access_token: str,
+        video_data: bytes,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict:
+        """
+        Simple video upload (for smaller videos under 1GB).
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            video_data: Raw bytes of the video
+            title: Optional video title
+            description: Optional video description
+
+        Returns:
+            Dictionary with the video id
+        """
+        files = {"source": ("video.mp4", video_data, "video/mp4")}
+        payload = {
+            "access_token": page_access_token,
+        }
+
+        if title:
+            payload["title"] = title
+        if description:
+            payload["description"] = description
+
+        try:
+            response = requests.post(
+                f"{self.GRAPH_API_URL}/{page_id}/videos",
+                data=payload,
+                files=files,
+                timeout=600,  # 10 minutes for video upload
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook video uploaded: {data.get('id')}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook video upload failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to upload video: {str(e)}")
+
+    def get_post(self, post_id: str, access_token: str) -> dict:
+        """
+        Get details of a specific post.
+
+        Args:
+            post_id: The post ID
+            access_token: Page access token
+
+        Returns:
+            Dictionary with post details
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{post_id}",
+                params={
+                    "access_token": access_token,
+                    "fields": (
+                        "id,message,created_time,permalink_url,"
+                        "shares,likes.summary(true),comments.summary(true)"
+                    ),
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook post fetch failed: {e}")
+            raise Exception(f"Failed to fetch post: {str(e)}")
+
+    def delete_post(self, post_id: str, access_token: str) -> bool:
+        """
+        Delete a post from a Facebook Page.
+
+        Args:
+            post_id: The post ID
+            access_token: Page access token
+
+        Returns:
+            True if deletion was successful
+        """
+        try:
+            response = requests.delete(
+                f"{self.GRAPH_API_URL}/{post_id}",
+                params={"access_token": access_token},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Facebook post deleted: {post_id}")
+            return data.get("success", False)
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook post deletion failed: {e}")
+            raise Exception(f"Failed to delete post: {str(e)}")
+
+    def get_page_insights(
+        self,
+        page_id: str,
+        page_access_token: str,
+        period: str = "day",
+        metrics: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Get page insights/analytics.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            period: Time period (day, week, days_28)
+            metrics: List of metrics to retrieve
+
+        Returns:
+            Dictionary with page insights
+        """
+        if metrics is None:
+            metrics = [
+                "page_impressions",
+                "page_engaged_users",
+                "page_fans",
+                "page_fan_adds",
+                "page_post_engagements",
+                "page_views_total",
+            ]
+
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{page_id}/insights",
+                params={
+                    "access_token": page_access_token,
+                    "metric": ",".join(metrics),
+                    "period": period,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Parse the insights into a more usable format
+            insights = {}
+            for item in data.get("data", []):
+                metric_name = item.get("name")
+                values = item.get("values", [])
+                if values:
+                    insights[metric_name] = values[-1].get("value", 0)
+
+            return insights
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook page insights fetch failed: {e}")
+            raise Exception(f"Failed to fetch page insights: {str(e)}")
+
+    def get_post_insights(
+        self,
+        post_id: str,
+        page_access_token: str,
+    ) -> dict:
+        """
+        Get insights for a specific post.
+
+        Args:
+            post_id: The post ID
+            page_access_token: The page access token
+
+        Returns:
+            Dictionary with post insights
+        """
+        metrics = [
+            "post_impressions",
+            "post_impressions_unique",
+            "post_engaged_users",
+            "post_clicks",
+            "post_reactions_like_total",
+            "post_reactions_love_total",
+        ]
+
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{post_id}/insights",
+                params={
+                    "access_token": page_access_token,
+                    "metric": ",".join(metrics),
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            # Parse the insights
+            insights = {}
+            for item in data.get("data", []):
+                metric_name = item.get("name")
+                values = item.get("values", [])
+                if values:
+                    insights[metric_name] = values[0].get("value", 0)
+
+            return insights
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook post insights fetch failed: {e}")
+            raise Exception(f"Failed to fetch post insights: {str(e)}")
+
+    def get_page_posts(
+        self,
+        page_id: str,
+        page_access_token: str,
+        limit: int = 25,
+    ) -> list:
+        """
+        Get recent posts from a Facebook Page.
+
+        Args:
+            page_id: The Facebook Page ID
+            page_access_token: The page access token
+            limit: Number of posts to retrieve
+
+        Returns:
+            List of posts with engagement metrics
+        """
+        try:
+            response = requests.get(
+                f"{self.GRAPH_API_URL}/{page_id}/posts",
+                params={
+                    "access_token": page_access_token,
+                    "fields": (
+                        "id,message,created_time,permalink_url,full_picture,"
+                        "shares,likes.summary(true),comments.summary(true)"
+                    ),
+                    "limit": limit,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", [])
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Facebook page posts fetch failed: {e}")
+            raise Exception(f"Failed to fetch page posts: {str(e)}")
+
+
+# Singleton instance
+facebook_service = FacebookService()
