@@ -298,7 +298,7 @@ class OAuthState(models.Model):
 class TwitterWebhookEvent(models.Model):
     """
     Stores incoming webhook events from Twitter Account Activity API.
-    
+
     Events include likes, retweets, mentions, follows, and DMs.
     """
 
@@ -318,8 +318,12 @@ class TwitterWebhookEvent(models.Model):
     for_user_id = models.CharField(
         max_length=50, db_index=True, help_text="Twitter user ID this event is for"
     )
-    payload = models.JSONField(default=dict, help_text="Full event payload from Twitter")
-    read = models.BooleanField(default=False, help_text="Whether user has seen this event")
+    payload = models.JSONField(
+        default=dict, help_text="Full event payload from Twitter"
+    )
+    read = models.BooleanField(
+        default=False, help_text="Whether user has seen this event"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -338,14 +342,14 @@ class TwitterWebhookEvent(models.Model):
 class LinkedInWebhookEvent(models.Model):
     """
     Stores incoming webhook events from LinkedIn.
-    
+
     LinkedIn webhooks can notify about:
     - Share reactions (likes)
     - Share comments
     - Profile mentions
     - Connection updates
     - Organization updates (for company pages)
-    
+
     Docs: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/webhooks
     """
 
@@ -364,10 +368,17 @@ class LinkedInWebhookEvent(models.Model):
         max_length=100, db_index=True, help_text="LinkedIn member URN this event is for"
     )
     resource_urn = models.CharField(
-        max_length=200, blank=True, null=True, help_text="URN of the resource (share, comment, etc.)"
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="URN of the resource (share, comment, etc.)",
     )
-    payload = models.JSONField(default=dict, help_text="Full event payload from LinkedIn")
-    read = models.BooleanField(default=False, help_text="Whether user has seen this event")
+    payload = models.JSONField(
+        default=dict, help_text="Full event payload from LinkedIn"
+    )
+    read = models.BooleanField(
+        default=False, help_text="Whether user has seen this event"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -34,7 +34,7 @@ def publish_scheduled_posts():
 
         results = {}
         errors = []
-        
+
         # Get media URLs/IDs if any
         media_urls = content.media_urls if content.media_urls else []
 
@@ -140,7 +140,7 @@ def publish_single_post(content_id):
 
     results = {}
     errors = []
-    
+
     # Get media URLs/IDs if any
     media_urls = content.media_urls if content.media_urls else []
 

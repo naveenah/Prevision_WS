@@ -777,14 +777,14 @@ class LinkedInService:
     def get_organization_followers(self, access_token: str, org_id: str = None) -> dict:
         """
         Get follower statistics for the user's network.
-        
+
         Note: For personal profiles, LinkedIn API v2 doesn't expose follower counts
         directly. This method provides what's available through the API.
-        
+
         Args:
             access_token: Valid LinkedIn access token
             org_id: Optional organization ID for company page metrics
-            
+
         Returns:
             Dictionary with follower/connection information
         """
@@ -793,7 +793,7 @@ class LinkedInService:
         try:
             # Get network size (connections)
             network_url = "https://api.linkedin.com/v2/networkSizes/urn:li:person:me?edgeType=CompanyFollowedByMember"
-            
+
             response = requests.get(
                 network_url,
                 headers={
@@ -802,7 +802,7 @@ class LinkedInService:
                 },
                 timeout=30,
             )
-            
+
             if response.ok:
                 data = response.json()
                 return {
@@ -811,7 +811,7 @@ class LinkedInService:
             else:
                 # API might not be available for this user/scope
                 return {"first_degree_size": 0, "note": "Network size unavailable"}
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"LinkedIn network size fetch failed: {e}")
             return {"first_degree_size": 0, "error": str(e)}
@@ -819,29 +819,31 @@ class LinkedInService:
     def get_share_statistics(self, access_token: str, share_urn: str) -> dict:
         """
         Get engagement statistics for a specific share/post.
-        
+
         Args:
             access_token: Valid LinkedIn access token
             share_urn: The share URN (e.g., urn:li:share:12345 or urn:li:ugcPost:12345)
-            
+
         Returns:
             Dictionary with engagement metrics (likes, comments, shares, impressions)
         """
         # LinkedIn API v2 uses organizationalEntityShareStatistics for org pages
         # For personal shares, we use socialActions API
-        
+
         try:
             # Get social actions (likes, comments) for the post
             # URL encode the URN
             encoded_urn = share_urn.replace(":", "%3A")
-            
+
             # Get likes count
-            likes_url = f"https://api.linkedin.com/v2/socialActions/{encoded_urn}/likes?count=0"
+            likes_url = (
+                f"https://api.linkedin.com/v2/socialActions/{encoded_urn}/likes?count=0"
+            )
             comments_url = f"https://api.linkedin.com/v2/socialActions/{encoded_urn}/comments?count=0"
-            
+
             likes_count = 0
             comments_count = 0
-            
+
             # Fetch likes
             likes_response = requests.get(
                 likes_url,
@@ -855,7 +857,7 @@ class LinkedInService:
                 likes_data = likes_response.json()
                 # The paging total gives us the count
                 likes_count = likes_data.get("paging", {}).get("total", 0)
-            
+
             # Fetch comments
             comments_response = requests.get(
                 comments_url,
@@ -868,7 +870,7 @@ class LinkedInService:
             if comments_response.ok:
                 comments_data = comments_response.json()
                 comments_count = comments_data.get("paging", {}).get("total", 0)
-            
+
             return {
                 "share_urn": share_urn,
                 "likes": likes_count,
@@ -876,7 +878,7 @@ class LinkedInService:
                 "shares": 0,  # Reshares not easily accessible via v2 API
                 "impressions": 0,  # Impressions require organization analytics
             }
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"LinkedIn share statistics fetch failed: {e}")
             return {
@@ -891,12 +893,12 @@ class LinkedInService:
     def get_user_posts(self, access_token: str, user_urn: str, count: int = 20) -> list:
         """
         Get recent posts by the user.
-        
+
         Args:
             access_token: Valid LinkedIn access token
             user_urn: The user's URN
             count: Number of posts to fetch (max 100)
-            
+
         Returns:
             List of post dictionaries with basic info
         """
@@ -905,13 +907,14 @@ class LinkedInService:
             author_urn = user_urn
         else:
             author_urn = f"urn:li:person:{user_urn}"
-        
+
         encoded_author = author_urn.replace(":", "%3A")
-        
+
         try:
             # Fetch UGC posts by the author
-            url = f"https://api.linkedin.com/v2/ugcPosts?q=authors&authors=List({encoded_author})&count={min(count, 100)}"
-            
+            base_url = "https://api.linkedin.com/v2/ugcPosts"
+            url = f"{base_url}?q=authors&authors=List({encoded_author})&count={min(count, 100)}"
+
             response = requests.get(
                 url,
                 headers={
@@ -920,29 +923,33 @@ class LinkedInService:
                 },
                 timeout=30,
             )
-            
+
             if response.ok:
                 data = response.json()
                 posts = []
-                
+
                 for element in data.get("elements", []):
                     post_urn = element.get("id", "")
                     specific_content = element.get("specificContent", {})
-                    share_content = specific_content.get("com.linkedin.ugc.ShareContent", {})
+                    share_content = specific_content.get(
+                        "com.linkedin.ugc.ShareContent", {}
+                    )
                     commentary = share_content.get("shareCommentary", {})
-                    
-                    posts.append({
-                        "post_urn": post_urn,
-                        "text": commentary.get("text", ""),
-                        "created_time": element.get("created", {}).get("time"),
-                        "lifecycle_state": element.get("lifecycleState"),
-                    })
-                
+
+                    posts.append(
+                        {
+                            "post_urn": post_urn,
+                            "text": commentary.get("text", ""),
+                            "created_time": element.get("created", {}).get("time"),
+                            "lifecycle_state": element.get("lifecycleState"),
+                        }
+                    )
+
                 return posts
             else:
                 logger.error(f"Failed to fetch user posts: {response.status_code}")
                 return []
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"LinkedIn user posts fetch failed: {e}")
             return []
@@ -950,25 +957,25 @@ class LinkedInService:
     def get_analytics_summary(self, access_token: str, user_urn: str) -> dict:
         """
         Get a summary of analytics for the user including profile and post metrics.
-        
+
         Args:
             access_token: Valid LinkedIn access token
             user_urn: The user's URN
-            
+
         Returns:
             Dictionary with user metrics and recent post performance
         """
         # Get user profile info
         profile = self.get_user_profile(access_token)
-        
+
         # Get recent posts
         posts = self.get_user_posts(access_token, user_urn, count=20)
-        
+
         # Get metrics for each post
         posts_with_metrics = []
         total_likes = 0
         total_comments = 0
-        
+
         for post in posts[:10]:  # Limit to 10 to avoid rate limits
             post_urn = post.get("post_urn")
             if post_urn:
@@ -977,10 +984,10 @@ class LinkedInService:
                 posts_with_metrics.append(post)
                 total_likes += metrics.get("likes", 0)
                 total_comments += metrics.get("comments", 0)
-        
+
         # Get network info
         network = self.get_organization_followers(access_token)
-        
+
         return {
             "profile": {
                 "name": profile.get("name"),
@@ -996,8 +1003,12 @@ class LinkedInService:
                 "total_likes": total_likes,
                 "total_comments": total_comments,
                 "engagement_rate": round(
-                    ((total_likes + total_comments) / max(len(posts_with_metrics), 1)) * 100, 2
-                ) if posts_with_metrics else 0,
+                    ((total_likes + total_comments) / max(len(posts_with_metrics), 1))
+                    * 100,
+                    2,
+                )
+                if posts_with_metrics
+                else 0,
             },
         }
 
@@ -1062,9 +1073,11 @@ class TwitterService:
         code_verifier = secrets.token_urlsafe(64)[:128]
 
         # Generate code challenge (SHA256 hash of verifier, base64url encoded)
-        code_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode()).digest()
-        ).decode().rstrip("=")
+        code_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
 
         return code_verifier, code_challenge
 
@@ -1117,6 +1130,7 @@ class TwitterService:
 
         # Twitter requires Basic Auth with client_id:client_secret
         import base64
+
         credentials = base64.b64encode(
             f"{self.client_id}:{self.client_secret}".encode()
         ).decode()
@@ -1165,6 +1179,7 @@ class TwitterService:
         }
 
         import base64
+
         credentials = base64.b64encode(
             f"{self.client_id}:{self.client_secret}".encode()
         ).decode()
@@ -1212,6 +1227,7 @@ class TwitterService:
         }
 
         import base64
+
         credentials = base64.b64encode(
             f"{self.client_id}:{self.client_secret}".encode()
         ).decode()
@@ -1428,19 +1444,21 @@ class TwitterService:
             results = []
             for tweet_data in data.get("data", []):
                 metrics = tweet_data.get("public_metrics", {})
-                results.append({
-                    "tweet_id": tweet_data.get("id"),
-                    "text": tweet_data.get("text", ""),
-                    "created_at": tweet_data.get("created_at"),
-                    "metrics": {
-                        "impressions": metrics.get("impression_count", 0),
-                        "likes": metrics.get("like_count", 0),
-                        "retweets": metrics.get("retweet_count", 0),
-                        "replies": metrics.get("reply_count", 0),
-                        "quotes": metrics.get("quote_count", 0),
-                        "bookmarks": metrics.get("bookmark_count", 0),
-                    },
-                })
+                results.append(
+                    {
+                        "tweet_id": tweet_data.get("id"),
+                        "text": tweet_data.get("text", ""),
+                        "created_at": tweet_data.get("created_at"),
+                        "metrics": {
+                            "impressions": metrics.get("impression_count", 0),
+                            "likes": metrics.get("like_count", 0),
+                            "retweets": metrics.get("retweet_count", 0),
+                            "replies": metrics.get("reply_count", 0),
+                            "quotes": metrics.get("quote_count", 0),
+                            "bookmarks": metrics.get("bookmark_count", 0),
+                        },
+                    }
+                )
 
             return results
 
@@ -1644,7 +1662,7 @@ class TwitterService:
         segment_index = 0
 
         for i in range(0, total_bytes, chunk_size):
-            chunk = media_data[i:i + chunk_size]
+            chunk = media_data[i : i + chunk_size]
             chunk_b64 = base64.b64encode(chunk).decode()
 
             try:
@@ -1665,7 +1683,9 @@ class TwitterService:
                 segment_index += 1
 
             except requests.exceptions.RequestException as e:
-                logger.error(f"Twitter media APPEND failed at segment {segment_index}: {e}")
+                logger.error(
+                    f"Twitter media APPEND failed at segment {segment_index}: {e}"
+                )
                 raise Exception(f"Failed to upload media chunk: {str(e)}")
 
         # FINALIZE phase

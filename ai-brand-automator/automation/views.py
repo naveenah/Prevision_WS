@@ -34,7 +34,6 @@ from .constants import (
     MAX_DOCUMENT_SIZE,
     TWITTER_TEST_ACCESS_TOKEN,
     TWITTER_TEST_REFRESH_TOKEN,
-    TWITTER_POST_MAX_LENGTH,
     TWITTER_IMAGE_TYPES,
     TWITTER_VIDEO_TYPES,
     TWITTER_MEDIA_MAX_IMAGE_SIZE,
@@ -822,7 +821,7 @@ class LinkedInDocumentStatusView(APIView):
 class LinkedInAnalyticsView(APIView):
     """
     Get analytics and engagement metrics for LinkedIn posts.
-    
+
     GET /linkedin/analytics/ - Get user profile and post analytics summary
     GET /linkedin/analytics/<post_urn>/ - Get metrics for a specific post
     """
@@ -843,64 +842,68 @@ class LinkedInAnalyticsView(APIView):
         # Check for test mode
         if profile.access_token == TEST_ACCESS_TOKEN:
             logger.info(f"Test mode analytics request by {request.user.email}")
-            
+
             if post_urn:
                 # Return mock metrics for a specific post
-                return Response({
-                    "test_mode": True,
-                    "post_urn": post_urn,
-                    "text": "Test post content",
-                    "created_time": "2026-01-16T12:00:00Z",
-                    "metrics": {
-                        "likes": 28,
-                        "comments": 5,
-                        "shares": 3,
-                        "impressions": 450,
-                    },
-                })
+                return Response(
+                    {
+                        "test_mode": True,
+                        "post_urn": post_urn,
+                        "text": "Test post content",
+                        "created_time": "2026-01-16T12:00:00Z",
+                        "metrics": {
+                            "likes": 28,
+                            "comments": 5,
+                            "shares": 3,
+                            "impressions": 450,
+                        },
+                    }
+                )
             else:
                 # Return mock user analytics
-                return Response({
-                    "test_mode": True,
-                    "profile": {
-                        "name": "Test User",
-                        "email": "test@example.com",
-                        "picture": None,
-                    },
-                    "network": {
-                        "connections": 500,
-                    },
-                    "posts": [
-                        {
-                            "post_urn": "urn:li:share:test1",
-                            "text": "First test post on LinkedIn!",
-                            "created_time": 1705402800000,
-                            "metrics": {
-                                "likes": 28,
-                                "comments": 5,
-                                "shares": 3,
-                                "impressions": 450,
-                            },
+                return Response(
+                    {
+                        "test_mode": True,
+                        "profile": {
+                            "name": "Test User",
+                            "email": "test@example.com",
+                            "picture": None,
                         },
-                        {
-                            "post_urn": "urn:li:share:test2",
-                            "text": "Second test post about our product",
-                            "created_time": 1705316400000,
-                            "metrics": {
-                                "likes": 42,
-                                "comments": 8,
-                                "shares": 6,
-                                "impressions": 720,
-                            },
+                        "network": {
+                            "connections": 500,
                         },
-                    ],
-                    "totals": {
-                        "total_posts": 2,
-                        "total_likes": 70,
-                        "total_comments": 13,
-                        "engagement_rate": 4.15,
-                    },
-                })
+                        "posts": [
+                            {
+                                "post_urn": "urn:li:share:test1",
+                                "text": "First test post on LinkedIn!",
+                                "created_time": 1705402800000,
+                                "metrics": {
+                                    "likes": 28,
+                                    "comments": 5,
+                                    "shares": 3,
+                                    "impressions": 450,
+                                },
+                            },
+                            {
+                                "post_urn": "urn:li:share:test2",
+                                "text": "Second test post about our product",
+                                "created_time": 1705316400000,
+                                "metrics": {
+                                    "likes": 42,
+                                    "comments": 8,
+                                    "shares": 6,
+                                    "impressions": 720,
+                                },
+                            },
+                        ],
+                        "totals": {
+                            "total_posts": 2,
+                            "total_likes": 70,
+                            "total_comments": 13,
+                            "engagement_rate": 4.15,
+                        },
+                    }
+                )
 
         try:
             access_token = profile.get_valid_access_token()
@@ -909,13 +912,17 @@ class LinkedInAnalyticsView(APIView):
             if post_urn:
                 # Get metrics for a specific post
                 metrics = linkedin_service.get_share_statistics(access_token, post_urn)
-                return Response({
-                    "post_urn": post_urn,
-                    "metrics": metrics,
-                })
+                return Response(
+                    {
+                        "post_urn": post_urn,
+                        "metrics": metrics,
+                    }
+                )
             else:
                 # Get full analytics summary
-                analytics = linkedin_service.get_analytics_summary(access_token, user_urn)
+                analytics = linkedin_service.get_analytics_summary(
+                    access_token, user_urn
+                )
                 return Response(analytics)
 
         except Exception as e:
@@ -929,15 +936,15 @@ class LinkedInAnalyticsView(APIView):
 class LinkedInWebhookView(APIView):
     """
     Handle LinkedIn webhook events.
-    
+
     LinkedIn sends webhooks for:
     - Share reactions (likes)
     - Share comments
     - Mentions
     - Connection updates
-    
+
     Docs: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/webhooks
-    
+
     Note: Webhooks must be registered via LinkedIn Developer Portal.
     """
 
@@ -948,7 +955,7 @@ class LinkedInWebhookView(APIView):
     def post(self, request):
         """
         Handle incoming webhook events from LinkedIn.
-        
+
         LinkedIn sends events in this format:
         {
             "resource": "urn:li:share:123456",
@@ -1001,7 +1008,6 @@ class LinkedInWebhookView(APIView):
 
         # Extract event details
         resource = event_data.get("resource", "")
-        resource_event = event_data.get("resourceEvent", "")
         resource_owner = event_data.get("resourceOwner", "")
         topic = event_data.get("topic", "")
 
@@ -1035,7 +1041,7 @@ class LinkedInWebhookView(APIView):
 class LinkedInWebhookEventsView(APIView):
     """
     Get stored LinkedIn webhook events for the authenticated user.
-    
+
     GET /linkedin/webhooks/events/ - List recent webhook events
     POST /linkedin/webhooks/events/ - Mark events as read
     """
@@ -1057,69 +1063,73 @@ class LinkedInWebhookEventsView(APIView):
 
         # Check for test mode
         if profile.access_token == TEST_ACCESS_TOKEN:
-            return Response({
-                "test_mode": True,
-                "events": [
-                    {
-                        "id": 1,
-                        "event_type": "share_reaction",
-                        "created_at": "2026-01-16T12:00:00Z",
-                        "resource_urn": "urn:li:share:test123",
-                        "payload": {
-                            "resource": "urn:li:share:test123",
-                            "resourceEvent": "CREATED",
-                            "topic": "reactions",
-                            "actor": {
-                                "name": "Jane Smith",
-                                "reaction_type": "LIKE",
+            return Response(
+                {
+                    "test_mode": True,
+                    "events": [
+                        {
+                            "id": 1,
+                            "event_type": "share_reaction",
+                            "created_at": "2026-01-16T12:00:00Z",
+                            "resource_urn": "urn:li:share:test123",
+                            "payload": {
+                                "resource": "urn:li:share:test123",
+                                "resourceEvent": "CREATED",
+                                "topic": "reactions",
+                                "actor": {
+                                    "name": "Jane Smith",
+                                    "reaction_type": "LIKE",
+                                },
                             },
+                            "read": False,
                         },
-                        "read": False,
-                    },
-                    {
-                        "id": 2,
-                        "event_type": "share_comment",
-                        "created_at": "2026-01-16T11:30:00Z",
-                        "resource_urn": "urn:li:comment:test456",
-                        "payload": {
-                            "resource": "urn:li:comment:test456",
-                            "resourceEvent": "CREATED",
-                            "topic": "comments",
-                            "actor": {
-                                "name": "John Doe",
+                        {
+                            "id": 2,
+                            "event_type": "share_comment",
+                            "created_at": "2026-01-16T11:30:00Z",
+                            "resource_urn": "urn:li:comment:test456",
+                            "payload": {
+                                "resource": "urn:li:comment:test456",
+                                "resourceEvent": "CREATED",
+                                "topic": "comments",
+                                "actor": {
+                                    "name": "John Doe",
+                                },
+                                "comment": {
+                                    "text": "Great post! Thanks for sharing.",
+                                },
                             },
-                            "comment": {
-                                "text": "Great post! Thanks for sharing.",
-                            },
+                            "read": False,
                         },
-                        "read": False,
-                    },
-                    {
-                        "id": 3,
-                        "event_type": "connection_update",
-                        "created_at": "2026-01-16T10:00:00Z",
-                        "resource_urn": "urn:li:person:newconnection",
-                        "payload": {
-                            "topic": "connections",
-                            "actor": {
-                                "name": "New Connection",
+                        {
+                            "id": 3,
+                            "event_type": "connection_update",
+                            "created_at": "2026-01-16T10:00:00Z",
+                            "resource_urn": "urn:li:person:newconnection",
+                            "payload": {
+                                "topic": "connections",
+                                "actor": {
+                                    "name": "New Connection",
+                                },
                             },
+                            "read": True,
                         },
-                        "read": True,
-                    },
-                ],
-                "unread_count": 2,
-            })
+                    ],
+                    "unread_count": 2,
+                }
+            )
 
         # Get user's LinkedIn ID from profile
         linkedin_user_id = profile.profile_id
 
         if not linkedin_user_id:
-            return Response({
-                "events": [],
-                "unread_count": 0,
-                "message": "No LinkedIn user ID associated with profile",
-            })
+            return Response(
+                {
+                    "events": [],
+                    "unread_count": 0,
+                    "message": "No LinkedIn user ID associated with profile",
+                }
+            )
 
         # Get recent events for this user
         event_type = request.query_params.get("event_type")
@@ -1139,20 +1149,22 @@ class LinkedInWebhookEventsView(APIView):
             read=False,
         ).count()
 
-        return Response({
-            "events": [
-                {
-                    "id": event.id,
-                    "event_type": event.event_type,
-                    "created_at": event.created_at.isoformat(),
-                    "resource_urn": event.resource_urn,
-                    "payload": event.payload,
-                    "read": event.read,
-                }
-                for event in events
-            ],
-            "unread_count": unread_count,
-        })
+        return Response(
+            {
+                "events": [
+                    {
+                        "id": event.id,
+                        "event_type": event.event_type,
+                        "created_at": event.created_at.isoformat(),
+                        "resource_urn": event.resource_urn,
+                        "payload": event.payload,
+                        "read": event.read,
+                    }
+                    for event in events
+                ],
+                "unread_count": unread_count,
+            }
+        )
 
     def post(self, request):
         """Mark events as read."""
@@ -1177,10 +1189,12 @@ class LinkedInWebhookEventsView(APIView):
                 for_user_id=linkedin_user_id,
             ).update(read=True)
 
-            return Response({
-                "message": f"Marked {updated} events as read",
-                "updated_count": updated,
-            })
+            return Response(
+                {
+                    "message": f"Marked {updated} events as read",
+                    "updated_count": updated,
+                }
+            )
 
         except SocialProfile.DoesNotExist:
             return Response(
@@ -1716,7 +1730,9 @@ class TwitterCallbackView(APIView):
 
         # Check if state is expired (5 minutes)
         if (timezone.now() - oauth_state.created_at).total_seconds() > 300:
-            return HttpResponseRedirect(f"{frontend_url}/automation?error=state_expired")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=state_expired"
+            )
 
         try:
             # Exchange code for tokens with PKCE verifier
@@ -1768,9 +1784,7 @@ class TwitterDisconnectView(APIView):
         from .services import twitter_service
 
         try:
-            profile = SocialProfile.objects.get(
-                user=request.user, platform="twitter"
-            )
+            profile = SocialProfile.objects.get(user=request.user, platform="twitter")
 
             # Revoke token if possible
             if profile.access_token:
@@ -1847,7 +1861,6 @@ class TwitterPostView(APIView):
 
     def post(self, request):
         from .services import twitter_service
-        from .constants import TWITTER_POST_MAX_LENGTH
 
         title = request.data.get("title", "").strip()
         text = request.data.get("text", "").strip()
@@ -2029,7 +2042,7 @@ class TwitterValidateTweetView(APIView):
 class TwitterDeleteTweetView(APIView):
     """
     Delete a tweet by its ID.
-    
+
     Requires a connected Twitter account.
     """
 
@@ -2052,18 +2065,20 @@ class TwitterDeleteTweetView(APIView):
         # Check for test mode
         if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
             logger.info(f"Test mode tweet deletion by {request.user.email}: {tweet_id}")
-            
+
             # Update ContentCalendar if exists
             ContentCalendar.objects.filter(
                 user=request.user,
                 post_results__tweet__id=tweet_id,
             ).update(status="cancelled")
-            
-            return Response({
-                "message": "Tweet deleted (test mode)",
-                "test_mode": True,
-                "tweet_id": tweet_id,
-            })
+
+            return Response(
+                {
+                    "message": "Tweet deleted (test mode)",
+                    "test_mode": True,
+                    "tweet_id": tweet_id,
+                }
+            )
 
         try:
             access_token = profile.get_valid_access_token()
@@ -2077,10 +2092,12 @@ class TwitterDeleteTweetView(APIView):
                 ).update(status="cancelled")
 
                 logger.info(f"Tweet deleted by {request.user.email}: {tweet_id}")
-                return Response({
-                    "message": "Tweet deleted successfully",
-                    "tweet_id": tweet_id,
-                })
+                return Response(
+                    {
+                        "message": "Tweet deleted successfully",
+                        "tweet_id": tweet_id,
+                    }
+                )
             else:
                 return Response(
                     {"error": "Failed to delete tweet"},
@@ -2098,7 +2115,7 @@ class TwitterDeleteTweetView(APIView):
 class TwitterAnalyticsView(APIView):
     """
     Get analytics and metrics for Twitter tweets.
-    
+
     GET /twitter/analytics/ - Get user profile metrics and recent tweet metrics
     GET /twitter/analytics/<tweet_id>/ - Get metrics for a specific tweet
     """
@@ -2122,77 +2139,81 @@ class TwitterAnalyticsView(APIView):
         # Check for test mode
         if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
             logger.info(f"Test mode analytics request by {request.user.email}")
-            
+
             if tweet_id:
                 # Return mock metrics for a specific tweet
-                return Response({
-                    "test_mode": True,
-                    "tweet_id": tweet_id,
-                    "text": "Test tweet content",
-                    "created_at": "2026-01-16T12:00:00Z",
-                    "metrics": {
-                        "impressions": 1250,
-                        "likes": 45,
-                        "retweets": 12,
-                        "replies": 8,
-                        "quotes": 3,
-                        "bookmarks": 5,
-                    },
-                })
+                return Response(
+                    {
+                        "test_mode": True,
+                        "tweet_id": tweet_id,
+                        "text": "Test tweet content",
+                        "created_at": "2026-01-16T12:00:00Z",
+                        "metrics": {
+                            "impressions": 1250,
+                            "likes": 45,
+                            "retweets": 12,
+                            "replies": 8,
+                            "quotes": 3,
+                            "bookmarks": 5,
+                        },
+                    }
+                )
             else:
                 # Return mock user metrics and recent tweets
-                return Response({
-                    "test_mode": True,
-                    "user": {
-                        "user_id": "test_user_123",
-                        "username": "testuser",
-                        "name": "Test User",
-                        "profile_image_url": None,
-                        "metrics": {
-                            "followers": 1500,
-                            "following": 350,
-                            "tweets": 420,
-                            "listed": 12,
-                        },
-                    },
-                    "tweets": [
-                        {
-                            "tweet_id": "test_tweet_1",
-                            "text": "First test tweet",
-                            "created_at": "2026-01-16T12:00:00Z",
+                return Response(
+                    {
+                        "test_mode": True,
+                        "user": {
+                            "user_id": "test_user_123",
+                            "username": "testuser",
+                            "name": "Test User",
+                            "profile_image_url": None,
                             "metrics": {
-                                "impressions": 1250,
-                                "likes": 45,
-                                "retweets": 12,
-                                "replies": 8,
-                                "quotes": 3,
-                                "bookmarks": 5,
+                                "followers": 1500,
+                                "following": 350,
+                                "tweets": 420,
+                                "listed": 12,
                             },
                         },
-                        {
-                            "tweet_id": "test_tweet_2",
-                            "text": "Second test tweet",
-                            "created_at": "2026-01-15T10:00:00Z",
-                            "metrics": {
-                                "impressions": 980,
-                                "likes": 32,
-                                "retweets": 8,
-                                "replies": 5,
-                                "quotes": 1,
-                                "bookmarks": 2,
+                        "tweets": [
+                            {
+                                "tweet_id": "test_tweet_1",
+                                "text": "First test tweet",
+                                "created_at": "2026-01-16T12:00:00Z",
+                                "metrics": {
+                                    "impressions": 1250,
+                                    "likes": 45,
+                                    "retweets": 12,
+                                    "replies": 8,
+                                    "quotes": 3,
+                                    "bookmarks": 5,
+                                },
                             },
+                            {
+                                "tweet_id": "test_tweet_2",
+                                "text": "Second test tweet",
+                                "created_at": "2026-01-15T10:00:00Z",
+                                "metrics": {
+                                    "impressions": 980,
+                                    "likes": 32,
+                                    "retweets": 8,
+                                    "replies": 5,
+                                    "quotes": 1,
+                                    "bookmarks": 2,
+                                },
+                            },
+                        ],
+                        "totals": {
+                            "total_impressions": 2230,
+                            "total_likes": 77,
+                            "total_retweets": 20,
+                            "total_replies": 13,
+                            "total_quotes": 4,
+                            "total_bookmarks": 7,
+                            "engagement_rate": 5.4,
                         },
-                    ],
-                    "totals": {
-                        "total_impressions": 2230,
-                        "total_likes": 77,
-                        "total_retweets": 20,
-                        "total_replies": 13,
-                        "total_quotes": 4,
-                        "total_bookmarks": 7,
-                        "engagement_rate": 5.4,
-                    },
-                })
+                    }
+                )
 
         try:
             access_token = profile.get_valid_access_token()
@@ -2261,11 +2282,13 @@ class TwitterAnalyticsView(APIView):
                 else:
                     totals["engagement_rate"] = 0
 
-                return Response({
-                    "user": user_metrics,
-                    "tweets": tweets_metrics,
-                    "totals": totals,
-                })
+                return Response(
+                    {
+                        "user": user_metrics,
+                        "tweets": tweets_metrics,
+                        "totals": totals,
+                    }
+                )
 
         except Exception as e:
             logger.error(f"Failed to get Twitter analytics: {e}")
@@ -2278,10 +2301,10 @@ class TwitterAnalyticsView(APIView):
 class TwitterWebhookView(APIView):
     """
     Handle Twitter Account Activity API webhooks.
-    
+
     GET - CRC challenge validation
     POST - Receive webhook events (likes, retweets, mentions, DMs)
-    
+
     Note: Requires Twitter Premium or Enterprise tier for Account Activity API.
     """
 
@@ -2292,7 +2315,7 @@ class TwitterWebhookView(APIView):
     def get(self, request):
         """
         Handle CRC (Challenge Response Check) for webhook registration.
-        
+
         Twitter sends a GET request with crc_token parameter.
         We must respond with a HMAC-SHA256 signature of the token.
         """
@@ -2333,7 +2356,7 @@ class TwitterWebhookView(APIView):
     def post(self, request):
         """
         Handle incoming webhook events from Twitter.
-        
+
         Events can include:
         - tweet_create_events: New tweets/replies/mentions
         - favorite_events: Likes
@@ -2405,7 +2428,7 @@ class TwitterWebhookView(APIView):
                     for_user_id=for_user_id,
                     payload=favorite,
                 )
-                logger.info(f"Favorite event stored")
+                logger.info("Favorite event stored")
 
         if "follow_events" in event_data:
             for follow in event_data["follow_events"]:
@@ -2414,7 +2437,7 @@ class TwitterWebhookView(APIView):
                     for_user_id=for_user_id,
                     payload=follow,
                 )
-                logger.info(f"Follow event stored")
+                logger.info("Follow event stored")
 
         if "direct_message_events" in event_data:
             for dm in event_data["direct_message_events"]:
@@ -2423,7 +2446,7 @@ class TwitterWebhookView(APIView):
                     for_user_id=for_user_id,
                     payload=dm,
                 )
-                logger.info(f"DM event stored")
+                logger.info("DM event stored")
 
         return Response({"status": "ok"})
 
@@ -2431,7 +2454,7 @@ class TwitterWebhookView(APIView):
 class TwitterWebhookEventsView(APIView):
     """
     Get stored webhook events for the authenticated user.
-    
+
     GET /twitter/webhooks/events/ - List recent webhook events
     """
 
@@ -2453,41 +2476,45 @@ class TwitterWebhookEventsView(APIView):
 
         # Check for test mode
         if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
-            return Response({
-                "test_mode": True,
-                "events": [
-                    {
-                        "id": 1,
-                        "event_type": "favorite",
-                        "created_at": "2026-01-16T12:00:00Z",
-                        "payload": {
-                            "user": {"screen_name": "testfan"},
-                            "favorited_status": {"text": "Your tweet was liked!"},
+            return Response(
+                {
+                    "test_mode": True,
+                    "events": [
+                        {
+                            "id": 1,
+                            "event_type": "favorite",
+                            "created_at": "2026-01-16T12:00:00Z",
+                            "payload": {
+                                "user": {"screen_name": "testfan"},
+                                "favorited_status": {"text": "Your tweet was liked!"},
+                            },
+                            "read": False,
                         },
-                        "read": False,
-                    },
-                    {
-                        "id": 2,
-                        "event_type": "follow",
-                        "created_at": "2026-01-16T11:30:00Z",
-                        "payload": {
-                            "source": {"screen_name": "newfollower"},
+                        {
+                            "id": 2,
+                            "event_type": "follow",
+                            "created_at": "2026-01-16T11:30:00Z",
+                            "payload": {
+                                "source": {"screen_name": "newfollower"},
+                            },
+                            "read": False,
                         },
-                        "read": False,
-                    },
-                ],
-                "unread_count": 2,
-            })
+                    ],
+                    "unread_count": 2,
+                }
+            )
 
         # Get user's Twitter ID from profile
         twitter_user_id = profile.profile_id
 
         if not twitter_user_id:
-            return Response({
-                "events": [],
-                "unread_count": 0,
-                "message": "No Twitter user ID associated with profile",
-            })
+            return Response(
+                {
+                    "events": [],
+                    "unread_count": 0,
+                    "message": "No Twitter user ID associated with profile",
+                }
+            )
 
         # Get recent events for this user
         event_type = request.query_params.get("event_type")
@@ -2507,19 +2534,21 @@ class TwitterWebhookEventsView(APIView):
             read=False,
         ).count()
 
-        return Response({
-            "events": [
-                {
-                    "id": event.id,
-                    "event_type": event.event_type,
-                    "created_at": event.created_at.isoformat(),
-                    "payload": event.payload,
-                    "read": event.read,
-                }
-                for event in events
-            ],
-            "unread_count": unread_count,
-        })
+        return Response(
+            {
+                "events": [
+                    {
+                        "id": event.id,
+                        "event_type": event.event_type,
+                        "created_at": event.created_at.isoformat(),
+                        "payload": event.payload,
+                        "read": event.read,
+                    }
+                    for event in events
+                ],
+                "unread_count": unread_count,
+            }
+        )
 
     def post(self, request):
         """Mark events as read."""
@@ -2544,10 +2573,12 @@ class TwitterWebhookEventsView(APIView):
                 for_user_id=twitter_user_id,
             ).update(read=True)
 
-            return Response({
-                "message": f"Marked {updated} events as read",
-                "updated_count": updated,
-            })
+            return Response(
+                {
+                    "message": f"Marked {updated} events as read",
+                    "updated_count": updated,
+                }
+            )
 
         except SocialProfile.DoesNotExist:
             return Response(

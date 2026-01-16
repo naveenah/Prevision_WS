@@ -83,7 +83,7 @@ urlpatterns = [
         "linkedin/analytics/<path:post_urn>/",
         LinkedInAnalyticsView.as_view(),
         name="linkedin-analytics-post",
-    ),    # LinkedIn Webhooks
+    ),  # LinkedIn Webhooks
     path(
         "linkedin/webhook/",
         LinkedInWebhookView.as_view(),
@@ -93,7 +93,7 @@ urlpatterns = [
         "linkedin/webhooks/events/",
         LinkedInWebhookEventsView.as_view(),
         name="linkedin-webhook-events",
-    ),    # Twitter/X OAuth
+    ),  # Twitter/X OAuth
     path("twitter/connect/", TwitterConnectView.as_view(), name="twitter-connect"),
     path("twitter/callback/", TwitterCallbackView.as_view(), name="twitter-callback"),
     path(
