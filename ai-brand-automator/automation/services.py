@@ -792,7 +792,10 @@ class LinkedInService:
         # through the connections API (if authorized)
         try:
             # Get network size (connections)
-            network_url = "https://api.linkedin.com/v2/networkSizes/urn:li:person:me?edgeType=CompanyFollowedByMember"
+            network_url = (
+                "https://api.linkedin.com/v2/networkSizes/"
+                "urn:li:person:me?edgeType=CompanyFollowedByMember"
+            )
 
             response = requests.get(
                 network_url,
@@ -839,7 +842,10 @@ class LinkedInService:
             likes_url = (
                 f"https://api.linkedin.com/v2/socialActions/{encoded_urn}/likes?count=0"
             )
-            comments_url = f"https://api.linkedin.com/v2/socialActions/{encoded_urn}/comments?count=0"
+            comments_url = (
+                f"https://api.linkedin.com/v2/socialActions/{encoded_urn}"
+                f"/comments?count=0"
+            )
 
             likes_count = 0
             comments_count = 0
@@ -913,7 +919,10 @@ class LinkedInService:
         try:
             # Fetch UGC posts by the author
             base_url = "https://api.linkedin.com/v2/ugcPosts"
-            url = f"{base_url}?q=authors&authors=List({encoded_author})&count={min(count, 100)}"
+            url = (
+                f"{base_url}?q=authors&authors=List({encoded_author})"
+                f"&count={min(count, 100)}"
+            )
 
             response = requests.get(
                 url,
@@ -1370,7 +1379,8 @@ class TwitterService:
             tweet_id: The ID of the tweet to get metrics for
 
         Returns:
-            Dictionary with tweet metrics (impressions, likes, retweets, replies, quotes)
+            Dictionary with tweet metrics
+            (impressions, likes, retweets, replies, quotes)
         """
         try:
             response = requests.get(
@@ -1485,7 +1495,9 @@ class TwitterService:
                     "Authorization": f"Bearer {access_token}",
                 },
                 params={
-                    "user.fields": "public_metrics,created_at,description,profile_image_url",
+                    "user.fields": (
+                        "public_metrics,created_at,description,profile_image_url"
+                    ),
                 },
                 timeout=30,
             )
@@ -1548,7 +1560,8 @@ class TwitterService:
         Upload media to Twitter for use in tweets.
 
         Twitter uses v1.1 media upload endpoint (still required for v2 tweets).
-        Documentation: https://developer.twitter.com/en/docs/twitter-api/v1/media/upload-media/overview
+        Documentation: https://developer.twitter.com/en/docs/twitter-api/
+            v1/media/upload-media/overview
 
         Args:
             access_token: Valid Twitter access token
@@ -1599,9 +1612,10 @@ class TwitterService:
                     # Check for 403 Forbidden - usually means missing permissions
                     if e.response.status_code == 403:
                         raise Exception(
-                            "Twitter media upload forbidden (403). Your Twitter Developer app "
-                            "needs 'Basic' tier ($100/mo) or ensure 'Read and Write' permissions "
-                            "are enabled in the Twitter Developer Portal."
+                            "Twitter media upload forbidden (403). "
+                            "Your Twitter Developer app needs 'Basic' "
+                            "tier ($100/mo) or ensure 'Read and Write' "
+                            "permissions are enabled in the Developer Portal."
                         )
                 raise Exception(f"Failed to upload media: {str(e)}")
 
@@ -1651,9 +1665,10 @@ class TwitterService:
             if hasattr(e, "response") and e.response is not None:
                 if e.response.status_code == 403:
                     raise Exception(
-                        "Twitter media upload forbidden (403). Your Twitter Developer app "
-                        "needs 'Basic' tier ($100/mo) or ensure 'Read and Write' permissions "
-                        "are enabled in the Twitter Developer Portal."
+                        "Twitter media upload forbidden (403). "
+                        "Your Twitter Developer app needs 'Basic' "
+                        "tier ($100/mo) or ensure 'Read and Write' "
+                        "permissions are enabled in the Developer Portal."
                     )
             raise Exception(f"Failed to initialize media upload: {str(e)}")
 

@@ -943,7 +943,8 @@ class LinkedInWebhookView(APIView):
     - Mentions
     - Connection updates
 
-    Docs: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/webhooks
+    Docs: https://learn.microsoft.com/en-us/linkedin/
+        marketing/integrations/community-management/webhooks
 
     Note: Webhooks must be registered via LinkedIn Developer Portal.
     """

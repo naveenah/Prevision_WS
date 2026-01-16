@@ -350,7 +350,8 @@ class LinkedInWebhookEvent(models.Model):
     - Connection updates
     - Organization updates (for company pages)
 
-    Docs: https://learn.microsoft.com/en-us/linkedin/marketing/integrations/community-management/webhooks
+    Docs: https://learn.microsoft.com/en-us/linkedin/
+        marketing/integrations/community-management/webhooks
     """
 
     EVENT_TYPE_CHOICES = [
