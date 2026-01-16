@@ -25,6 +25,7 @@ from .views import (
     TwitterValidateTweetView,
     TwitterMediaUploadView,
     TwitterMediaStatusView,
+    TwitterDeleteTweetView,
 )
 
 router = DefaultRouter()
@@ -94,6 +95,11 @@ urlpatterns = [
         "twitter/media/status/<str:media_id>/",
         TwitterMediaStatusView.as_view(),
         name="twitter-media-status",
+    ),
+    path(
+        "twitter/tweet/<str:tweet_id>/",
+        TwitterDeleteTweetView.as_view(),
+        name="twitter-delete-tweet",
     ),
     # Router URLs
     path("", include(router.urls)),

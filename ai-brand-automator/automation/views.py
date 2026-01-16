@@ -1654,3 +1654,72 @@ class TwitterValidateTweetView(APIView):
         validation = twitter_service.validate_tweet_length(text, is_premium)
 
         return Response(validation)
+
+
+class TwitterDeleteTweetView(APIView):
+    """
+    Delete a tweet by its ID.
+    
+    Requires a connected Twitter account.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, tweet_id):
+        from .services import twitter_service
+        from .constants import TWITTER_TEST_ACCESS_TOKEN
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode tweet deletion by {request.user.email}: {tweet_id}")
+            
+            # Update ContentCalendar if exists
+            ContentCalendar.objects.filter(
+                user=request.user,
+                post_results__tweet__id=tweet_id,
+            ).update(status="cancelled")
+            
+            return Response({
+                "message": "Tweet deleted (test mode)",
+                "test_mode": True,
+                "tweet_id": tweet_id,
+            })
+
+        try:
+            access_token = profile.get_valid_access_token()
+            success = twitter_service.delete_tweet(access_token, tweet_id)
+
+            if success:
+                # Update ContentCalendar if exists
+                ContentCalendar.objects.filter(
+                    user=request.user,
+                    post_results__id=tweet_id,
+                ).update(status="cancelled")
+
+                logger.info(f"Tweet deleted by {request.user.email}: {tweet_id}")
+                return Response({
+                    "message": "Tweet deleted successfully",
+                    "tweet_id": tweet_id,
+                })
+            else:
+                return Response(
+                    {"error": "Failed to delete tweet"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to delete tweet: {e}")
+            return Response(
+                {"error": f"Failed to delete tweet: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

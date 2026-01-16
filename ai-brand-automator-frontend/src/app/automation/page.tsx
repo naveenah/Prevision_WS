@@ -79,6 +79,13 @@ interface ScheduledPost {
   scheduled_date: string;
   status: string;
   status_display: string;
+  post_results?: {
+    id?: string;
+    text?: string;
+    created_at?: string;
+    author_id?: string;
+    [key: string]: unknown;
+  };
 }
 
 interface AutomationTask {
@@ -283,8 +290,17 @@ function AutomationPageContent() {
   const [tweetText, setTweetText] = useState('');
   const [tweetMediaUrns, setTweetMediaUrns] = useState<string[]>([]);
   const [tweetMediaPreview, setTweetMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [tweetMediaAltText, setTweetMediaAltText] = useState('');
   const [uploadingTweetMedia, setUploadingTweetMedia] = useState(false);
   const [tweetPosting, setTweetPosting] = useState(false);
+  // Reply/Quote tweet
+  const [tweetReplyToId, setTweetReplyToId] = useState('');
+  const [tweetQuoteId, setTweetQuoteId] = useState('');
+  // Thread mode
+  const [isThreadMode, setIsThreadMode] = useState(false);
+  const [threadTweets, setThreadTweets] = useState<string[]>(['']);
+  // Deleting tweet
+  const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -688,6 +704,12 @@ function AutomationPageContent() {
 
   // Handle posting to Twitter/X
   const handleTwitterPost = async () => {
+    // Thread mode handling
+    if (isThreadMode) {
+      await handleThreadPost();
+      return;
+    }
+
     if (!tweetTitle.trim()) {
       setMessage({
         type: 'error',
@@ -714,12 +736,26 @@ function AutomationPageContent() {
 
     setTweetPosting(true);
     try {
-      // Always call the backend - test mode is handled by the backend based on Twitter profile settings
-      const response = await apiClient.post('/automation/twitter/post/', {
+      // Build request payload
+      const payload: Record<string, unknown> = {
         title: tweetTitle.trim() || undefined,
         text: tweetText,
-        media_ids: tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined,
-      });
+      };
+      
+      if (tweetMediaUrns.length > 0) {
+        payload.media_ids = tweetMediaUrns;
+      }
+      if (tweetReplyToId.trim()) {
+        payload.reply_to_id = tweetReplyToId.trim();
+      }
+      if (tweetQuoteId.trim()) {
+        payload.quote_tweet_id = tweetQuoteId.trim();
+      }
+      if (tweetMediaAltText.trim() && tweetMediaUrns.length > 0) {
+        payload.alt_text = tweetMediaAltText.trim();
+      }
+      
+      const response = await apiClient.post('/automation/twitter/post/', payload);
 
       if (response.ok) {
         const data = await response.json();
@@ -730,13 +766,7 @@ function AutomationPageContent() {
             ? '🧪 Tweet simulated (Test Mode - saved to history)' 
             : `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
         });
-        setTweetTitle('');
-        setTweetText('');
-        setTweetMediaUrns([]);
-        if (tweetMediaPreview) {
-          URL.revokeObjectURL(tweetMediaPreview.url);
-          setTweetMediaPreview(null);
-        }
+        resetTwitterComposeForm();
         setShowTwitterComposeModal(false);
         // Refresh published posts to show the new tweet
         fetchPublishedPosts();
@@ -755,6 +785,132 @@ function AutomationPageContent() {
       });
     } finally {
       setTweetPosting(false);
+    }
+  };
+
+  // Reset Twitter compose form
+  const resetTwitterComposeForm = () => {
+    setTweetTitle('');
+    setTweetText('');
+    setTweetMediaUrns([]);
+    setTweetMediaAltText('');
+    setTweetReplyToId('');
+    setTweetQuoteId('');
+    setIsThreadMode(false);
+    setThreadTweets(['']);
+    if (tweetMediaPreview) {
+      URL.revokeObjectURL(tweetMediaPreview.url);
+      setTweetMediaPreview(null);
+    }
+  };
+
+  // Handle thread posting (multiple tweets in sequence)
+  const handleThreadPost = async () => {
+    const validTweets = threadTweets.filter(t => t.trim().length > 0);
+    
+    if (validTweets.length === 0) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter at least one tweet for your thread',
+      });
+      return;
+    }
+
+    // Validate all tweets are within limit
+    const overLimitIndex = validTweets.findIndex(t => t.length > TWITTER_MAX_LENGTH);
+    if (overLimitIndex !== -1) {
+      setMessage({
+        type: 'error',
+        text: `Tweet ${overLimitIndex + 1} exceeds ${TWITTER_MAX_LENGTH} characters`,
+      });
+      return;
+    }
+
+    setTweetPosting(true);
+    try {
+      let previousTweetId: string | null = null;
+      const postedTweets: string[] = [];
+
+      for (let i = 0; i < validTweets.length; i++) {
+        const payload: Record<string, unknown> = {
+          title: i === 0 ? (tweetTitle.trim() || `Thread - ${new Date().toLocaleString()}`) : `Thread part ${i + 1}`,
+          text: validTweets[i],
+        };
+        
+        // After the first tweet, reply to the previous one
+        if (previousTweetId) {
+          payload.reply_to_id = previousTweetId;
+        }
+        
+        // Add media only to the first tweet
+        if (i === 0 && tweetMediaUrns.length > 0) {
+          payload.media_ids = tweetMediaUrns;
+          if (tweetMediaAltText.trim()) {
+            payload.alt_text = tweetMediaAltText.trim();
+          }
+        }
+
+        const response = await apiClient.post('/automation/twitter/post/', payload);
+
+        if (response.ok) {
+          const data = await response.json();
+          previousTweetId = data.tweet_id || data.tweet?.id;
+          postedTweets.push(previousTweetId || 'unknown');
+        } else {
+          const error = await response.json();
+          throw new Error(error.error || `Failed to post tweet ${i + 1}`);
+        }
+      }
+
+      setMessage({
+        type: 'success',
+        text: `Thread posted successfully! ${postedTweets.length} tweets created.`,
+      });
+      resetTwitterComposeForm();
+      setShowTwitterComposeModal(false);
+      fetchPublishedPosts();
+    } catch (error) {
+      console.error('Failed to post thread:', error);
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to post thread',
+      });
+    } finally {
+      setTweetPosting(false);
+    }
+  };
+
+  // Handle deleting a tweet
+  const handleDeleteTweet = async (tweetId: string) => {
+    if (!confirm('Are you sure you want to delete this tweet? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingTweetId(tweetId);
+    try {
+      const response = await apiClient.delete(`/automation/twitter/tweet/${tweetId}/`);
+
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'Tweet deleted successfully',
+        });
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to delete tweet',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete tweet:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to delete tweet',
+      });
+    } finally {
+      setDeletingTweetId(null);
     }
   };
 
@@ -1353,7 +1509,7 @@ function AutomationPageContent() {
                         )}
                       </div>
                       <p className="text-brand-silver/70 text-sm mt-1 line-clamp-2">{post.content}</p>
-                      <div className="flex items-center gap-4 mt-3">
+                      <div className="flex items-center justify-between mt-3">
                         <span className="text-xs text-green-400 flex items-center gap-1">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1366,6 +1522,27 @@ function AutomationPageContent() {
                             minute: '2-digit'
                           })}
                         </span>
+                        {/* Delete Button for Twitter posts */}
+                        {post.platforms.includes('twitter') && post.post_results?.id && (
+                          <button
+                            onClick={() => handleDeleteTweet(post.post_results!.id!)}
+                            disabled={deletingTweetId === post.post_results!.id}
+                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
+                            title="Delete tweet"
+                          >
+                            {deletingTweetId === post.post_results!.id ? (
+                              <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                            ) : (
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            )}
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1684,18 +1861,12 @@ function AutomationPageContent() {
       {/* Twitter Compose Tweet Modal */}
       {showTwitterComposeModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="glass-card w-full max-w-lg p-6 relative">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
             {/* Close button */}
             <button
               onClick={() => {
                 setShowTwitterComposeModal(false);
-                setTweetTitle('');
-                setTweetText('');
-                setTweetMediaUrns([]);
-                if (tweetMediaPreview) {
-                  URL.revokeObjectURL(tweetMediaPreview.url);
-                  setTweetMediaPreview(null);
-                }
+                resetTwitterComposeForm();
               }}
               className="absolute top-4 right-4 text-brand-silver hover:text-white"
             >
@@ -1712,11 +1883,37 @@ function AutomationPageContent() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-heading font-bold text-white">Create Tweet</h2>
+                <h2 className="text-xl font-heading font-bold text-white">
+                  {isThreadMode ? 'Create Thread' : 'Create Tweet'}
+                </h2>
                 <p className="text-sm text-brand-silver/70">
-                  Share your thoughts on Twitter/X
+                  {isThreadMode ? 'Post multiple tweets as a thread' : 'Share your thoughts on Twitter/X'}
                 </p>
               </div>
+            </div>
+
+            {/* Mode Toggle: Single Tweet / Thread */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setIsThreadMode(false)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !isThreadMode 
+                    ? 'bg-brand-electric text-brand-midnight' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                Single Tweet
+              </button>
+              <button
+                onClick={() => setIsThreadMode(true)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isThreadMode 
+                    ? 'bg-brand-electric text-brand-midnight' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                🧵 Thread
+              </button>
             </div>
 
             {/* Info about test mode */}
@@ -1739,28 +1936,108 @@ function AutomationPageContent() {
                 />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
-                <textarea
-                  value={tweetText}
-                  onChange={(e) => setTweetText(e.target.value)}
-                  placeholder="What's happening?"
-                  rows={4}
-                  maxLength={TWITTER_MAX_LENGTH}
-                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
-                />
-                <div className="flex justify-between items-center mt-1 text-xs">
-                  <span className={`${
-                    tweetText.length > TWITTER_MAX_LENGTH - 20 
-                      ? tweetText.length > TWITTER_MAX_LENGTH 
-                        ? 'text-red-400' 
-                        : 'text-amber-400' 
-                      : 'text-brand-silver/50'
-                  }`}>
-                    {tweetText.length} / {TWITTER_MAX_LENGTH} characters
-                  </span>
+              {/* Thread Mode: Multiple Tweets */}
+              {isThreadMode ? (
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-brand-silver">Thread Tweets</label>
+                  {threadTweets.map((tweet, index) => (
+                    <div key={index} className="relative">
+                      <div className="flex items-start gap-2">
+                        <span className="text-brand-silver/50 text-sm mt-3 w-6">{index + 1}.</span>
+                        <div className="flex-1">
+                          <textarea
+                            value={tweet}
+                            onChange={(e) => {
+                              const newTweets = [...threadTweets];
+                              newTweets[index] = e.target.value;
+                              setThreadTweets(newTweets);
+                            }}
+                            placeholder={index === 0 ? "Start your thread..." : "Continue your thread..."}
+                            rows={3}
+                            maxLength={TWITTER_MAX_LENGTH}
+                            className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                          />
+                          <div className="flex justify-between items-center mt-1 text-xs">
+                            <span className={`${
+                              tweet.length > TWITTER_MAX_LENGTH - 20 
+                                ? tweet.length > TWITTER_MAX_LENGTH 
+                                  ? 'text-red-400' 
+                                  : 'text-amber-400' 
+                                : 'text-brand-silver/50'
+                            }`}>
+                              {tweet.length} / {TWITTER_MAX_LENGTH}
+                            </span>
+                            {threadTweets.length > 1 && (
+                              <button
+                                onClick={() => setThreadTweets(threadTweets.filter((_, i) => i !== index))}
+                                className="text-red-400 hover:text-red-300 text-xs"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setThreadTweets([...threadTweets, ''])}
+                    className="w-full py-2 rounded-lg border border-dashed border-brand-ghost/30 text-brand-silver/70 hover:text-brand-silver hover:border-brand-ghost/50 transition-colors text-sm"
+                  >
+                    + Add another tweet to thread
+                  </button>
                 </div>
-              </div>
+              ) : (
+                /* Single Tweet Mode */
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                  <textarea
+                    value={tweetText}
+                    onChange={(e) => setTweetText(e.target.value)}
+                    placeholder="What's happening?"
+                    rows={4}
+                    maxLength={TWITTER_MAX_LENGTH}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                  />
+                  <div className="flex justify-between items-center mt-1 text-xs">
+                    <span className={`${
+                      tweetText.length > TWITTER_MAX_LENGTH - 20 
+                        ? tweetText.length > TWITTER_MAX_LENGTH 
+                          ? 'text-red-400' 
+                          : 'text-amber-400' 
+                        : 'text-brand-silver/50'
+                    }`}>
+                      {tweetText.length} / {TWITTER_MAX_LENGTH} characters
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Reply/Quote Tweet (only for single tweet mode) */}
+              {!isThreadMode && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-brand-silver mb-1">Reply to Tweet ID (optional)</label>
+                    <input
+                      type="text"
+                      value={tweetReplyToId}
+                      onChange={(e) => setTweetReplyToId(e.target.value)}
+                      placeholder="e.g., 1234567890"
+                      className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-2 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-silver mb-1">Quote Tweet ID (optional)</label>
+                    <input
+                      type="text"
+                      value={tweetQuoteId}
+                      onChange={(e) => setTweetQuoteId(e.target.value)}
+                      placeholder="e.g., 1234567890"
+                      className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-2 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Media Upload for Twitter */}
               <div>
@@ -1842,6 +2119,25 @@ function AutomationPageContent() {
                     )}
                   </div>
                 )}
+                {/* Alt Text for Accessibility */}
+                {tweetMediaUrns.length > 0 && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-brand-silver mb-1">
+                      Alt Text (for accessibility)
+                    </label>
+                    <input
+                      type="text"
+                      value={tweetMediaAltText}
+                      onChange={(e) => setTweetMediaAltText(e.target.value)}
+                      placeholder="Describe your image for screen readers"
+                      maxLength={1000}
+                      className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-2 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 text-sm"
+                    />
+                    <p className="text-xs text-brand-silver/50 mt-1">
+                      {tweetMediaAltText.length}/1000 characters - Helps users with visual impairments
+                    </p>
+                  </div>
+                )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['twitter'])}</p>
               </div>
             </div>
@@ -1851,13 +2147,7 @@ function AutomationPageContent() {
               <button
                 onClick={() => {
                   setShowTwitterComposeModal(false);
-                  setTweetTitle('');
-                  setTweetText('');
-                  setTweetMediaUrns([]);
-                  if (tweetMediaPreview) {
-                    URL.revokeObjectURL(tweetMediaPreview.url);
-                    setTweetMediaPreview(null);
-                  }
+                  resetTwitterComposeForm();
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1865,7 +2155,15 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleTwitterPost}
-                disabled={tweetPosting || uploadingTweetMedia || !tweetTitle.trim() || !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH}
+                disabled={
+                  tweetPosting || 
+                  uploadingTweetMedia || 
+                  !tweetTitle.trim() || 
+                  (isThreadMode 
+                    ? threadTweets.filter(t => t.trim()).length === 0 || threadTweets.some(t => t.length > TWITTER_MAX_LENGTH)
+                    : !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH
+                  )
+                }
                 className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-black hover:bg-gray-800"
               >
                 {tweetPosting ? (
@@ -1874,10 +2172,10 @@ function AutomationPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Posting...
+                    {isThreadMode ? 'Posting Thread...' : 'Posting...'}
                   </>
                 ) : (
-                  'Post Tweet'
+                  isThreadMode ? `Post Thread (${threadTweets.filter(t => t.trim()).length} tweets)` : 'Post Tweet'
                 )}
               </button>
             </div>
