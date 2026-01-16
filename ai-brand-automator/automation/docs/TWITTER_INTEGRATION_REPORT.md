@@ -195,9 +195,39 @@ CELERY_BEAT_SCHEDULE = {
 | Platform Toggle | ✅ Complete | Select LinkedIn and/or Twitter for scheduling |
 | Recent Activity | ✅ Complete | Shows all published tweets with test mode badge |
 | Auto-Refresh | ✅ Complete | 30-second polling for updates |
+| Analytics Dashboard | ✅ Complete | Collapsible metrics view with engagement stats |
+| Notifications | ✅ Complete | Bell icon with unread count and dropdown |
 
 **Files:**
-- `src/app/automation/page.tsx` - Main automation page (2400+ lines)
+- `src/app/automation/page.tsx` - Main automation page (3000+ lines)
+
+### 8. Analytics & Webhooks
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| User Profile Metrics | ✅ Complete | Followers, following, tweets, listed count |
+| Tweet Metrics | ✅ Complete | Impressions, likes, retweets, replies, quotes, bookmarks |
+| Engagement Rate | ✅ Complete | Calculated from total engagements / impressions |
+| Multi-Tweet Metrics | ✅ Complete | Batch fetch for up to 100 tweets at once |
+| Webhook CRC Validation | ✅ Complete | HMAC-SHA256 challenge response for Twitter |
+| Webhook Event Storage | ✅ Complete | TwitterWebhookEvent model for event persistence |
+| Notification UI | ✅ Complete | Bell icon, unread badge, dropdown list |
+| Mark Events Read | ✅ Complete | Single or bulk mark as read |
+
+**Endpoints:**
+- `GET /api/v1/automation/twitter/analytics/` - Get user metrics + recent tweet metrics
+- `GET /api/v1/automation/twitter/analytics/<tweet_id>/` - Get specific tweet metrics
+- `GET /api/v1/automation/twitter/webhook/` - CRC challenge validation
+- `POST /api/v1/automation/twitter/webhook/` - Receive webhook events
+- `GET /api/v1/automation/twitter/webhooks/events/` - List stored events
+- `POST /api/v1/automation/twitter/webhooks/events/` - Mark events as read
+
+**Note:** Twitter webhooks require Premium or Enterprise tier for Account Activity API.
+
+**Files:**
+- `automation/services.py` - TwitterService analytics methods
+- `automation/views.py` - TwitterAnalyticsView, TwitterWebhookView, TwitterWebhookEventsView
+- `automation/models.py` - TwitterWebhookEvent model
 
 ---
 
@@ -494,8 +524,9 @@ curl -X POST http://localhost:8000/api/v1/automation/twitter/disconnect/ \
 
 | Limitation | Reason | Workaround |
 |------------|--------|------------|
-| No analytics | Twitter API v2 metrics not integrated | Future enhancement |
 | Rate limits not tracked | App-level only | Monitor Twitter dashboard |
+| Webhook requires Premium tier | Twitter Account Activity API pricing | Use polling for now |
+| impression_count may be 0 | Requires tweet author context | Use own tweets only |
 
 ---
 
@@ -505,12 +536,16 @@ The following features were implemented and are now available:
 
 | Feature | Status | Implementation Date |
 |---------|--------|---------------------|
+| Twitter Analytics Dashboard | ✅ Complete | 2026-01-16 |
+| Webhook Notifications | ✅ Complete | 2026-01-16 |
 | Thread posting (multiple tweets) | ✅ Complete | 2026-01-16 |
 | Reply/Quote tweet UI | ✅ Complete | 2026-01-16 |
 | Tweet deletion UI | ✅ Complete | 2026-01-16 |
 | Media alt text for accessibility | ✅ Complete | 2026-01-16 |
 
 **Details:**
+- **Twitter Analytics**: Collapsible dashboard showing user metrics (followers, following, tweets) and tweet performance (impressions, likes, retweets, engagement rate)
+- **Webhook Notifications**: Bell icon with unread count badge, dropdown showing recent events (likes, follows, mentions)
 - **Thread Posting**: Toggle between "Single Tweet" and "Thread" mode. Add/remove tweets in thread, posts are chained using reply_to_id
 - **Reply/Quote Tweet**: Input fields for Reply to Tweet ID and Quote Tweet ID in compose modal
 - **Tweet Deletion**: Delete button appears on published tweets in Recent Activity, with confirmation
@@ -522,10 +557,10 @@ The following features were implemented and are now available:
 
 | Feature | Priority | Effort |
 |---------|----------|--------|
-| Twitter Analytics dashboard | LOW | 2-3 days |
 | Twitter Premium (25K chars) toggle | LOW | 0.5 day |
 | Twitter API rate limit tracking | MEDIUM | 1 day |
-| Webhooks for notifications | LOW | 2-3 days |
+| Historical analytics charts | LOW | 2-3 days |
+| Scheduled analytics reports | LOW | 2-3 days |
 
 ---
 
@@ -533,6 +568,8 @@ The following features were implemented and are now available:
 
 | Date | Changes |
 |------|---------|
+| 2026-01-16 | Added Twitter Analytics dashboard with user and tweet metrics |
+| 2026-01-16 | Added Webhook notifications with bell icon and event dropdown |
 | 2026-01-16 | Added Thread Posting mode with multiple tweet support |
 | 2026-01-16 | Added Reply/Quote tweet UI with input fields |
 | 2026-01-16 | Added Tweet Deletion UI with confirmation dialog |
