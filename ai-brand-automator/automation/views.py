@@ -819,6 +819,113 @@ class LinkedInDocumentStatusView(APIView):
             )
 
 
+class LinkedInAnalyticsView(APIView):
+    """
+    Get analytics and engagement metrics for LinkedIn posts.
+    
+    GET /linkedin/analytics/ - Get user profile and post analytics summary
+    GET /linkedin/analytics/<post_urn>/ - Get metrics for a specific post
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_urn=None):
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode analytics request by {request.user.email}")
+            
+            if post_urn:
+                # Return mock metrics for a specific post
+                return Response({
+                    "test_mode": True,
+                    "post_urn": post_urn,
+                    "text": "Test post content",
+                    "created_time": "2026-01-16T12:00:00Z",
+                    "metrics": {
+                        "likes": 28,
+                        "comments": 5,
+                        "shares": 3,
+                        "impressions": 450,
+                    },
+                })
+            else:
+                # Return mock user analytics
+                return Response({
+                    "test_mode": True,
+                    "profile": {
+                        "name": "Test User",
+                        "email": "test@example.com",
+                        "picture": None,
+                    },
+                    "network": {
+                        "connections": 500,
+                    },
+                    "posts": [
+                        {
+                            "post_urn": "urn:li:share:test1",
+                            "text": "First test post on LinkedIn!",
+                            "created_time": 1705402800000,
+                            "metrics": {
+                                "likes": 28,
+                                "comments": 5,
+                                "shares": 3,
+                                "impressions": 450,
+                            },
+                        },
+                        {
+                            "post_urn": "urn:li:share:test2",
+                            "text": "Second test post about our product",
+                            "created_time": 1705316400000,
+                            "metrics": {
+                                "likes": 42,
+                                "comments": 8,
+                                "shares": 6,
+                                "impressions": 720,
+                            },
+                        },
+                    ],
+                    "totals": {
+                        "total_posts": 2,
+                        "total_likes": 70,
+                        "total_comments": 13,
+                        "engagement_rate": 4.15,
+                    },
+                })
+
+        try:
+            access_token = profile.get_valid_access_token()
+            user_urn = profile.profile_id
+
+            if post_urn:
+                # Get metrics for a specific post
+                metrics = linkedin_service.get_share_statistics(access_token, post_urn)
+                return Response({
+                    "post_urn": post_urn,
+                    "metrics": metrics,
+                })
+            else:
+                # Get full analytics summary
+                analytics = linkedin_service.get_analytics_summary(access_token, user_urn)
+                return Response(analytics)
+
+        except Exception as e:
+            logger.error(f"Failed to get LinkedIn analytics: {e}")
+            return Response(
+                {"error": f"Failed to get analytics: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class TwitterMediaUploadView(APIView):
     """
     Upload media (images, videos, or GIFs) to Twitter for use in tweets.

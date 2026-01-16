@@ -16,6 +16,7 @@ from .views import (
     LinkedInMediaUploadView,
     LinkedInVideoStatusView,
     LinkedInDocumentStatusView,
+    LinkedInAnalyticsView,
     # Twitter views
     TwitterConnectView,
     TwitterCallbackView,
@@ -69,6 +70,17 @@ urlpatterns = [
         "linkedin/document/status/<str:document_urn>/",
         LinkedInDocumentStatusView.as_view(),
         name="linkedin-document-status",
+    ),
+    # LinkedIn Analytics
+    path(
+        "linkedin/analytics/",
+        LinkedInAnalyticsView.as_view(),
+        name="linkedin-analytics",
+    ),
+    path(
+        "linkedin/analytics/<path:post_urn>/",
+        LinkedInAnalyticsView.as_view(),
+        name="linkedin-analytics-post",
     ),
     # Twitter/X OAuth
     path("twitter/connect/", TwitterConnectView.as_view(), name="twitter-connect"),

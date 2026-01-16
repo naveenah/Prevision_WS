@@ -353,6 +353,38 @@ function AutomationPageContent() {
   const [unreadEventCount, setUnreadEventCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // LinkedIn Analytics state
+  const [showLinkedInAnalytics, setShowLinkedInAnalytics] = useState(false);
+  const [linkedInAnalyticsLoading, setLinkedInAnalyticsLoading] = useState(false);
+  const [linkedInAnalyticsData, setLinkedInAnalyticsData] = useState<{
+    profile?: {
+      name?: string;
+      email?: string;
+      picture?: string;
+    };
+    network?: {
+      connections: number;
+    };
+    posts?: Array<{
+      post_urn: string;
+      text: string;
+      created_time: number;
+      metrics: {
+        likes: number;
+        comments: number;
+        shares: number;
+        impressions: number;
+      };
+    }>;
+    totals?: {
+      total_posts: number;
+      total_likes: number;
+      total_comments: number;
+      engagement_rate: number;
+    };
+    test_mode?: boolean;
+  } | null>(null);
+
   // Check for OAuth callback results
   useEffect(() => {
     const success = searchParams.get('success');
@@ -519,6 +551,26 @@ function AutomationPageContent() {
       console.error('Failed to mark events as read:', error);
     }
   };
+
+  // Fetch LinkedIn analytics
+  const fetchLinkedInAnalytics = useCallback(async () => {
+    if (!profiles?.linkedin?.connected) return;
+    
+    setLinkedInAnalyticsLoading(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInAnalyticsData(data);
+      } else {
+        console.error('Failed to fetch LinkedIn analytics:', await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn analytics:', error);
+    } finally {
+      setLinkedInAnalyticsLoading(false);
+    }
+  }, [profiles?.linkedin?.connected]);
 
   // Auto-refresh scheduled posts every 30 seconds to catch Celery updates
   useEffect(() => {
@@ -1762,6 +1814,152 @@ function AutomationPageContent() {
                   <div className="text-center py-8 text-brand-silver/70">
                     <p>Failed to load analytics data.</p>
                     <button onClick={fetchTwitterAnalytics} className="text-brand-electric hover:underline mt-2">
+                      Try again
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* LinkedIn Analytics Dashboard */}
+        {profiles?.linkedin?.connected && (
+          <div className="mt-12">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-heading font-bold text-white flex items-center gap-2">
+                <svg className="w-6 h-6 text-[#0A66C2]" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                </svg>
+                LinkedIn Analytics
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setShowLinkedInAnalytics(!showLinkedInAnalytics);
+                    if (!showLinkedInAnalytics && !linkedInAnalyticsData) fetchLinkedInAnalytics();
+                  }}
+                  className="px-4 py-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 text-brand-silver transition-colors flex items-center gap-2"
+                >
+                  {showLinkedInAnalytics ? 'Hide Analytics' : 'Show Analytics'}
+                  <svg className={`w-4 h-4 transition-transform ${showLinkedInAnalytics ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={fetchLinkedInAnalytics}
+                  disabled={linkedInAnalyticsLoading}
+                  className="p-2 rounded-lg bg-brand-ghost/20 hover:bg-brand-ghost/30 transition-colors disabled:opacity-50"
+                  title="Refresh analytics"
+                >
+                  <svg className={`w-5 h-5 text-brand-silver ${linkedInAnalyticsLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {showLinkedInAnalytics && (
+              <div className="glass-card p-6">
+                {linkedInAnalyticsLoading && !linkedInAnalyticsData ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0A66C2]"></div>
+                  </div>
+                ) : linkedInAnalyticsData ? (
+                  <div>
+                    {linkedInAnalyticsData.test_mode && (
+                      <div className="mb-4 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                        🧪 Test Mode - Showing simulated analytics data
+                      </div>
+                    )}
+                    
+                    {/* Profile and Network Stats */}
+                    <div className="mb-6">
+                      <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                        {linkedInAnalyticsData.profile?.picture && (
+                          <img src={linkedInAnalyticsData.profile.picture} alt="" className="w-8 h-8 rounded-full" />
+                        )}
+                        {linkedInAnalyticsData.profile?.name || 'Your'} LinkedIn Overview
+                      </h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-[#0A66C2]">{linkedInAnalyticsData.network?.connections?.toLocaleString() || 0}</div>
+                          <div className="text-sm text-brand-silver/70">Connections</div>
+                        </div>
+                        <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-white">{linkedInAnalyticsData.totals?.total_posts || 0}</div>
+                          <div className="text-sm text-brand-silver/70">Total Posts</div>
+                        </div>
+                        <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-white">{linkedInAnalyticsData.totals?.total_likes || 0}</div>
+                          <div className="text-sm text-brand-silver/70">Total Likes</div>
+                        </div>
+                        <div className="bg-brand-ghost/10 rounded-lg p-4 text-center">
+                          <div className="text-2xl font-bold text-white">{linkedInAnalyticsData.totals?.total_comments || 0}</div>
+                          <div className="text-sm text-brand-silver/70">Total Comments</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Engagement Summary */}
+                    {linkedInAnalyticsData.totals && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-medium text-white mb-3">Post Performance Summary</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="bg-gradient-to-br from-blue-500/20 to-blue-600/10 rounded-lg p-4 text-center border border-blue-500/20">
+                            <div className="text-xl font-bold text-blue-400">{linkedInAnalyticsData.totals.total_likes.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Total Likes</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-green-500/20 to-green-600/10 rounded-lg p-4 text-center border border-green-500/20">
+                            <div className="text-xl font-bold text-green-400">{linkedInAnalyticsData.totals.total_comments.toLocaleString()}</div>
+                            <div className="text-xs text-brand-silver/70">Total Comments</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-purple-500/20 to-purple-600/10 rounded-lg p-4 text-center border border-purple-500/20">
+                            <div className="text-xl font-bold text-purple-400">{linkedInAnalyticsData.totals.total_posts}</div>
+                            <div className="text-xs text-brand-silver/70">Posts Analyzed</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-[#0A66C2]/20 to-[#0A66C2]/10 rounded-lg p-4 text-center border border-[#0A66C2]/20">
+                            <div className="text-xl font-bold text-[#0A66C2]">{linkedInAnalyticsData.totals.engagement_rate}%</div>
+                            <div className="text-xs text-brand-silver/70">Avg Engagement</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Individual Post Metrics */}
+                    {linkedInAnalyticsData.posts && linkedInAnalyticsData.posts.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-medium text-white mb-3">Recent Post Metrics</h3>
+                        <div className="space-y-3 max-h-80 overflow-y-auto">
+                          {linkedInAnalyticsData.posts.map((post, idx) => (
+                            <div key={post.post_urn || idx} className="bg-brand-ghost/10 rounded-lg p-4">
+                              <p className="text-sm text-white mb-2 line-clamp-2">{post.text}</p>
+                              <div className="flex items-center gap-4 text-xs text-brand-silver/70">
+                                <span>👍 {post.metrics?.likes || 0}</span>
+                                <span>💬 {post.metrics?.comments || 0}</span>
+                                <span>🔄 {post.metrics?.shares || 0}</span>
+                                {post.metrics?.impressions > 0 && <span>👀 {post.metrics.impressions}</span>}
+                                <span className="ml-auto">
+                                  {post.created_time && new Date(post.created_time).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(!linkedInAnalyticsData.posts || linkedInAnalyticsData.posts.length === 0) && !linkedInAnalyticsData.profile && (
+                      <div className="text-center py-8 text-brand-silver/70">
+                        <p>No analytics data available yet.</p>
+                        <p className="text-sm mt-1">Post some content to see your metrics here.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-brand-silver/70">
+                    <p>Failed to load analytics data.</p>
+                    <button onClick={fetchLinkedInAnalytics} className="text-[#0A66C2] hover:underline mt-2">
                       Try again
                     </button>
                   </div>
