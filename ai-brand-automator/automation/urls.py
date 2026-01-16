@@ -7,6 +7,7 @@ from .views import (
     SocialProfileViewSet,
     AutomationTaskViewSet,
     ContentCalendarViewSet,
+    # LinkedIn views
     LinkedInConnectView,
     LinkedInCallbackView,
     LinkedInDisconnectView,
@@ -15,6 +16,22 @@ from .views import (
     LinkedInMediaUploadView,
     LinkedInVideoStatusView,
     LinkedInDocumentStatusView,
+    LinkedInAnalyticsView,
+    LinkedInWebhookView,
+    LinkedInWebhookEventsView,
+    # Twitter views
+    TwitterConnectView,
+    TwitterCallbackView,
+    TwitterDisconnectView,
+    TwitterTestConnectView,
+    TwitterPostView,
+    TwitterValidateTweetView,
+    TwitterMediaUploadView,
+    TwitterMediaStatusView,
+    TwitterDeleteTweetView,
+    TwitterAnalyticsView,
+    TwitterWebhookView,
+    TwitterWebhookEventsView,
 )
 
 router = DefaultRouter()
@@ -55,6 +72,82 @@ urlpatterns = [
         "linkedin/document/status/<str:document_urn>/",
         LinkedInDocumentStatusView.as_view(),
         name="linkedin-document-status",
+    ),
+    # LinkedIn Analytics
+    path(
+        "linkedin/analytics/",
+        LinkedInAnalyticsView.as_view(),
+        name="linkedin-analytics",
+    ),
+    path(
+        "linkedin/analytics/<path:post_urn>/",
+        LinkedInAnalyticsView.as_view(),
+        name="linkedin-analytics-post",
+    ),  # LinkedIn Webhooks
+    path(
+        "linkedin/webhook/",
+        LinkedInWebhookView.as_view(),
+        name="linkedin-webhook",
+    ),
+    path(
+        "linkedin/webhooks/events/",
+        LinkedInWebhookEventsView.as_view(),
+        name="linkedin-webhook-events",
+    ),  # Twitter/X OAuth
+    path("twitter/connect/", TwitterConnectView.as_view(), name="twitter-connect"),
+    path("twitter/callback/", TwitterCallbackView.as_view(), name="twitter-callback"),
+    path(
+        "twitter/disconnect/",
+        TwitterDisconnectView.as_view(),
+        name="twitter-disconnect",
+    ),
+    path(
+        "twitter/test-connect/",
+        TwitterTestConnectView.as_view(),
+        name="twitter-test-connect",
+    ),
+    path("twitter/post/", TwitterPostView.as_view(), name="twitter-post"),
+    path(
+        "twitter/validate/",
+        TwitterValidateTweetView.as_view(),
+        name="twitter-validate",
+    ),
+    path(
+        "twitter/media/upload/",
+        TwitterMediaUploadView.as_view(),
+        name="twitter-media-upload",
+    ),
+    path(
+        "twitter/media/status/<str:media_id>/",
+        TwitterMediaStatusView.as_view(),
+        name="twitter-media-status",
+    ),
+    path(
+        "twitter/tweet/<str:tweet_id>/",
+        TwitterDeleteTweetView.as_view(),
+        name="twitter-delete-tweet",
+    ),
+    # Twitter Analytics
+    path(
+        "twitter/analytics/",
+        TwitterAnalyticsView.as_view(),
+        name="twitter-analytics",
+    ),
+    path(
+        "twitter/analytics/<str:tweet_id>/",
+        TwitterAnalyticsView.as_view(),
+        name="twitter-analytics-tweet",
+    ),
+    # Twitter Webhooks
+    path(
+        "twitter/webhook/",
+        TwitterWebhookView.as_view(),
+        name="twitter-webhook",
+    ),
+    path(
+        "twitter/webhooks/events/",
+        TwitterWebhookEventsView.as_view(),
+        name="twitter-webhook-events",
     ),
     # Router URLs
     path("", include(router.urls)),

@@ -44,7 +44,7 @@ const PLATFORM_CONFIG = {
     ),
     color: 'bg-black',
     hoverColor: 'hover:bg-gray-800',
-    available: false, // Coming soon
+    available: true, // Twitter/X integration enabled
   },
   instagram: {
     name: 'Instagram',
@@ -79,6 +79,13 @@ interface ScheduledPost {
   scheduled_date: string;
   status: string;
   status_display: string;
+  post_results?: {
+    id?: string;
+    text?: string;
+    created_at?: string;
+    author_id?: string;
+    [key: string]: unknown;
+  };
 }
 
 interface AutomationTask {
@@ -107,9 +114,88 @@ const DOCUMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ] as const;
 
-const MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
-const MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
-const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
+// LinkedIn media size limits
+const LINKEDIN_MAX_IMAGE_SIZE = 8 * 1024 * 1024;  // 8MB
+const LINKEDIN_MAX_VIDEO_SIZE = 500 * 1024 * 1024;  // 500MB
+const LINKEDIN_MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
+
+// Twitter media size limits
+const TWITTER_MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
+const TWITTER_MAX_VIDEO_SIZE = 512 * 1024 * 1024;  // 512MB
+
+// Shared image size limit (use smaller of the two platforms)
+const MAX_IMAGE_SIZE = LINKEDIN_MAX_IMAGE_SIZE;
+
+// Twitter constants
+const TWITTER_MAX_LENGTH = 280;
+
+// Helper function to get media limits based on selected platforms
+const getMediaLimits = (platforms: string[]) => {
+  const hasTwitter = platforms.includes('twitter');
+  const hasLinkedIn = platforms.includes('linkedin');
+  
+  // If no platforms or only unknown platforms, use LinkedIn defaults
+  if (!hasTwitter && !hasLinkedIn) {
+    return {
+      maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
+      maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
+      maxDocumentSize: LINKEDIN_MAX_DOCUMENT_SIZE,
+      imageSizeLabel: '8MB',
+      videoSizeLabel: '500MB',
+      documentSizeLabel: '100MB',
+      supportsDocuments: true,
+    };
+  }
+  
+  // If only Twitter selected
+  if (hasTwitter && !hasLinkedIn) {
+    return {
+      maxImageSize: TWITTER_MAX_IMAGE_SIZE,
+      maxVideoSize: TWITTER_MAX_VIDEO_SIZE,
+      maxDocumentSize: 0, // Twitter doesn't support documents
+      imageSizeLabel: '5MB',
+      videoSizeLabel: '512MB',
+      documentSizeLabel: 'N/A',
+      supportsDocuments: false,
+    };
+  }
+  
+  // If only LinkedIn selected
+  if (hasLinkedIn && !hasTwitter) {
+    return {
+      maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
+      maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
+      maxDocumentSize: LINKEDIN_MAX_DOCUMENT_SIZE,
+      imageSizeLabel: '8MB',
+      videoSizeLabel: '500MB',
+      documentSizeLabel: '100MB',
+      supportsDocuments: true,
+    };
+  }
+  
+  // If both platforms selected, use the most restrictive limits
+  return {
+    maxImageSize: Math.min(LINKEDIN_MAX_IMAGE_SIZE, TWITTER_MAX_IMAGE_SIZE), // 5MB (Twitter limit)
+    maxVideoSize: Math.min(LINKEDIN_MAX_VIDEO_SIZE, TWITTER_MAX_VIDEO_SIZE), // 500MB (LinkedIn limit)
+    maxDocumentSize: 0, // Twitter doesn't support documents
+    imageSizeLabel: '5MB',
+    videoSizeLabel: '500MB',
+    documentSizeLabel: 'N/A',
+    supportsDocuments: false, // Twitter doesn't support documents
+  };
+};
+
+// Helper function to get media helper text based on selected platforms
+const getMediaHelperText = (platforms: string[]) => {
+  const limits = getMediaLimits(platforms);
+  const hasTwitter = platforms.includes('twitter');
+  
+  if (hasTwitter && !limits.supportsDocuments) {
+    return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Note: Documents not supported on Twitter`;
+  }
+  
+  return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Documents: PDF, DOC, PPT (max ${limits.documentSizeLabel})`;
+};
 
 // File input accept attribute - all supported media types
 const ACCEPTED_FILE_TYPES = [
@@ -117,6 +203,15 @@ const ACCEPTED_FILE_TYPES = [
   ...VIDEO_TYPES,
   ...DOCUMENT_TYPES,
 ].join(',');
+
+// Get accepted file types based on platforms
+const getAcceptedFileTypes = (platforms: string[]) => {
+  const limits = getMediaLimits(platforms);
+  if (!limits.supportsDocuments) {
+    return [...IMAGE_TYPES, ...VIDEO_TYPES].join(',');
+  }
+  return ACCEPTED_FILE_TYPES;
+};
 
 // Loading fallback for Suspense
 function AutomationLoading() {
@@ -151,6 +246,7 @@ function AutomationPageContent() {
   const [postText, setPostText] = useState('');
   const [posting, setPosting] = useState(false);
   const [postMediaUrns, setPostMediaUrns] = useState<string[]>([]);
+  const [postMediaPreview, setPostMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   
   // Schedule post state
@@ -164,11 +260,14 @@ function AutomationPageContent() {
   const [publishedPosts, setPublishedPosts] = useState<ScheduledPost[]>([]);
   const [publishedPostsLimit, setPublishedPostsLimit] = useState<number>(6);
   const [scheduleMediaUrns, setScheduleMediaUrns] = useState<string[]>([]);
+  const [scheduleMediaPreview, setScheduleMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingScheduleMedia, setUploadingScheduleMedia] = useState(false);
+  const [schedulePlatforms, setSchedulePlatforms] = useState<string[]>(['linkedin']);
 
   // Edit post state
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
+  const [editPlatforms, setEditPlatforms] = useState<string[]>([]);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [editDate, setEditDate] = useState('');
@@ -179,6 +278,24 @@ function AutomationPageContent() {
 
   // Automation tasks state
   const [automationTasks, setAutomationTasks] = useState<AutomationTask[]>([]);
+
+  // Twitter compose state
+  const [showTwitterComposeModal, setShowTwitterComposeModal] = useState(false);
+  const [tweetTitle, setTweetTitle] = useState('');
+  const [tweetText, setTweetText] = useState('');
+  const [tweetMediaUrns, setTweetMediaUrns] = useState<string[]>([]);
+  const [tweetMediaPreview, setTweetMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [tweetMediaAltText, setTweetMediaAltText] = useState('');
+  const [uploadingTweetMedia, setUploadingTweetMedia] = useState(false);
+  const [tweetPosting, setTweetPosting] = useState(false);
+  // Reply/Quote tweet
+  const [tweetReplyToId, setTweetReplyToId] = useState('');
+  const [tweetQuoteId, setTweetQuoteId] = useState('');
+  // Thread mode
+  const [isThreadMode, setIsThreadMode] = useState(false);
+  const [threadTweets, setThreadTweets] = useState<string[]>(['']);
+  // Deleting tweet
+  const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -306,7 +423,7 @@ function AutomationPageContent() {
   }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
 
   const handleConnect = async (platform: string) => {
-    if (platform !== 'linkedin') {
+    if (platform !== 'linkedin' && platform !== 'twitter') {
       setMessage({
         type: 'error',
         text: `${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} integration coming soon!`,
@@ -316,10 +433,10 @@ function AutomationPageContent() {
 
     setConnecting(platform);
     try {
-      const response = await apiClient.get('/automation/linkedin/connect/');
+      const response = await apiClient.get(`/automation/${platform}/connect/`);
       if (response.ok) {
         const data = await response.json();
-        // Redirect to LinkedIn authorization
+        // Redirect to platform authorization
         window.location.href = data.authorization_url;
       } else {
         const error = await response.json();
@@ -339,18 +456,18 @@ function AutomationPageContent() {
     }
   };
 
-  // Test connection (dev mode only - no real LinkedIn data)
+  // Test connection (dev mode only - no real platform data)
   const handleTestConnect = async (platform: string) => {
-    if (platform !== 'linkedin') return;
+    if (platform !== 'linkedin' && platform !== 'twitter') return;
 
     setConnecting(platform);
     try {
-      const response = await apiClient.post('/automation/linkedin/test-connect/', {});
+      const response = await apiClient.post(`/automation/${platform}/test-connect/`, {});
       if (response.ok) {
         const data = await response.json();
         setMessage({
           type: 'success',
-          text: `${data.message} (Test Mode - No real LinkedIn data)`,
+          text: `${data.message} (Test Mode - No real ${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} data)`,
         });
         // Refresh profiles
         const profilesResponse = await apiClient.get('/automation/social-profiles/status/');
@@ -377,15 +494,15 @@ function AutomationPageContent() {
   };
 
   const handleDisconnect = async (platform: string) => {
-    if (platform !== 'linkedin') return;
+    if (platform !== 'linkedin' && platform !== 'twitter') return;
 
     setConnecting(platform);
     try {
-      const response = await apiClient.post('/automation/linkedin/disconnect/', {});
+      const response = await apiClient.post(`/automation/${platform}/disconnect/`, {});
       if (response.ok) {
         setMessage({
           type: 'success',
-          text: 'LinkedIn disconnected successfully',
+          text: `${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} disconnected successfully`,
         });
         // Refresh profiles
         const profilesResponse = await apiClient.get('/automation/social-profiles/status/');
@@ -415,8 +532,11 @@ function AutomationPageContent() {
   const handleMediaUpload = async (
     file: File,
     setMediaUrns: React.Dispatch<React.SetStateAction<string[]>>,
-    setUploading: React.Dispatch<React.SetStateAction<boolean>>
+    setUploading: React.Dispatch<React.SetStateAction<boolean>>,
+    platforms: string[] = ['linkedin'] // Default to LinkedIn for backward compatibility
   ) => {
+    const limits = getMediaLimits(platforms);
+    
     // Validate file type using constants
     const isImage = (IMAGE_TYPES as readonly string[]).includes(file.type);
     const isVideo = (VIDEO_TYPES as readonly string[]).includes(file.type);
@@ -430,24 +550,33 @@ function AutomationPageContent() {
       return;
     }
 
-    // Validate file size using constants
+    // Check if documents are supported for the selected platforms
+    if (isDocument && !limits.supportsDocuments) {
+      setMessage({
+        type: 'error',
+        text: 'Documents are not supported on Twitter. Please upload an image or video instead.',
+      });
+      return;
+    }
+
+    // Validate file size using platform-specific limits
     let maxSize: number;
     let sizeLabel: string;
     if (isVideo) {
-      maxSize = MAX_VIDEO_SIZE;
-      sizeLabel = '500MB';
+      maxSize = limits.maxVideoSize;
+      sizeLabel = limits.videoSizeLabel;
     } else if (isDocument) {
-      maxSize = MAX_DOCUMENT_SIZE;
-      sizeLabel = '100MB';
+      maxSize = limits.maxDocumentSize;
+      sizeLabel = limits.documentSizeLabel;
     } else {
-      maxSize = MAX_IMAGE_SIZE;
-      sizeLabel = '8MB';
+      maxSize = limits.maxImageSize;
+      sizeLabel = limits.imageSizeLabel;
     }
     
     if (file.size > maxSize) {
       setMessage({
         type: 'error',
-        text: `File too large. Maximum size is ${sizeLabel}`,
+        text: `File too large. Maximum size for selected platforms is ${sizeLabel}`,
       });
       return;
     }
@@ -457,7 +586,15 @@ function AutomationPageContent() {
       const formData = new FormData();
       formData.append('media', file);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/linkedin/media/upload/`, {
+      // Determine which endpoint to use based on selected platforms
+      // If Twitter only, use Twitter endpoint. Otherwise use LinkedIn (works for both or LinkedIn-only)
+      const hasLinkedIn = platforms.includes('linkedin');
+      const hasTwitterOnly = platforms.includes('twitter') && !hasLinkedIn;
+      const uploadEndpoint = hasTwitterOnly 
+        ? '/api/v1/automation/twitter/media/upload/'
+        : '/api/v1/automation/linkedin/media/upload/';
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${uploadEndpoint}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -467,13 +604,17 @@ function AutomationPageContent() {
 
       if (response.ok) {
         const data = await response.json();
-        setMediaUrns((prev) => [...prev, data.asset_urn]);
+        // For LinkedIn: asset_urn, For Twitter: media_id_string
+        const mediaId = data.asset_urn || data.media_id_string;
+        setMediaUrns((prev) => [...prev, mediaId]);
         
         let mediaType: string;
         if (data.media_type === 'video') {
           mediaType = 'Video';
         } else if (data.media_type === 'document') {
           mediaType = 'Document';
+        } else if (data.media_type === 'gif') {
+          mediaType = 'GIF';
         } else {
           mediaType = 'Image';
         }
@@ -487,16 +628,24 @@ function AutomationPageContent() {
         });
       } else {
         const error = await response.json();
-        setMessage({
-          type: 'error',
-          text: error.error || 'Failed to upload media',
-        });
+        // Check for Twitter 403 Forbidden - usually means missing permissions
+        if (response.status === 403 && hasTwitterOnly) {
+          setMessage({
+            type: 'error',
+            text: 'Twitter media upload failed: Your Twitter Developer app needs "Basic" tier or "Read and Write" permissions. Check your Twitter Developer Portal settings.',
+          });
+        } else {
+          setMessage({
+            type: 'error',
+            text: error.error || 'Failed to upload media',
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to upload media:', error);
       setMessage({
         type: 'error',
-        text: 'Failed to upload media',
+        text: 'Failed to upload media. Please try again.',
       });
     } finally {
       setUploading(false);
@@ -531,6 +680,10 @@ function AutomationPageContent() {
         setPostTitle('');
         setPostText('');
         setPostMediaUrns([]);
+        if (postMediaPreview) {
+          URL.revokeObjectURL(postMediaPreview.url);
+          setPostMediaPreview(null);
+        }
         setShowComposeModal(false);
         // Refresh published posts list
         fetchPublishedPosts();
@@ -552,12 +705,241 @@ function AutomationPageContent() {
     }
   };
 
+  // Handle posting to Twitter/X
+  const handleTwitterPost = async () => {
+    // Thread mode handling
+    if (isThreadMode) {
+      await handleThreadPost();
+      return;
+    }
+
+    if (!tweetTitle.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter a title for your tweet',
+      });
+      return;
+    }
+
+    if (!tweetText.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter some text for your tweet',
+      });
+      return;
+    }
+
+    if (tweetText.length > TWITTER_MAX_LENGTH) {
+      setMessage({
+        type: 'error',
+        text: `Tweet exceeds ${TWITTER_MAX_LENGTH} characters`,
+      });
+      return;
+    }
+
+    setTweetPosting(true);
+    try {
+      // Build request payload
+      const payload: Record<string, unknown> = {
+        title: tweetTitle.trim() || undefined,
+        text: tweetText,
+      };
+      
+      if (tweetMediaUrns.length > 0) {
+        payload.media_ids = tweetMediaUrns;
+      }
+      if (tweetReplyToId.trim()) {
+        payload.reply_to_id = tweetReplyToId.trim();
+      }
+      if (tweetQuoteId.trim()) {
+        payload.quote_tweet_id = tweetQuoteId.trim();
+      }
+      if (tweetMediaAltText.trim() && tweetMediaUrns.length > 0) {
+        payload.alt_text = tweetMediaAltText.trim();
+      }
+      
+      const response = await apiClient.post('/automation/twitter/post/', payload);
+
+      if (response.ok) {
+        const data = await response.json();
+        const isTestMode = data.test_mode === true;
+        setMessage({
+          type: 'success',
+          text: isTestMode 
+            ? '🧪 Tweet simulated (Test Mode - saved to history)' 
+            : `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
+        });
+        resetTwitterComposeForm();
+        setShowTwitterComposeModal(false);
+        // Refresh published posts to show the new tweet
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to post tweet',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to post tweet:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to post tweet',
+      });
+    } finally {
+      setTweetPosting(false);
+    }
+  };
+
+  // Reset Twitter compose form
+  const resetTwitterComposeForm = () => {
+    setTweetTitle('');
+    setTweetText('');
+    setTweetMediaUrns([]);
+    setTweetMediaAltText('');
+    setTweetReplyToId('');
+    setTweetQuoteId('');
+    setIsThreadMode(false);
+    setThreadTweets(['']);
+    if (tweetMediaPreview) {
+      URL.revokeObjectURL(tweetMediaPreview.url);
+      setTweetMediaPreview(null);
+    }
+  };
+
+  // Handle thread posting (multiple tweets in sequence)
+  const handleThreadPost = async () => {
+    const validTweets = threadTweets.filter(t => t.trim().length > 0);
+    
+    if (validTweets.length === 0) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter at least one tweet for your thread',
+      });
+      return;
+    }
+
+    // Validate all tweets are within limit
+    const overLimitIndex = validTweets.findIndex(t => t.length > TWITTER_MAX_LENGTH);
+    if (overLimitIndex !== -1) {
+      setMessage({
+        type: 'error',
+        text: `Tweet ${overLimitIndex + 1} exceeds ${TWITTER_MAX_LENGTH} characters`,
+      });
+      return;
+    }
+
+    setTweetPosting(true);
+    try {
+      let previousTweetId: string | null = null;
+      const postedTweets: string[] = [];
+
+      for (let i = 0; i < validTweets.length; i++) {
+        const payload: Record<string, unknown> = {
+          title: i === 0 ? (tweetTitle.trim() || `Thread - ${new Date().toLocaleString()}`) : `Thread part ${i + 1}`,
+          text: validTweets[i],
+        };
+        
+        // After the first tweet, reply to the previous one
+        if (previousTweetId) {
+          payload.reply_to_id = previousTweetId;
+        }
+        
+        // Add media only to the first tweet
+        if (i === 0 && tweetMediaUrns.length > 0) {
+          payload.media_ids = tweetMediaUrns;
+          if (tweetMediaAltText.trim()) {
+            payload.alt_text = tweetMediaAltText.trim();
+          }
+        }
+
+        const response = await apiClient.post('/automation/twitter/post/', payload);
+
+        if (response.ok) {
+          const data = await response.json();
+          previousTweetId = data.tweet_id || data.tweet?.id;
+          postedTweets.push(previousTweetId || 'unknown');
+        } else {
+          const error = await response.json();
+          throw new Error(error.error || `Failed to post tweet ${i + 1}`);
+        }
+      }
+
+      setMessage({
+        type: 'success',
+        text: `Thread posted successfully! ${postedTweets.length} tweets created.`,
+      });
+      resetTwitterComposeForm();
+      setShowTwitterComposeModal(false);
+      fetchPublishedPosts();
+    } catch (error) {
+      console.error('Failed to post thread:', error);
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Failed to post thread',
+      });
+    } finally {
+      setTweetPosting(false);
+    }
+  };
+
+  // Handle deleting a tweet
+  const handleDeleteTweet = async (tweetId: string) => {
+    if (!confirm('Are you sure you want to delete this tweet? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingTweetId(tweetId);
+    try {
+      const response = await apiClient.delete(`/automation/twitter/tweet/${tweetId}/`);
+
+      if (response.ok) {
+        setMessage({
+          type: 'success',
+          text: 'Tweet deleted successfully',
+        });
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to delete tweet',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete tweet:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to delete tweet',
+      });
+    } finally {
+      setDeletingTweetId(null);
+    }
+  };
+
   // Handle scheduling a post
   const handleSchedulePost = async () => {
     if (!scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime) {
       setMessage({
         type: 'error',
         text: 'Please fill in all fields',
+      });
+      return;
+    }
+
+    if (schedulePlatforms.length === 0) {
+      setMessage({
+        type: 'error',
+        text: 'Please select at least one platform',
+      });
+      return;
+    }
+
+    // Check content length for Twitter
+    if (schedulePlatforms.includes('twitter') && scheduleContent.length > TWITTER_MAX_LENGTH) {
+      setMessage({
+        type: 'error',
+        text: `Content exceeds Twitter's ${TWITTER_MAX_LENGTH} character limit`,
       });
       return;
     }
@@ -573,21 +955,27 @@ function AutomationPageContent() {
         title: scheduleTitle,
         content: scheduleContent,
         media_urls: scheduleMediaUrns.length > 0 ? scheduleMediaUrns : [],
-        platforms: ['linkedin'],
+        platforms: schedulePlatforms,
         scheduled_date: scheduledDateTime,
         status: 'scheduled',
       });
       
       if (response.ok) {
+        const platformNames = schedulePlatforms.map(p => p === 'linkedin' ? 'LinkedIn' : 'Twitter/X').join(' & ');
         setMessage({
           type: 'success',
-          text: `Post scheduled successfully!${scheduleMediaUrns.length > 0 ? ' (with image)' : ''}`,
+          text: `Post scheduled for ${platformNames}!${scheduleMediaUrns.length > 0 ? ' (with media)' : ''}`,
         });
         setScheduleTitle('');
         setScheduleContent('');
         setScheduleDate('');
         setScheduleTime('');
         setScheduleMediaUrns([]);
+        if (scheduleMediaPreview) {
+          URL.revokeObjectURL(scheduleMediaPreview.url);
+          setScheduleMediaPreview(null);
+        }
+        setSchedulePlatforms(['linkedin']);
         setShowScheduleModal(false);
         fetchScheduledPosts();
       } else {
@@ -677,12 +1065,31 @@ function AutomationPageContent() {
     );
     // Load existing media if any
     setEditMediaUrns(post.media_urls || []);
+    // Load platforms
+    setEditPlatforms(post.platforms || ['linkedin']);
     setShowEditModal(true);
   };
 
   // Handle updating a scheduled post
   const handleEditPost = async () => {
     if (!editingPost) return;
+
+    if (editPlatforms.length === 0) {
+      setMessage({
+        type: 'error',
+        text: 'Please select at least one platform',
+      });
+      return;
+    }
+
+    // Check content length for Twitter
+    if (editPlatforms.includes('twitter') && editContent.length > TWITTER_MAX_LENGTH) {
+      setMessage({
+        type: 'error',
+        text: `Content exceeds Twitter's ${TWITTER_MAX_LENGTH} character limit`,
+      });
+      return;
+    }
     
     setEditing(true);
     try {
@@ -692,7 +1099,7 @@ function AutomationPageContent() {
         title: editTitle,
         content: editContent,
         media_urls: editMediaUrns,
-        platforms: editingPost.platforms,
+        platforms: editPlatforms,
         scheduled_date: scheduledDate.toISOString(),
         status: editingPost.status,  // Preserve original status
       });
@@ -705,6 +1112,7 @@ function AutomationPageContent() {
         setShowEditModal(false);
         setEditingPost(null);
         setEditMediaUrns([]);
+        setEditPlatforms([]);
         fetchScheduledPosts();
       } else {
         const error = await response.json();
@@ -830,6 +1238,17 @@ function AutomationPageContent() {
                         Create Post
                       </button>
                     )}
+                    {platform === 'twitter' && (
+                      <button
+                        onClick={() => setShowTwitterComposeModal(true)}
+                        className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Tweet
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -843,6 +1262,14 @@ function AutomationPageContent() {
                           className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                         >
                           📝 Compose Post
+                        </button>
+                      )}
+                      {platform === 'twitter' && (
+                        <button
+                          onClick={() => setShowTwitterComposeModal(true)}
+                          className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                        >
+                          🐦 Compose Tweet
                         </button>
                       )}
                       <button
@@ -863,7 +1290,7 @@ function AutomationPageContent() {
                         {isLoading ? 'Connecting...' : `Connect ${config.name}`}
                       </button>
                       {/* Test Connect Button - Dev Mode Only */}
-                      {platform === 'linkedin' && (
+                      {(platform === 'linkedin' || platform === 'twitter') && (
                         <button
                           onClick={() => handleTestConnect(platform)}
                           disabled={isLoading || loading}
@@ -935,9 +1362,22 @@ function AutomationPageContent() {
                             timeZoneName: 'short'
                           })}
                         </span>
-                        <span className="text-xs text-brand-silver/50">
-                          {post.platforms.join(', ')}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {post.platforms.includes('linkedin') && (
+                            <div className="p-1 rounded bg-[#0A66C2]" title="LinkedIn">
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                              </svg>
+                            </div>
+                          )}
+                          {post.platforms.includes('twitter') && (
+                            <div className="p-1 rounded bg-black" title="Twitter/X">
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                              </svg>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-4">
@@ -993,10 +1433,10 @@ function AutomationPageContent() {
           )}
         </div>
 
-        {/* Published Posts Section */}
+        {/* Recent Activity Section - Combined LinkedIn posts and Tweets */}
         <div className="mt-12">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-heading font-bold text-white">Published Posts</h2>
+            <h2 className="text-2xl font-heading font-bold text-white">Recent Activity</h2>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="text-sm text-brand-silver">Show:</label>
@@ -1023,16 +1463,44 @@ function AutomationPageContent() {
                 </svg>
                 Refresh
               </button>
+              <Link
+                href="/automation/history"
+                className="text-sm text-brand-electric hover:text-brand-electric/80 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                View All History
+              </Link>
             </div>
           </div>
           
+          {/* Combined list of published posts */}
           {publishedPosts.length > 0 ? (
             <div className="space-y-4">
+              {/* Published Posts */}
               {publishedPosts.map((post) => (
-                <div key={post.id} className="glass-card p-4 border border-green-500/20">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
+                <div key={`post-${post.id}`} className="glass-card p-4 border border-green-500/20">
+                  <div className="flex items-start gap-3">
+                    {/* Platform Icons */}
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      {post.platforms.includes('linkedin') && (
+                        <div className="p-1.5 rounded bg-[#0A66C2]" title="LinkedIn">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                          </svg>
+                        </div>
+                      )}
+                      {post.platforms.includes('twitter') && (
+                        <div className="p-1.5 rounded bg-black" title="Twitter/X">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-white font-medium">{post.title}</h4>
                         <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">
                           Published
@@ -1044,7 +1512,7 @@ function AutomationPageContent() {
                         )}
                       </div>
                       <p className="text-brand-silver/70 text-sm mt-1 line-clamp-2">{post.content}</p>
-                      <div className="flex items-center gap-4 mt-3">
+                      <div className="flex items-center justify-between mt-3">
                         <span className="text-xs text-green-400 flex items-center gap-1">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1057,9 +1525,27 @@ function AutomationPageContent() {
                             minute: '2-digit'
                           })}
                         </span>
-                        <span className="text-xs text-brand-silver/50">
-                          {post.platforms.join(', ')}
-                        </span>
+                        {/* Delete Button for Twitter posts */}
+                        {post.platforms.includes('twitter') && post.post_results?.id && (
+                          <button
+                            onClick={() => handleDeleteTweet(post.post_results!.id!)}
+                            disabled={deletingTweetId === post.post_results!.id}
+                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
+                            title="Delete tweet"
+                          >
+                            {deletingTweetId === post.post_results!.id ? (
+                              <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                            ) : (
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            )}
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1069,13 +1555,13 @@ function AutomationPageContent() {
           ) : (
             <div className="glass-card p-8 text-center">
               <div className="w-16 h-16 bg-brand-ghost/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <svg className="w-8 h-8 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-white mb-2">No Published Posts Yet</h3>
+              <h3 className="text-lg font-medium text-white mb-2">No Recent Activity</h3>
               <p className="text-brand-silver/70 max-w-md mx-auto">
-                Once your scheduled posts are published (automatically or manually), they&apos;ll appear here.
+                Once you post or schedule content, it will appear here.
               </p>
             </div>
           )}
@@ -1263,13 +1749,17 @@ function AutomationPageContent() {
                     {uploadingMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept={ACCEPTED_FILE_TYPES}
+                      accept={getAcceptedFileTypes(['linkedin'])}
                       className="hidden"
                       disabled={uploadingMedia}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          handleMediaUpload(file, setPostMediaUrns, setUploadingMedia);
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setPostMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
+                          handleMediaUpload(file, setPostMediaUrns, setUploadingMedia, ['linkedin']);
                         }
                         e.target.value = '';
                       }}
@@ -1282,7 +1772,13 @@ function AutomationPageContent() {
                       </svg>
                       {postMediaUrns.length} file{postMediaUrns.length > 1 ? 's' : ''} attached
                       <button
-                        onClick={() => setPostMediaUrns([])}
+                        onClick={() => {
+                          setPostMediaUrns([]);
+                          if (postMediaPreview) {
+                            URL.revokeObjectURL(postMediaPreview.url);
+                            setPostMediaPreview(null);
+                          }
+                        }}
                         className="text-red-400 hover:text-red-300 ml-2"
                         title="Remove media"
                       >
@@ -1293,7 +1789,36 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+                {/* Media Preview */}
+                {postMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {postMediaPreview.type === 'video' ? (
+                      <video 
+                        src={postMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={postMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['linkedin'])}</p>
               </div>
             </div>
 
@@ -1305,6 +1830,10 @@ function AutomationPageContent() {
                   setPostTitle('');
                   setPostText('');
                   setPostMediaUrns([]);
+                  if (postMediaPreview) {
+                    URL.revokeObjectURL(postMediaPreview.url);
+                    setPostMediaPreview(null);
+                  }
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1332,10 +1861,335 @@ function AutomationPageContent() {
         </div>
       )}
 
+      {/* Twitter Compose Tweet Modal */}
+      {showTwitterComposeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowTwitterComposeModal(false);
+                resetTwitterComposeForm();
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-black text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">
+                  {isThreadMode ? 'Create Thread' : 'Create Tweet'}
+                </h2>
+                <p className="text-sm text-brand-silver/70">
+                  {isThreadMode ? 'Post multiple tweets as a thread' : 'Share your thoughts on Twitter/X'}
+                </p>
+              </div>
+            </div>
+
+            {/* Mode Toggle: Single Tweet / Thread */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setIsThreadMode(false)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !isThreadMode 
+                    ? 'bg-brand-electric text-brand-midnight' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                Single Tweet
+              </button>
+              <button
+                onClick={() => setIsThreadMode(true)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isThreadMode 
+                    ? 'bg-brand-electric text-brand-midnight' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                🧵 Thread
+              </button>
+            </div>
+
+            {/* Info about test mode */}
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <p className="text-blue-400 text-sm">
+                ℹ️ Test mode is automatically enabled when using test credentials. Connect real Twitter API credentials to post live tweets.
+              </p>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title</label>
+                <input
+                  type="text"
+                  value={tweetTitle}
+                  onChange={(e) => setTweetTitle(e.target.value)}
+                  placeholder="Give your tweet a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              {/* Thread Mode: Multiple Tweets */}
+              {isThreadMode ? (
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-brand-silver">Thread Tweets</label>
+                  {threadTweets.map((tweet, index) => (
+                    <div key={index} className="relative">
+                      <div className="flex items-start gap-2">
+                        <span className="text-brand-silver/50 text-sm mt-3 w-6">{index + 1}.</span>
+                        <div className="flex-1">
+                          <textarea
+                            value={tweet}
+                            onChange={(e) => {
+                              const newTweets = [...threadTweets];
+                              newTweets[index] = e.target.value;
+                              setThreadTweets(newTweets);
+                            }}
+                            placeholder={index === 0 ? "Start your thread..." : "Continue your thread..."}
+                            rows={3}
+                            maxLength={TWITTER_MAX_LENGTH}
+                            className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                          />
+                          <div className="flex justify-between items-center mt-1 text-xs">
+                            <span className={`${
+                              tweet.length > TWITTER_MAX_LENGTH - 20 
+                                ? tweet.length > TWITTER_MAX_LENGTH 
+                                  ? 'text-red-400' 
+                                  : 'text-amber-400' 
+                                : 'text-brand-silver/50'
+                            }`}>
+                              {tweet.length} / {TWITTER_MAX_LENGTH}
+                            </span>
+                            {threadTweets.length > 1 && (
+                              <button
+                                onClick={() => setThreadTweets(threadTweets.filter((_, i) => i !== index))}
+                                className="text-red-400 hover:text-red-300 text-xs"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setThreadTweets([...threadTweets, ''])}
+                    className="w-full py-2 rounded-lg border border-dashed border-brand-ghost/30 text-brand-silver/70 hover:text-brand-silver hover:border-brand-ghost/50 transition-colors text-sm"
+                  >
+                    + Add another tweet to thread
+                  </button>
+                </div>
+              ) : (
+                /* Single Tweet Mode */
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                  <textarea
+                    value={tweetText}
+                    onChange={(e) => setTweetText(e.target.value)}
+                    placeholder="What's happening?"
+                    rows={4}
+                    maxLength={TWITTER_MAX_LENGTH}
+                    className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                  />
+                  <div className="flex justify-between items-center mt-1 text-xs">
+                    <span className={`${
+                      tweetText.length > TWITTER_MAX_LENGTH - 20 
+                        ? tweetText.length > TWITTER_MAX_LENGTH 
+                          ? 'text-red-400' 
+                          : 'text-amber-400' 
+                        : 'text-brand-silver/50'
+                    }`}>
+                      {tweetText.length} / {TWITTER_MAX_LENGTH} characters
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Reply/Quote Tweet (only for single tweet mode) */}
+              {!isThreadMode && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-brand-silver mb-1">Reply to Tweet ID (optional)</label>
+                    <input
+                      type="text"
+                      value={tweetReplyToId}
+                      onChange={(e) => setTweetReplyToId(e.target.value)}
+                      placeholder="e.g., 1234567890"
+                      className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-2 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-brand-silver mb-1">Quote Tweet ID (optional)</label>
+                    <input
+                      type="text"
+                      value={tweetQuoteId}
+                      onChange={(e) => setTweetQuoteId(e.target.value)}
+                      placeholder="e.g., 1234567890"
+                      className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-2 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Media Upload for Twitter */}
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingTweetMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingTweetMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={getAcceptedFileTypes(['twitter'])}
+                      className="hidden"
+                      disabled={uploadingTweetMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setTweetMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
+                          handleMediaUpload(file, setTweetMediaUrns, setUploadingTweetMedia, ['twitter']);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {tweetMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {tweetMediaUrns.length} file{tweetMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => {
+                          setTweetMediaUrns([]);
+                          if (tweetMediaPreview) {
+                            URL.revokeObjectURL(tweetMediaPreview.url);
+                            setTweetMediaPreview(null);
+                          }
+                        }}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/* Media Preview */}
+                {tweetMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {tweetMediaPreview.type === 'video' ? (
+                      <video 
+                        src={tweetMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={tweetMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingTweetMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Alt Text for Accessibility */}
+                {tweetMediaUrns.length > 0 && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-brand-silver mb-1">
+                      Alt Text (for accessibility)
+                    </label>
+                    <input
+                      type="text"
+                      value={tweetMediaAltText}
+                      onChange={(e) => setTweetMediaAltText(e.target.value)}
+                      placeholder="Describe your image for screen readers"
+                      maxLength={1000}
+                      className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-2 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 text-sm"
+                    />
+                    <p className="text-xs text-brand-silver/50 mt-1">
+                      {tweetMediaAltText.length}/1000 characters - Helps users with visual impairments
+                    </p>
+                  </div>
+                )}
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['twitter'])}</p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowTwitterComposeModal(false);
+                  resetTwitterComposeForm();
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTwitterPost}
+                disabled={
+                  tweetPosting || 
+                  uploadingTweetMedia || 
+                  !tweetTitle.trim() || 
+                  (isThreadMode 
+                    ? threadTweets.filter(t => t.trim()).length === 0 || threadTweets.some(t => t.length > TWITTER_MAX_LENGTH)
+                    : !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH
+                  )
+                }
+                className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-black hover:bg-gray-800"
+              >
+                {tweetPosting ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {isThreadMode ? 'Posting Thread...' : 'Posting...'}
+                  </>
+                ) : (
+                  isThreadMode ? `Post Thread (${threadTweets.filter(t => t.trim()).length} tweets)` : 'Post Tweet'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Schedule Post Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="glass-card w-full max-w-lg p-6 relative">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
             {/* Close button */}
             <button
               onClick={() => {
@@ -1344,6 +2198,8 @@ function AutomationPageContent() {
                 setScheduleContent('');
                 setScheduleDate('');
                 setScheduleTime('');
+                setScheduleMediaUrns([]);
+                setSchedulePlatforms(['linkedin']);
               }}
               className="absolute top-4 right-4 text-brand-silver hover:text-white"
             >
@@ -1418,15 +2274,67 @@ function AutomationPageContent() {
               </div>
               
               <div className="p-3 bg-white/5 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded bg-[#0A66C2]">
-                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                    </svg>
-                  </div>
-                  <span className="text-sm text-white">LinkedIn</span>
-                  <span className="text-xs text-brand-silver/50 ml-auto">Selected</span>
+                <label className="block text-sm font-medium text-brand-silver mb-2">Platforms</label>
+                <div className="space-y-2">
+                  {/* LinkedIn Option */}
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/5 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={schedulePlatforms.includes('linkedin')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSchedulePlatforms([...schedulePlatforms, 'linkedin']);
+                        } else {
+                          setSchedulePlatforms(schedulePlatforms.filter(p => p !== 'linkedin'));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-brand-ghost/30 text-brand-electric focus:ring-brand-electric/50"
+                    />
+                    <div className="p-1.5 rounded bg-[#0A66C2]">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-white">LinkedIn</span>
+                    <span className="text-xs text-brand-silver/50 ml-auto">Max 3,000 chars</span>
+                  </label>
+                  
+                  {/* Twitter Option */}
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/5 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={schedulePlatforms.includes('twitter')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSchedulePlatforms([...schedulePlatforms, 'twitter']);
+                        } else {
+                          setSchedulePlatforms(schedulePlatforms.filter(p => p !== 'twitter'));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-brand-ghost/30 text-brand-electric focus:ring-brand-electric/50"
+                    />
+                    <div className="p-1.5 rounded bg-black">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-white">Twitter/X</span>
+                    <span className="text-xs text-brand-silver/50 ml-auto">Max {TWITTER_MAX_LENGTH} chars</span>
+                  </label>
                 </div>
+                
+                {/* Character limit warning */}
+                {schedulePlatforms.includes('twitter') && scheduleContent.length > TWITTER_MAX_LENGTH && (
+                  <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                    ⚠️ Content exceeds Twitter&apos;s {TWITTER_MAX_LENGTH} character limit ({scheduleContent.length} chars)
+                  </div>
+                )}
+                
+                {schedulePlatforms.length === 0 && (
+                  <div className="mt-2 text-xs text-yellow-400">
+                    ⚠️ Please select at least one platform
+                  </div>
+                )}
               </div>
 
               {/* Media Upload for Schedule */}
@@ -1440,13 +2348,17 @@ function AutomationPageContent() {
                     {uploadingScheduleMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept={ACCEPTED_FILE_TYPES}
+                      accept={getAcceptedFileTypes(schedulePlatforms)}
                       className="hidden"
                       disabled={uploadingScheduleMedia}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia);
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setScheduleMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
+                          handleMediaUpload(file, setScheduleMediaUrns, setUploadingScheduleMedia, schedulePlatforms);
                         }
                         e.target.value = '';
                       }}
@@ -1459,7 +2371,13 @@ function AutomationPageContent() {
                       </svg>
                       {scheduleMediaUrns.length} file{scheduleMediaUrns.length > 1 ? 's' : ''} attached
                       <button
-                        onClick={() => setScheduleMediaUrns([])}
+                        onClick={() => {
+                          setScheduleMediaUrns([]);
+                          if (scheduleMediaPreview) {
+                            URL.revokeObjectURL(scheduleMediaPreview.url);
+                            setScheduleMediaPreview(null);
+                          }
+                        }}
                         className="text-red-400 hover:text-red-300 ml-2"
                         title="Remove media"
                       >
@@ -1470,7 +2388,36 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+                {/* Media Preview */}
+                {scheduleMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {scheduleMediaPreview.type === 'video' ? (
+                      <video 
+                        src={scheduleMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={scheduleMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingScheduleMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(schedulePlatforms)}</p>
               </div>
             </div>
 
@@ -1484,6 +2431,11 @@ function AutomationPageContent() {
                   setScheduleDate('');
                   setScheduleTime('');
                   setScheduleMediaUrns([]);
+                  if (scheduleMediaPreview) {
+                    URL.revokeObjectURL(scheduleMediaPreview.url);
+                    setScheduleMediaPreview(null);
+                  }
+                  setSchedulePlatforms(['linkedin']);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1491,7 +2443,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleSchedulePost}
-                disabled={scheduling || uploadingScheduleMedia || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime}
+                disabled={scheduling || uploadingScheduleMedia || !scheduleTitle.trim() || !scheduleContent.trim() || !scheduleDate || !scheduleTime || schedulePlatforms.length === 0 || (schedulePlatforms.includes('twitter') && scheduleContent.length > TWITTER_MAX_LENGTH)}
                 className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {scheduling ? (
@@ -1525,6 +2477,7 @@ function AutomationPageContent() {
                 setEditDate('');
                 setEditTime('');
                 setEditMediaUrns([]);
+                setEditPlatforms([]);
               }}
               className="absolute top-4 right-4 text-brand-silver hover:text-white"
             >
@@ -1598,17 +2551,67 @@ function AutomationPageContent() {
               </div>
               
               <div className="p-3 bg-white/5 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded bg-[#0A66C2]">
-                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                    </svg>
-                  </div>
-                  <span className="text-sm text-white">LinkedIn</span>
-                  <span className="text-xs text-brand-silver/50 ml-auto">
-                    {editingPost.platforms.join(', ')}
-                  </span>
+                <label className="block text-sm font-medium text-brand-silver mb-2">Platforms</label>
+                <div className="space-y-2">
+                  {/* LinkedIn Option */}
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/5 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={editPlatforms.includes('linkedin')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEditPlatforms([...editPlatforms, 'linkedin']);
+                        } else {
+                          setEditPlatforms(editPlatforms.filter(p => p !== 'linkedin'));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-brand-ghost/30 text-brand-electric focus:ring-brand-electric/50"
+                    />
+                    <div className="p-1.5 rounded bg-[#0A66C2]">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-white">LinkedIn</span>
+                    <span className="text-xs text-brand-silver/50 ml-auto">Max 3,000 chars</span>
+                  </label>
+                  
+                  {/* Twitter Option */}
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/5 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={editPlatforms.includes('twitter')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEditPlatforms([...editPlatforms, 'twitter']);
+                        } else {
+                          setEditPlatforms(editPlatforms.filter(p => p !== 'twitter'));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-brand-ghost/30 text-brand-electric focus:ring-brand-electric/50"
+                    />
+                    <div className="p-1.5 rounded bg-black">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-white">Twitter/X</span>
+                    <span className="text-xs text-brand-silver/50 ml-auto">Max {TWITTER_MAX_LENGTH} chars</span>
+                  </label>
                 </div>
+                
+                {/* Character limit warning */}
+                {editPlatforms.includes('twitter') && editContent.length > TWITTER_MAX_LENGTH && (
+                  <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                    ⚠️ Content exceeds Twitter&apos;s {TWITTER_MAX_LENGTH} character limit ({editContent.length} chars)
+                  </div>
+                )}
+                
+                {editPlatforms.length === 0 && (
+                  <div className="mt-2 text-xs text-yellow-400">
+                    ⚠️ Please select at least one platform
+                  </div>
+                )}
               </div>
 
               {/* Media Upload for Edit */}
@@ -1622,13 +2625,13 @@ function AutomationPageContent() {
                     {uploadingEditMedia ? 'Uploading...' : 'Add Media'}
                     <input
                       type="file"
-                      accept={ACCEPTED_FILE_TYPES}
+                      accept={getAcceptedFileTypes(editPlatforms)}
                       className="hidden"
                       disabled={uploadingEditMedia}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          handleMediaUpload(file, setEditMediaUrns, setUploadingEditMedia);
+                          handleMediaUpload(file, setEditMediaUrns, setUploadingEditMedia, editPlatforms);
                         }
                         e.target.value = '';
                       }}
@@ -1652,7 +2655,7 @@ function AutomationPageContent() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-brand-silver/50 mt-1">Images: JPEG, PNG, GIF (max 8MB) • Video: MP4 (max 500MB) • Documents: PDF, DOC, PPT (max 100MB)</p>
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(editPlatforms)}</p>
               </div>
             </div>
 
@@ -1667,6 +2670,7 @@ function AutomationPageContent() {
                   setEditDate('');
                   setEditTime('');
                   setEditMediaUrns([]);
+                  setEditPlatforms([]);
                 }}
                 className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
               >
@@ -1674,7 +2678,7 @@ function AutomationPageContent() {
               </button>
               <button
                 onClick={handleEditPost}
-                disabled={editing || uploadingEditMedia || !editTitle.trim() || !editContent.trim() || !editDate || !editTime}
+                disabled={editing || uploadingEditMedia || !editTitle.trim() || !editContent.trim() || !editDate || !editTime || editPlatforms.length === 0 || (editPlatforms.includes('twitter') && editContent.length > TWITTER_MAX_LENGTH)}
                 className="px-6 py-2.5 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {editing ? (

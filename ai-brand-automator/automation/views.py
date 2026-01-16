@@ -3,6 +3,7 @@ Views for the automation app - social media integrations and content scheduling.
 """
 import uuid
 import logging
+from datetime import timedelta
 from django.http import HttpResponseRedirect
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -19,7 +20,7 @@ from .serializers import (
     AutomationTaskSerializer,
     ContentCalendarSerializer,
 )
-from .services import linkedin_service
+from .services import linkedin_service, twitter_service
 from .constants import (
     TEST_ACCESS_TOKEN,
     TEST_REFRESH_TOKEN,
@@ -31,6 +32,13 @@ from .constants import (
     MAX_IMAGE_SIZE,
     MAX_VIDEO_SIZE,
     MAX_DOCUMENT_SIZE,
+    TWITTER_TEST_ACCESS_TOKEN,
+    TWITTER_TEST_REFRESH_TOKEN,
+    TWITTER_IMAGE_TYPES,
+    TWITTER_VIDEO_TYPES,
+    TWITTER_MEDIA_MAX_IMAGE_SIZE,
+    TWITTER_MEDIA_MAX_VIDEO_SIZE,
+    TWITTER_MEDIA_MAX_GIF_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -195,7 +203,7 @@ class LinkedInCallbackView(APIView):
             # Note: profile_id may be in URN format, not suitable for /in/ URLs
             profile_url = "https://www.linkedin.com/feed/"
 
-            _social_profile, _created = SocialProfile.objects.update_or_create(
+            _, created = SocialProfile.objects.update_or_create(
                 user=user,
                 platform="linkedin",
                 defaults={
@@ -213,7 +221,8 @@ class LinkedInCallbackView(APIView):
             # Clean up the OAuth state
             oauth_state.delete()
 
-            logger.info(f"LinkedIn connected for user {user.email}")
+            action = "created" if created else "updated"
+            logger.info(f"LinkedIn profile {action} for user {user.email}")
 
             profile_name = profile_data.get("name", "")
             redirect_url = (
@@ -810,6 +819,575 @@ class LinkedInDocumentStatusView(APIView):
             )
 
 
+class LinkedInAnalyticsView(APIView):
+    """
+    Get analytics and engagement metrics for LinkedIn posts.
+
+    GET /linkedin/analytics/ - Get user profile and post analytics summary
+    GET /linkedin/analytics/<post_urn>/ - Get metrics for a specific post
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_urn=None):
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode analytics request by {request.user.email}")
+
+            if post_urn:
+                # Return mock metrics for a specific post
+                return Response(
+                    {
+                        "test_mode": True,
+                        "post_urn": post_urn,
+                        "text": "Test post content",
+                        "created_time": "2026-01-16T12:00:00Z",
+                        "metrics": {
+                            "likes": 28,
+                            "comments": 5,
+                            "shares": 3,
+                            "impressions": 450,
+                        },
+                    }
+                )
+            else:
+                # Return mock user analytics
+                return Response(
+                    {
+                        "test_mode": True,
+                        "profile": {
+                            "name": "Test User",
+                            "email": "test@example.com",
+                            "picture": None,
+                        },
+                        "network": {
+                            "connections": 500,
+                        },
+                        "posts": [
+                            {
+                                "post_urn": "urn:li:share:test1",
+                                "text": "First test post on LinkedIn!",
+                                "created_time": 1705402800000,
+                                "metrics": {
+                                    "likes": 28,
+                                    "comments": 5,
+                                    "shares": 3,
+                                    "impressions": 450,
+                                },
+                            },
+                            {
+                                "post_urn": "urn:li:share:test2",
+                                "text": "Second test post about our product",
+                                "created_time": 1705316400000,
+                                "metrics": {
+                                    "likes": 42,
+                                    "comments": 8,
+                                    "shares": 6,
+                                    "impressions": 720,
+                                },
+                            },
+                        ],
+                        "totals": {
+                            "total_posts": 2,
+                            "total_likes": 70,
+                            "total_comments": 13,
+                            "engagement_rate": 4.15,
+                        },
+                    }
+                )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            user_urn = profile.profile_id
+
+            if post_urn:
+                # Get metrics for a specific post
+                metrics = linkedin_service.get_share_statistics(access_token, post_urn)
+                return Response(
+                    {
+                        "post_urn": post_urn,
+                        "metrics": metrics,
+                    }
+                )
+            else:
+                # Get full analytics summary
+                analytics = linkedin_service.get_analytics_summary(
+                    access_token, user_urn
+                )
+                return Response(analytics)
+
+        except Exception as e:
+            logger.error(f"Failed to get LinkedIn analytics: {e}")
+            return Response(
+                {"error": f"Failed to get analytics: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LinkedInWebhookView(APIView):
+    """
+    Handle LinkedIn webhook events.
+
+    LinkedIn sends webhooks for:
+    - Share reactions (likes)
+    - Share comments
+    - Mentions
+    - Connection updates
+
+    Docs: https://learn.microsoft.com/en-us/linkedin/
+        marketing/integrations/community-management/webhooks
+
+    Note: Webhooks must be registered via LinkedIn Developer Portal.
+    """
+
+    # Webhooks don't require user authentication - they use signature validation
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        """
+        Handle incoming webhook events from LinkedIn.
+
+        LinkedIn sends events in this format:
+        {
+            "resource": "urn:li:share:123456",
+            "resourceEvent": "CREATED|UPDATED|DELETED",
+            "resourceOwner": "urn:li:person:ABC123",
+            "triggeredAt": 1609459200000,
+            "topic": "shares|comments|reactions",
+            "payload": { ... }
+        }
+        """
+        import hmac
+        import hashlib
+        import base64
+
+        # Validate LinkedIn webhook signature
+        signature_header = request.headers.get("X-LI-Signature", "")
+
+        if not signature_header:
+            logger.warning("LinkedIn webhook received without signature")
+            # For development, we may still process the event
+            # In production, you should require signature validation
+
+        # Get LinkedIn client secret for signature validation
+        client_secret = getattr(settings, "LINKEDIN_CLIENT_SECRET", None)
+
+        if signature_header and client_secret:
+            # Verify HMAC-SHA256 signature
+            expected_signature = "sha256=" + base64.b64encode(
+                hmac.new(
+                    client_secret.encode("utf-8"),
+                    request.body,
+                    hashlib.sha256,
+                ).digest()
+            ).decode("utf-8")
+
+            if not hmac.compare_digest(signature_header, expected_signature):
+                logger.warning("LinkedIn webhook signature validation failed")
+                return Response(
+                    {"error": "Invalid signature"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+        # Process the webhook event
+        event_data = request.data
+        logger.info(f"LinkedIn webhook event received: {event_data}")
+
+        # Store event for processing
+        from .models import LinkedInWebhookEvent
+
+        # Extract event details
+        resource = event_data.get("resource", "")
+        resource_owner = event_data.get("resourceOwner", "")
+        topic = event_data.get("topic", "")
+
+        # Map LinkedIn topics to our event types
+        event_type_map = {
+            "reactions": "share_reaction",
+            "comments": "share_comment",
+            "shares": "share_update",
+            "mentions": "mention",
+            "connections": "connection_update",
+            "organizations": "organization_update",
+            "messages": "message",
+        }
+
+        event_type = event_type_map.get(topic, topic)
+
+        # Store the event
+        LinkedInWebhookEvent.objects.create(
+            event_type=event_type,
+            for_user_id=resource_owner,
+            resource_urn=resource,
+            payload=event_data,
+        )
+
+        logger.info(f"LinkedIn webhook event stored: {event_type} for {resource_owner}")
+
+        # Return 200 to acknowledge receipt
+        return Response({"status": "ok"})
+
+
+class LinkedInWebhookEventsView(APIView):
+    """
+    Get stored LinkedIn webhook events for the authenticated user.
+
+    GET /linkedin/webhooks/events/ - List recent webhook events
+    POST /linkedin/webhooks/events/ - Mark events as read
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import LinkedInWebhookEvent
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TEST_ACCESS_TOKEN:
+            return Response(
+                {
+                    "test_mode": True,
+                    "events": [
+                        {
+                            "id": 1,
+                            "event_type": "share_reaction",
+                            "created_at": "2026-01-16T12:00:00Z",
+                            "resource_urn": "urn:li:share:test123",
+                            "payload": {
+                                "resource": "urn:li:share:test123",
+                                "resourceEvent": "CREATED",
+                                "topic": "reactions",
+                                "actor": {
+                                    "name": "Jane Smith",
+                                    "reaction_type": "LIKE",
+                                },
+                            },
+                            "read": False,
+                        },
+                        {
+                            "id": 2,
+                            "event_type": "share_comment",
+                            "created_at": "2026-01-16T11:30:00Z",
+                            "resource_urn": "urn:li:comment:test456",
+                            "payload": {
+                                "resource": "urn:li:comment:test456",
+                                "resourceEvent": "CREATED",
+                                "topic": "comments",
+                                "actor": {
+                                    "name": "John Doe",
+                                },
+                                "comment": {
+                                    "text": "Great post! Thanks for sharing.",
+                                },
+                            },
+                            "read": False,
+                        },
+                        {
+                            "id": 3,
+                            "event_type": "connection_update",
+                            "created_at": "2026-01-16T10:00:00Z",
+                            "resource_urn": "urn:li:person:newconnection",
+                            "payload": {
+                                "topic": "connections",
+                                "actor": {
+                                    "name": "New Connection",
+                                },
+                            },
+                            "read": True,
+                        },
+                    ],
+                    "unread_count": 2,
+                }
+            )
+
+        # Get user's LinkedIn ID from profile
+        linkedin_user_id = profile.profile_id
+
+        if not linkedin_user_id:
+            return Response(
+                {
+                    "events": [],
+                    "unread_count": 0,
+                    "message": "No LinkedIn user ID associated with profile",
+                }
+            )
+
+        # Get recent events for this user
+        event_type = request.query_params.get("event_type")
+        limit = int(request.query_params.get("limit", 50))
+
+        events_qs = LinkedInWebhookEvent.objects.filter(
+            for_user_id=linkedin_user_id
+        ).order_by("-created_at")
+
+        if event_type:
+            events_qs = events_qs.filter(event_type=event_type)
+
+        events = events_qs[:limit]
+
+        unread_count = LinkedInWebhookEvent.objects.filter(
+            for_user_id=linkedin_user_id,
+            read=False,
+        ).count()
+
+        return Response(
+            {
+                "events": [
+                    {
+                        "id": event.id,
+                        "event_type": event.event_type,
+                        "created_at": event.created_at.isoformat(),
+                        "resource_urn": event.resource_urn,
+                        "payload": event.payload,
+                        "read": event.read,
+                    }
+                    for event in events
+                ],
+                "unread_count": unread_count,
+            }
+        )
+
+    def post(self, request):
+        """Mark events as read."""
+        from .models import LinkedInWebhookEvent
+
+        event_ids = request.data.get("event_ids", [])
+
+        if not event_ids:
+            return Response(
+                {"error": "No event_ids provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+            linkedin_user_id = profile.profile_id
+
+            updated = LinkedInWebhookEvent.objects.filter(
+                id__in=event_ids,
+                for_user_id=linkedin_user_id,
+            ).update(read=True)
+
+            return Response(
+                {
+                    "message": f"Marked {updated} events as read",
+                    "updated_count": updated,
+                }
+            )
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class TwitterMediaUploadView(APIView):
+    """
+    Upload media (images, videos, or GIFs) to Twitter for use in tweets.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Upload an image, video, or GIF to Twitter.
+
+        Accepts a file upload (multipart/form-data with 'media' field).
+
+        Returns the media_id to use when creating a tweet with media.
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for file upload
+        media_file = request.FILES.get("media")
+
+        if not media_file:
+            return Response(
+                {"error": "No media file provided. Use 'media' field."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = media_file.content_type
+        is_image = content_type in TWITTER_IMAGE_TYPES
+        is_video = content_type in TWITTER_VIDEO_TYPES
+        is_gif = content_type == "image/gif"
+
+        if not is_image and not is_video:
+            allowed = "JPEG, PNG, GIF, WEBP (images); MP4, MOV (video)"
+            return Response(
+                {"error": f"Invalid file type: {content_type}. Allowed: {allowed}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Determine media category and size limit
+        if is_video:
+            media_category = "tweet_video"
+            max_size = TWITTER_MEDIA_MAX_VIDEO_SIZE
+            size_label = "512MB"
+        elif is_gif:
+            media_category = "tweet_gif"
+            max_size = TWITTER_MEDIA_MAX_GIF_SIZE
+            size_label = "15MB"
+        else:
+            media_category = "tweet_image"
+            max_size = TWITTER_MEDIA_MAX_IMAGE_SIZE
+            size_label = "5MB"
+
+        if media_file.size > max_size:
+            return Response(
+                {"error": f"File too large. Maximum size is {size_label}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            media_type = "video" if is_video else ("gif" if is_gif else "image")
+            test_media_id = f"test-{media_type}-{uuid.uuid4().hex[:12]}"
+            logger.info(f"Test Twitter {media_type} upload by {request.user.email}")
+            return Response(
+                {
+                    "media_id": test_media_id,
+                    "media_id_string": test_media_id,
+                    "media_type": media_type,
+                    "test_mode": True,
+                    "status": "PROCESSING" if is_video else "READY",
+                    "message": f"{media_type.capitalize()} upload simulated",
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            file_data = media_file.read()
+
+            result = twitter_service.upload_media(
+                access_token=access_token,
+                media_data=file_data,
+                media_type=content_type,
+                media_category=media_category,
+            )
+
+            media_type = "video" if is_video else ("gif" if is_gif else "image")
+            processing_msg = (
+                "Processing may take a few minutes."
+                if result.get("status") == "PROCESSING"
+                else ""
+            )
+
+            logger.info(
+                f"Twitter {media_type} uploaded by {request.user.email}: "
+                f"{result.get('media_id_string')}"
+            )
+
+            return Response(
+                {
+                    "media_id": result.get("media_id"),
+                    "media_id_string": result.get("media_id_string"),
+                    "media_type": media_type,
+                    "status": result.get("status", "READY"),
+                    "message": f"{media_type.capitalize()} uploaded. {processing_msg}",
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Twitter media upload failed: {e}")
+            return Response(
+                {"error": f"Failed to upload media: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterMediaStatusView(APIView):
+    """
+    Check the processing status of uploaded Twitter media.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, media_id):
+        """
+        Check media processing status.
+
+        Args:
+            media_id: The media_id_string returned from media upload
+
+        Returns:
+            Status: pending, in_progress, succeeded, failed
+        """
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            return Response(
+                {
+                    "media_id": media_id,
+                    "state": "succeeded",
+                    "test_mode": True,
+                    "message": "Media ready (test mode)",
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            result = twitter_service.get_media_status(access_token, media_id)
+
+            return Response(
+                {
+                    "media_id": result["media_id"],
+                    "state": result["state"],
+                    "check_after_secs": result.get("check_after_secs"),
+                    "progress_percent": result.get("progress_percent"),
+                    "error": result.get("error"),
+                    "message": f"Media status: {result['state']}",
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Twitter media status check failed: {e}")
+            return Response(
+                {"error": f"Failed to check media status: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class AutomationTaskViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing automation tasks.
@@ -897,6 +1475,28 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
             if linkedin_profiles_on_instance.exists():
                 instance.social_profiles.remove(*linkedin_profiles_on_instance)
 
+        # Handle Twitter platform
+        twitter_profiles_on_instance = instance.social_profiles.filter(
+            platform="twitter"
+        )
+
+        if "twitter" in instance.platforms:
+            # Ensure the user's connected Twitter profile is attached
+            twitter_profile = SocialProfile.objects.filter(
+                user=self.request.user, platform="twitter", status="connected"
+            ).first()
+
+            if twitter_profile:
+                # Add if not already linked
+                if not twitter_profiles_on_instance.filter(
+                    id=twitter_profile.id
+                ).exists():
+                    instance.social_profiles.add(twitter_profile)
+        else:
+            # Twitter removed from platforms - remove any Twitter profiles
+            if twitter_profiles_on_instance.exists():
+                instance.social_profiles.remove(*twitter_profiles_on_instance)
+
     def perform_create(self, serializer):
         """Auto-link social profiles based on selected platforms."""
         instance = serializer.save(user=self.request.user)
@@ -936,6 +1536,8 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def publish(self, request, pk=None):
         """Manually publish a scheduled post immediately."""
+        from .publish_helpers import publish_content, update_content_status
+
         content = self.get_object()
 
         if content.status == "published":
@@ -944,47 +1546,8 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        results = {}
-        errors = []
-
-        # Get media URNs if any
-        media_urns = content.media_urls if content.media_urls else []
-
-        # Publish to each connected platform
-        for profile in content.social_profiles.all():
-            if profile.platform == "linkedin" and profile.status == "connected":
-                try:
-                    # Check if test mode
-                    if profile.access_token == TEST_ACCESS_TOKEN:
-                        results["linkedin"] = {
-                            "test_mode": True,
-                            "message": "Post simulated in test mode",
-                            "has_media": len(media_urns) > 0,
-                        }
-                        logger.info(f"Test publish to LinkedIn: {content.title}")
-                    else:
-                        access_token = profile.get_valid_access_token()
-                        result = linkedin_service.create_share(
-                            access_token=access_token,
-                            user_urn=profile.profile_id,
-                            text=content.content,
-                            image_urns=media_urns if media_urns else None,
-                        )
-                        results["linkedin"] = result
-                except Exception as e:
-                    errors.append(f"LinkedIn: {str(e)}")
-                    logger.error(f"Failed to publish to LinkedIn: {e}")
-
-        # Update content status
-        if errors and not results:
-            content.status = "failed"
-            content.post_results = {"errors": errors}
-        else:
-            content.status = "published"
-            content.published_at = timezone.now()
-            content.post_results = results
-
-        content.save()
+        results, errors = publish_content(content, log_prefix="Manual ")
+        update_content_status(content, results, errors)
 
         return Response(
             {
@@ -1014,3 +1577,953 @@ class ContentCalendarViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Post cancelled successfully", "status": content.status}
         )
+
+
+# =============================================================================
+# Twitter/X Integration Views
+# =============================================================================
+
+
+class TwitterConnectView(APIView):
+    """
+    Initiate Twitter OAuth 2.0 flow with PKCE.
+
+    Returns the authorization URL that the frontend should redirect to.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .services import twitter_service
+
+        if not twitter_service.is_configured:
+            return Response(
+                {"error": "Twitter OAuth not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # Generate PKCE code verifier and challenge
+        code_verifier, code_challenge = twitter_service.generate_pkce_pair()
+
+        # Generate unique state for CSRF protection
+        state = str(uuid.uuid4())
+
+        # Store state and code_verifier in session/database
+        OAuthState.objects.create(
+            user=request.user,
+            platform="twitter",
+            state=state,
+            code_verifier=code_verifier,  # Store for token exchange
+        )
+
+        try:
+            auth_url = twitter_service.get_authorization_url(state, code_challenge)
+            return Response({"authorization_url": auth_url})
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TwitterCallbackView(APIView):
+    """
+    Handle Twitter OAuth 2.0 callback.
+
+    Exchanges authorization code for tokens and creates/updates SocialProfile.
+    """
+
+    # No authentication required - this is a callback from Twitter
+    permission_classes = []
+
+    def get(self, request):
+        from .services import twitter_service
+
+        code = request.GET.get("code")
+        state = request.GET.get("state")
+        error = request.GET.get("error")
+
+        frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+        if error:
+            logger.error(f"Twitter OAuth error: {error}")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=twitter_auth_failed"
+            )
+
+        if not code or not state:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=missing_params"
+            )
+
+        # Validate state and get code_verifier
+        try:
+            oauth_state = OAuthState.objects.get(
+                state=state,
+                platform="twitter",
+                used=False,
+            )
+        except OAuthState.DoesNotExist:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=invalid_state"
+            )
+
+        # Mark state as used
+        oauth_state.used = True
+        oauth_state.save()
+
+        # Check if state is expired (5 minutes)
+        if (timezone.now() - oauth_state.created_at).total_seconds() > 300:
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=state_expired"
+            )
+
+        try:
+            # Exchange code for tokens with PKCE verifier
+            token_data = twitter_service.exchange_code_for_token(
+                code, oauth_state.code_verifier
+            )
+
+            # Get user info
+            user_info = twitter_service.get_user_info(token_data["access_token"])
+
+            # Create or update social profile
+            _, created = SocialProfile.objects.update_or_create(
+                user=oauth_state.user,
+                platform="twitter",
+                defaults={
+                    "access_token": token_data["access_token"],
+                    "refresh_token": token_data.get("refresh_token"),
+                    "token_expires_at": token_data.get("expires_at"),
+                    "profile_id": user_info.get("id"),
+                    "profile_name": user_info.get("name"),
+                    "profile_url": f"https://twitter.com/{user_info.get('username')}",
+                    "profile_image_url": user_info.get("profile_image_url"),
+                    "status": "connected",
+                },
+            )
+
+            action = "created" if created else "updated"
+            logger.info(
+                f"Twitter profile {action} for user {oauth_state.user.email}: "
+                f"@{user_info.get('username')}"
+            )
+
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?success=true&platform=twitter"
+            )
+
+        except Exception as e:
+            logger.error(f"Twitter OAuth callback failed: {e}")
+            return HttpResponseRedirect(
+                f"{frontend_url}/automation?error=twitter_token_exchange_failed"
+            )
+
+
+class TwitterDisconnectView(APIView):
+    """Disconnect Twitter account."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .services import twitter_service
+
+        try:
+            profile = SocialProfile.objects.get(user=request.user, platform="twitter")
+
+            # Revoke token if possible
+            if profile.access_token:
+                try:
+                    twitter_service.revoke_token(profile.access_token)
+                except Exception as e:
+                    logger.warning(f"Failed to revoke Twitter token: {e}")
+
+            # Clear tokens and mark as disconnected
+            profile.access_token = None
+            profile.refresh_token = None
+            profile.token_expires_at = None
+            profile.status = "disconnected"
+            profile.save()
+
+            return Response({"message": "Twitter account disconnected successfully"})
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "No Twitter account connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+class TwitterTestConnectView(APIView):
+    """
+    Create a mock Twitter connection for testing (DEBUG mode only).
+
+    This allows testing the Twitter integration without real OAuth.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not settings.DEBUG:
+            return Response(
+                {"error": "Test connect only available in DEBUG mode"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Create mock profile
+        profile, created = SocialProfile.objects.update_or_create(
+            user=request.user,
+            platform="twitter",
+            defaults={
+                "access_token": TWITTER_TEST_ACCESS_TOKEN,
+                "refresh_token": TWITTER_TEST_REFRESH_TOKEN,
+                "token_expires_at": timezone.now() + timedelta(days=60),
+                "profile_id": f"test_twitter_{request.user.id}",
+                "profile_name": f"Test User ({request.user.email})",
+                "profile_url": f"https://twitter.com/test_user_{request.user.id}",
+                "profile_image_url": None,
+                "status": "connected",
+            },
+        )
+
+        return Response(
+            {
+                "message": "Test Twitter connection created",
+                "profile_name": profile.profile_name,
+                "is_test_mode": True,
+            }
+        )
+
+
+class TwitterPostView(APIView):
+    """
+    Create a tweet on Twitter/X.
+
+    Requires a connected Twitter account.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .services import twitter_service
+
+        title = request.data.get("title", "").strip()
+        text = request.data.get("text", "").strip()
+        media_ids = request.data.get("media_ids", [])
+
+        if not text:
+            return Response(
+                {"error": "Tweet text is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate length
+        validation = twitter_service.validate_tweet_length(text)
+        if not validation["is_valid"]:
+            return Response(
+                {
+                    "error": f"Tweet exceeds max length of {validation['max_length']} "
+                    f"characters (current: {validation['length']})"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate media_ids is a list
+        if media_ids and not isinstance(media_ids, list):
+            media_ids = [media_ids]
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode tweet by {request.user.email}: {text[:50]}...")
+
+            # Create a ContentCalendar entry for the published tweet
+            post_title = (
+                title
+                if title
+                else f"Twitter Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                media_urls=media_ids,
+                platforms=["twitter"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "test_mode": True,
+                    "message": "Tweet simulated in test mode",
+                    "has_media": len(media_ids) > 0,
+                },
+            )
+            content.social_profiles.add(profile)
+
+            # Create an automation task record
+            task = AutomationTask.objects.create(
+                user=request.user,
+                task_type="social_post",
+                status="completed",
+                payload={
+                    "text": text,
+                    "platform": "twitter",
+                    "media_count": len(media_ids),
+                },
+                result={"test_mode": True, "message": "Tweet simulated in test mode"},
+            )
+
+            return Response(
+                {
+                    "message": "Tweet simulated (test mode)",
+                    "test_mode": True,
+                    "task_id": task.id,
+                    "content_id": content.id,
+                    "tweet": {
+                        "id": f"test_tweet_{uuid.uuid4().hex[:12]}",
+                        "text": text,
+                    },
+                }
+            )
+
+        try:
+            # Get valid access token (refresh if needed)
+            access_token = profile.get_valid_access_token()
+
+            # Create tweet
+            result = twitter_service.create_tweet(
+                access_token=access_token,
+                text=text,
+                reply_to_id=request.data.get("reply_to_id"),
+                quote_tweet_id=request.data.get("quote_tweet_id"),
+                media_ids=media_ids if media_ids else None,
+            )
+
+            # Create a ContentCalendar entry for the published tweet
+            post_title = (
+                title
+                if title
+                else f"Twitter Post - {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                media_urls=media_ids,
+                platforms=["twitter"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results=result,
+            )
+            content.social_profiles.add(profile)
+
+            # Create an automation task record
+            task = AutomationTask.objects.create(
+                user=request.user,
+                task_type="social_post",
+                status="completed",
+                payload={
+                    "text": text,
+                    "platform": "twitter",
+                    "media_count": len(media_ids),
+                },
+                result=result,
+            )
+
+            logger.info(
+                f"Twitter tweet created by {request.user.email} "
+                f"(media: {len(media_ids)})"
+            )
+
+            return Response(
+                {
+                    "message": "Tweet posted successfully",
+                    "tweet_id": result.get("id"),
+                    "task_id": task.id,
+                    "content_id": content.id,
+                    "has_media": len(media_ids) > 0,
+                    "tweet": result,
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to post tweet: {e}")
+            return Response(
+                {"error": f"Failed to post tweet: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterValidateTweetView(APIView):
+    """
+    Validate tweet text without posting.
+
+    Used for real-time validation in the UI.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .services import twitter_service
+
+        text = request.data.get("text", "")
+        is_premium = request.data.get("is_premium", False)
+
+        validation = twitter_service.validate_tweet_length(text, is_premium)
+
+        return Response(validation)
+
+
+class TwitterDeleteTweetView(APIView):
+    """
+    Delete a tweet by its ID.
+
+    Requires a connected Twitter account.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, tweet_id):
+        from .services import twitter_service
+        from .constants import TWITTER_TEST_ACCESS_TOKEN
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode tweet deletion by {request.user.email}: {tweet_id}")
+
+            # Update ContentCalendar if exists
+            ContentCalendar.objects.filter(
+                user=request.user,
+                post_results__tweet__id=tweet_id,
+            ).update(status="cancelled")
+
+            return Response(
+                {
+                    "message": "Tweet deleted (test mode)",
+                    "test_mode": True,
+                    "tweet_id": tweet_id,
+                }
+            )
+
+        try:
+            access_token = profile.get_valid_access_token()
+            success = twitter_service.delete_tweet(access_token, tweet_id)
+
+            if success:
+                # Update ContentCalendar if exists
+                ContentCalendar.objects.filter(
+                    user=request.user,
+                    post_results__id=tweet_id,
+                ).update(status="cancelled")
+
+                logger.info(f"Tweet deleted by {request.user.email}: {tweet_id}")
+                return Response(
+                    {
+                        "message": "Tweet deleted successfully",
+                        "tweet_id": tweet_id,
+                    }
+                )
+            else:
+                return Response(
+                    {"error": "Failed to delete tweet"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to delete tweet: {e}")
+            return Response(
+                {"error": f"Failed to delete tweet: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterAnalyticsView(APIView):
+    """
+    Get analytics and metrics for Twitter tweets.
+
+    GET /twitter/analytics/ - Get user profile metrics and recent tweet metrics
+    GET /twitter/analytics/<tweet_id>/ - Get metrics for a specific tweet
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, tweet_id=None):
+        from .services import twitter_service
+        from .constants import TWITTER_TEST_ACCESS_TOKEN
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            logger.info(f"Test mode analytics request by {request.user.email}")
+
+            if tweet_id:
+                # Return mock metrics for a specific tweet
+                return Response(
+                    {
+                        "test_mode": True,
+                        "tweet_id": tweet_id,
+                        "text": "Test tweet content",
+                        "created_at": "2026-01-16T12:00:00Z",
+                        "metrics": {
+                            "impressions": 1250,
+                            "likes": 45,
+                            "retweets": 12,
+                            "replies": 8,
+                            "quotes": 3,
+                            "bookmarks": 5,
+                        },
+                    }
+                )
+            else:
+                # Return mock user metrics and recent tweets
+                return Response(
+                    {
+                        "test_mode": True,
+                        "user": {
+                            "user_id": "test_user_123",
+                            "username": "testuser",
+                            "name": "Test User",
+                            "profile_image_url": None,
+                            "metrics": {
+                                "followers": 1500,
+                                "following": 350,
+                                "tweets": 420,
+                                "listed": 12,
+                            },
+                        },
+                        "tweets": [
+                            {
+                                "tweet_id": "test_tweet_1",
+                                "text": "First test tweet",
+                                "created_at": "2026-01-16T12:00:00Z",
+                                "metrics": {
+                                    "impressions": 1250,
+                                    "likes": 45,
+                                    "retweets": 12,
+                                    "replies": 8,
+                                    "quotes": 3,
+                                    "bookmarks": 5,
+                                },
+                            },
+                            {
+                                "tweet_id": "test_tweet_2",
+                                "text": "Second test tweet",
+                                "created_at": "2026-01-15T10:00:00Z",
+                                "metrics": {
+                                    "impressions": 980,
+                                    "likes": 32,
+                                    "retweets": 8,
+                                    "replies": 5,
+                                    "quotes": 1,
+                                    "bookmarks": 2,
+                                },
+                            },
+                        ],
+                        "totals": {
+                            "total_impressions": 2230,
+                            "total_likes": 77,
+                            "total_retweets": 20,
+                            "total_replies": 13,
+                            "total_quotes": 4,
+                            "total_bookmarks": 7,
+                            "engagement_rate": 5.4,
+                        },
+                    }
+                )
+
+        try:
+            access_token = profile.get_valid_access_token()
+
+            if tweet_id:
+                # Get metrics for a specific tweet
+                metrics = twitter_service.get_tweet_metrics(access_token, tweet_id)
+                return Response(metrics)
+            else:
+                # Get user metrics and published tweets from ContentCalendar
+                user_metrics = twitter_service.get_user_metrics(access_token)
+
+                # Get tweet IDs from published posts
+                published_posts = ContentCalendar.objects.filter(
+                    user=request.user,
+                    platforms__contains=["twitter"],
+                    status="published",
+                ).order_by("-published_at")[:20]
+
+                tweet_ids = []
+                for post in published_posts:
+                    # post_results can have tweet id in different locations
+                    post_results = post.post_results or {}
+                    tweet_data = post_results.get("tweet", post_results)
+                    if isinstance(tweet_data, dict) and tweet_data.get("id"):
+                        tweet_ids.append(tweet_data["id"])
+                    elif post_results.get("id"):
+                        tweet_ids.append(post_results["id"])
+
+                # Get metrics for all tweets
+                tweets_metrics = []
+                if tweet_ids:
+                    tweets_metrics = twitter_service.get_multiple_tweet_metrics(
+                        access_token, tweet_ids
+                    )
+
+                # Calculate totals
+                totals = {
+                    "total_impressions": 0,
+                    "total_likes": 0,
+                    "total_retweets": 0,
+                    "total_replies": 0,
+                    "total_quotes": 0,
+                    "total_bookmarks": 0,
+                }
+                for tweet in tweets_metrics:
+                    metrics = tweet.get("metrics", {})
+                    totals["total_impressions"] += metrics.get("impressions", 0)
+                    totals["total_likes"] += metrics.get("likes", 0)
+                    totals["total_retweets"] += metrics.get("retweets", 0)
+                    totals["total_replies"] += metrics.get("replies", 0)
+                    totals["total_quotes"] += metrics.get("quotes", 0)
+                    totals["total_bookmarks"] += metrics.get("bookmarks", 0)
+
+                # Calculate engagement rate
+                if totals["total_impressions"] > 0:
+                    engagements = (
+                        totals["total_likes"]
+                        + totals["total_retweets"]
+                        + totals["total_replies"]
+                        + totals["total_quotes"]
+                    )
+                    totals["engagement_rate"] = round(
+                        (engagements / totals["total_impressions"]) * 100, 2
+                    )
+                else:
+                    totals["engagement_rate"] = 0
+
+                return Response(
+                    {
+                        "user": user_metrics,
+                        "tweets": tweets_metrics,
+                        "totals": totals,
+                    }
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to get Twitter analytics: {e}")
+            return Response(
+                {"error": f"Failed to get analytics: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterWebhookView(APIView):
+    """
+    Handle Twitter Account Activity API webhooks.
+
+    GET - CRC challenge validation
+    POST - Receive webhook events (likes, retweets, mentions, DMs)
+
+    Note: Requires Twitter Premium or Enterprise tier for Account Activity API.
+    """
+
+    # Webhooks don't require user authentication - they use signature validation
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        """
+        Handle CRC (Challenge Response Check) for webhook registration.
+
+        Twitter sends a GET request with crc_token parameter.
+        We must respond with a HMAC-SHA256 signature of the token.
+        """
+        import hmac
+        import hashlib
+        import base64
+
+        crc_token = request.query_params.get("crc_token")
+
+        if not crc_token:
+            return Response(
+                {"error": "Missing crc_token parameter"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get consumer secret from settings
+        consumer_secret = getattr(settings, "TWITTER_CLIENT_SECRET", None)
+
+        if not consumer_secret:
+            logger.error("Twitter webhook CRC failed: No client secret configured")
+            return Response(
+                {"error": "Webhook not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Create HMAC-SHA256 signature
+        signature = hmac.new(
+            consumer_secret.encode("utf-8"),
+            crc_token.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+
+        response_token = base64.b64encode(signature).decode("utf-8")
+
+        logger.info("Twitter webhook CRC challenge validated")
+        return Response({"response_token": f"sha256={response_token}"})
+
+    def post(self, request):
+        """
+        Handle incoming webhook events from Twitter.
+
+        Events can include:
+        - tweet_create_events: New tweets/replies/mentions
+        - favorite_events: Likes
+        - follow_events: New followers
+        - direct_message_events: DMs
+        - tweet_delete_events: Deleted tweets
+        """
+        import hmac
+        import hashlib
+        import base64
+
+        # Validate webhook signature
+        signature_header = request.headers.get("X-Twitter-Webhooks-Signature", "")
+
+        if not signature_header:
+            logger.warning("Twitter webhook received without signature")
+            return Response(
+                {"error": "Missing signature"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        consumer_secret = getattr(settings, "TWITTER_CLIENT_SECRET", None)
+
+        if not consumer_secret:
+            return Response(
+                {"error": "Webhook not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Verify signature
+        expected_signature = "sha256=" + base64.b64encode(
+            hmac.new(
+                consumer_secret.encode("utf-8"),
+                request.body,
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
+        if not hmac.compare_digest(signature_header, expected_signature):
+            logger.warning("Twitter webhook signature validation failed")
+            return Response(
+                {"error": "Invalid signature"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Process the webhook event
+        event_data = request.data
+        logger.info(f"Twitter webhook event received: {list(event_data.keys())}")
+
+        # Store event for processing
+        from .models import TwitterWebhookEvent
+
+        # Handle different event types
+        for_user_id = event_data.get("for_user_id")
+
+        if "tweet_create_events" in event_data:
+            for tweet in event_data["tweet_create_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="tweet_create",
+                    for_user_id=for_user_id,
+                    payload=tweet,
+                )
+                logger.info(f"Tweet create event stored: {tweet.get('id_str')}")
+
+        if "favorite_events" in event_data:
+            for favorite in event_data["favorite_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="favorite",
+                    for_user_id=for_user_id,
+                    payload=favorite,
+                )
+                logger.info("Favorite event stored")
+
+        if "follow_events" in event_data:
+            for follow in event_data["follow_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="follow",
+                    for_user_id=for_user_id,
+                    payload=follow,
+                )
+                logger.info("Follow event stored")
+
+        if "direct_message_events" in event_data:
+            for dm in event_data["direct_message_events"]:
+                TwitterWebhookEvent.objects.create(
+                    event_type="direct_message",
+                    for_user_id=for_user_id,
+                    payload=dm,
+                )
+                logger.info("DM event stored")
+
+        return Response({"status": "ok"})
+
+
+class TwitterWebhookEventsView(APIView):
+    """
+    Get stored webhook events for the authenticated user.
+
+    GET /twitter/webhooks/events/ - List recent webhook events
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import TwitterWebhookEvent
+        from .constants import TWITTER_TEST_ACCESS_TOKEN
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode
+        if profile.access_token == TWITTER_TEST_ACCESS_TOKEN:
+            return Response(
+                {
+                    "test_mode": True,
+                    "events": [
+                        {
+                            "id": 1,
+                            "event_type": "favorite",
+                            "created_at": "2026-01-16T12:00:00Z",
+                            "payload": {
+                                "user": {"screen_name": "testfan"},
+                                "favorited_status": {"text": "Your tweet was liked!"},
+                            },
+                            "read": False,
+                        },
+                        {
+                            "id": 2,
+                            "event_type": "follow",
+                            "created_at": "2026-01-16T11:30:00Z",
+                            "payload": {
+                                "source": {"screen_name": "newfollower"},
+                            },
+                            "read": False,
+                        },
+                    ],
+                    "unread_count": 2,
+                }
+            )
+
+        # Get user's Twitter ID from profile
+        twitter_user_id = profile.profile_id
+
+        if not twitter_user_id:
+            return Response(
+                {
+                    "events": [],
+                    "unread_count": 0,
+                    "message": "No Twitter user ID associated with profile",
+                }
+            )
+
+        # Get recent events for this user
+        event_type = request.query_params.get("event_type")
+        limit = int(request.query_params.get("limit", 50))
+
+        events_qs = TwitterWebhookEvent.objects.filter(
+            for_user_id=twitter_user_id
+        ).order_by("-created_at")
+
+        if event_type:
+            events_qs = events_qs.filter(event_type=event_type)
+
+        events = events_qs[:limit]
+
+        unread_count = TwitterWebhookEvent.objects.filter(
+            for_user_id=twitter_user_id,
+            read=False,
+        ).count()
+
+        return Response(
+            {
+                "events": [
+                    {
+                        "id": event.id,
+                        "event_type": event.event_type,
+                        "created_at": event.created_at.isoformat(),
+                        "payload": event.payload,
+                        "read": event.read,
+                    }
+                    for event in events
+                ],
+                "unread_count": unread_count,
+            }
+        )
+
+    def post(self, request):
+        """Mark events as read."""
+        from .models import TwitterWebhookEvent
+
+        event_ids = request.data.get("event_ids", [])
+
+        if not event_ids:
+            return Response(
+                {"error": "No event_ids provided"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+            twitter_user_id = profile.profile_id
+
+            updated = TwitterWebhookEvent.objects.filter(
+                id__in=event_ids,
+                for_user_id=twitter_user_id,
+            ).update(read=True)
+
+            return Response(
+                {
+                    "message": f"Marked {updated} events as read",
+                    "updated_count": updated,
+                }
+            )
+
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )

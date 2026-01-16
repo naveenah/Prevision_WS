@@ -774,6 +774,1018 @@ class LinkedInService:
             "filename": filename,
         }
 
+    def get_organization_followers(self, access_token: str, org_id: str = None) -> dict:
+        """
+        Get follower statistics for the user's network.
+
+        Note: For personal profiles, LinkedIn API v2 doesn't expose follower counts
+        directly. This method provides what's available through the API.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            org_id: Optional organization ID for company page metrics
+
+        Returns:
+            Dictionary with follower/connection information
+        """
+        # For personal profiles, we can get 1st-degree connections count
+        # through the connections API (if authorized)
+        try:
+            # Get network size (connections)
+            network_url = (
+                "https://api.linkedin.com/v2/networkSizes/"
+                "urn:li:person:me?edgeType=CompanyFollowedByMember"
+            )
+
+            response = requests.get(
+                network_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+
+            if response.ok:
+                data = response.json()
+                return {
+                    "first_degree_size": data.get("firstDegreeSize", 0),
+                }
+            else:
+                # API might not be available for this user/scope
+                return {"first_degree_size": 0, "note": "Network size unavailable"}
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn network size fetch failed: {e}")
+            return {"first_degree_size": 0, "error": str(e)}
+
+    def get_share_statistics(self, access_token: str, share_urn: str) -> dict:
+        """
+        Get engagement statistics for a specific share/post.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            share_urn: The share URN (e.g., urn:li:share:12345 or urn:li:ugcPost:12345)
+
+        Returns:
+            Dictionary with engagement metrics (likes, comments, shares, impressions)
+        """
+        # LinkedIn API v2 uses organizationalEntityShareStatistics for org pages
+        # For personal shares, we use socialActions API
+
+        try:
+            # Get social actions (likes, comments) for the post
+            # URL encode the URN
+            encoded_urn = share_urn.replace(":", "%3A")
+
+            # Get likes count
+            likes_url = (
+                f"https://api.linkedin.com/v2/socialActions/{encoded_urn}/likes?count=0"
+            )
+            comments_url = (
+                f"https://api.linkedin.com/v2/socialActions/{encoded_urn}"
+                f"/comments?count=0"
+            )
+
+            likes_count = 0
+            comments_count = 0
+
+            # Fetch likes
+            likes_response = requests.get(
+                likes_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            if likes_response.ok:
+                likes_data = likes_response.json()
+                # The paging total gives us the count
+                likes_count = likes_data.get("paging", {}).get("total", 0)
+
+            # Fetch comments
+            comments_response = requests.get(
+                comments_url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+            if comments_response.ok:
+                comments_data = comments_response.json()
+                comments_count = comments_data.get("paging", {}).get("total", 0)
+
+            return {
+                "share_urn": share_urn,
+                "likes": likes_count,
+                "comments": comments_count,
+                "shares": 0,  # Reshares not easily accessible via v2 API
+                "impressions": 0,  # Impressions require organization analytics
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn share statistics fetch failed: {e}")
+            return {
+                "share_urn": share_urn,
+                "likes": 0,
+                "comments": 0,
+                "shares": 0,
+                "impressions": 0,
+                "error": str(e),
+            }
+
+    def get_user_posts(self, access_token: str, user_urn: str, count: int = 20) -> list:
+        """
+        Get recent posts by the user.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+            count: Number of posts to fetch (max 100)
+
+        Returns:
+            List of post dictionaries with basic info
+        """
+        # Normalize URN format
+        if user_urn.startswith("urn:li:person:"):
+            author_urn = user_urn
+        else:
+            author_urn = f"urn:li:person:{user_urn}"
+
+        encoded_author = author_urn.replace(":", "%3A")
+
+        try:
+            # Fetch UGC posts by the author
+            base_url = "https://api.linkedin.com/v2/ugcPosts"
+            url = (
+                f"{base_url}?q=authors&authors=List({encoded_author})"
+                f"&count={min(count, 100)}"
+            )
+
+            response = requests.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Restli-Protocol-Version": "2.0.0",
+                },
+                timeout=30,
+            )
+
+            if response.ok:
+                data = response.json()
+                posts = []
+
+                for element in data.get("elements", []):
+                    post_urn = element.get("id", "")
+                    specific_content = element.get("specificContent", {})
+                    share_content = specific_content.get(
+                        "com.linkedin.ugc.ShareContent", {}
+                    )
+                    commentary = share_content.get("shareCommentary", {})
+
+                    posts.append(
+                        {
+                            "post_urn": post_urn,
+                            "text": commentary.get("text", ""),
+                            "created_time": element.get("created", {}).get("time"),
+                            "lifecycle_state": element.get("lifecycleState"),
+                        }
+                    )
+
+                return posts
+            else:
+                logger.error(f"Failed to fetch user posts: {response.status_code}")
+                return []
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LinkedIn user posts fetch failed: {e}")
+            return []
+
+    def get_analytics_summary(self, access_token: str, user_urn: str) -> dict:
+        """
+        Get a summary of analytics for the user including profile and post metrics.
+
+        Args:
+            access_token: Valid LinkedIn access token
+            user_urn: The user's URN
+
+        Returns:
+            Dictionary with user metrics and recent post performance
+        """
+        # Get user profile info
+        profile = self.get_user_profile(access_token)
+
+        # Get recent posts
+        posts = self.get_user_posts(access_token, user_urn, count=20)
+
+        # Get metrics for each post
+        posts_with_metrics = []
+        total_likes = 0
+        total_comments = 0
+
+        for post in posts[:10]:  # Limit to 10 to avoid rate limits
+            post_urn = post.get("post_urn")
+            if post_urn:
+                metrics = self.get_share_statistics(access_token, post_urn)
+                post["metrics"] = metrics
+                posts_with_metrics.append(post)
+                total_likes += metrics.get("likes", 0)
+                total_comments += metrics.get("comments", 0)
+
+        # Get network info
+        network = self.get_organization_followers(access_token)
+
+        return {
+            "profile": {
+                "name": profile.get("name"),
+                "email": profile.get("email"),
+                "picture": profile.get("picture"),
+            },
+            "network": {
+                "connections": network.get("first_degree_size", 0),
+            },
+            "posts": posts_with_metrics,
+            "totals": {
+                "total_posts": len(posts),
+                "total_likes": total_likes,
+                "total_comments": total_comments,
+                "engagement_rate": round(
+                    ((total_likes + total_comments) / max(len(posts_with_metrics), 1))
+                    * 100,
+                    2,
+                )
+                if posts_with_metrics
+                else 0,
+            },
+        }
+
 
 # Singleton instance
 linkedin_service = LinkedInService()
+
+
+class TwitterService:
+    """
+    Service for Twitter/X OAuth 2.0 authentication and API interactions.
+
+    Twitter API v2 with OAuth 2.0 + PKCE (Proof Key for Code Exchange)
+    Documentation:
+    https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code
+    """
+
+    AUTHORIZATION_URL = "https://twitter.com/i/oauth2/authorize"
+    TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
+    REVOKE_URL = "https://api.twitter.com/2/oauth2/revoke"
+    USER_INFO_URL = "https://api.twitter.com/2/users/me"
+    TWEET_URL = "https://api.twitter.com/2/tweets"
+
+    # Scopes for Twitter API v2
+    # tweet.read - View Tweets
+    # tweet.write - Post Tweets
+    # users.read - View user profile
+    # offline.access - Get refresh token
+    SCOPES = [
+        "tweet.read",
+        "tweet.write",
+        "users.read",
+        "offline.access",
+    ]
+
+    def __init__(self):
+        self.client_id = getattr(settings, "TWITTER_CLIENT_ID", None)
+        self.client_secret = getattr(settings, "TWITTER_CLIENT_SECRET", None)
+        self.redirect_uri = getattr(
+            settings,
+            "TWITTER_REDIRECT_URI",
+            "http://localhost:8000/api/v1/automation/twitter/callback/",
+        )
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if Twitter credentials are configured."""
+        return bool(self.client_id and self.client_secret)
+
+    def generate_pkce_pair(self) -> tuple:
+        """
+        Generate PKCE code verifier and code challenge.
+
+        Returns:
+            Tuple of (code_verifier, code_challenge)
+        """
+        import hashlib
+        import base64
+        import secrets
+
+        # Generate code verifier (43-128 characters, URL-safe)
+        code_verifier = secrets.token_urlsafe(64)[:128]
+
+        # Generate code challenge (SHA256 hash of verifier, base64url encoded)
+        code_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
+
+        return code_verifier, code_challenge
+
+    def get_authorization_url(self, state: str, code_challenge: str) -> str:
+        """
+        Generate the Twitter OAuth 2.0 authorization URL with PKCE.
+
+        Args:
+            state: A unique state token to prevent CSRF attacks
+            code_challenge: PKCE code challenge
+
+        Returns:
+            The full authorization URL to redirect the user to
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        params = {
+            "response_type": "code",
+            "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "scope": " ".join(self.SCOPES),
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+
+        return f"{self.AUTHORIZATION_URL}?{urlencode(params)}"
+
+    def exchange_code_for_token(self, code: str, code_verifier: str) -> dict:
+        """
+        Exchange the authorization code for access and refresh tokens.
+
+        Args:
+            code: The authorization code from Twitter callback
+            code_verifier: The PKCE code verifier
+
+        Returns:
+            Dictionary with access_token, expires_in, refresh_token, etc.
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self.redirect_uri,
+            "code_verifier": code_verifier,
+        }
+
+        # Twitter requires Basic Auth with client_id:client_secret
+        import base64
+
+        credentials = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode()
+        ).decode()
+
+        try:
+            response = requests.post(
+                self.TOKEN_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Authorization": f"Basic {credentials}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            # Calculate token expiration time
+            expires_in = token_data.get("expires_in", 7200)  # Default 2 hours
+            token_data["expires_at"] = timezone.now() + timedelta(seconds=expires_in)
+
+            return token_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter token exchange failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to exchange code for token: {str(e)}")
+
+    def refresh_access_token(self, refresh_token: str) -> dict:
+        """
+        Refresh an expired access token.
+
+        Args:
+            refresh_token: The refresh token from the original OAuth flow
+
+        Returns:
+            Dictionary with new access_token, expires_in, etc.
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+
+        import base64
+
+        credentials = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode()
+        ).decode()
+
+        try:
+            response = requests.post(
+                self.TOKEN_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Authorization": f"Basic {credentials}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            # Calculate token expiration time
+            expires_in = token_data.get("expires_in", 7200)
+            token_data["expires_at"] = timezone.now() + timedelta(seconds=expires_in)
+
+            return token_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter token refresh failed: {e}")
+            raise Exception(f"Failed to refresh token: {str(e)}")
+
+    def revoke_token(self, token: str, token_type: str = "access_token") -> bool:
+        """
+        Revoke an access or refresh token.
+
+        Args:
+            token: The token to revoke
+            token_type: Either 'access_token' or 'refresh_token'
+
+        Returns:
+            True if revocation was successful
+        """
+        if not self.is_configured:
+            raise ValueError("Twitter credentials not configured")
+
+        data = {
+            "token": token,
+            "token_type_hint": token_type,
+        }
+
+        import base64
+
+        credentials = base64.b64encode(
+            f"{self.client_id}:{self.client_secret}".encode()
+        ).decode()
+
+        try:
+            response = requests.post(
+                self.REVOKE_URL,
+                data=data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Authorization": f"Basic {credentials}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter token revocation failed: {e}")
+            return False
+
+    def get_user_info(self, access_token: str) -> dict:
+        """
+        Get the authenticated user's profile information.
+
+        Args:
+            access_token: Valid Twitter access token
+
+        Returns:
+            Dictionary with user profile data (id, name, username, etc.)
+        """
+        try:
+            response = requests.get(
+                self.USER_INFO_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "user.fields": "id,name,username,profile_image_url,description",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", {})
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter user info fetch failed: {e}")
+            raise Exception(f"Failed to fetch user info: {str(e)}")
+
+    def create_tweet(
+        self,
+        access_token: str,
+        text: str,
+        reply_to_id: Optional[str] = None,
+        quote_tweet_id: Optional[str] = None,
+        media_ids: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Create a tweet (post) on Twitter/X.
+
+        Args:
+            access_token: Valid Twitter access token
+            text: The tweet content (max 280 chars for regular, 25000 for Premium)
+            reply_to_id: Optional tweet ID to reply to
+            quote_tweet_id: Optional tweet ID to quote
+            media_ids: Optional list of media IDs for attachments
+
+        Returns:
+            Dictionary with the created tweet information
+        """
+        payload = {"text": text}
+
+        # Add reply settings if replying to a tweet
+        if reply_to_id:
+            payload["reply"] = {"in_reply_to_tweet_id": reply_to_id}
+
+        # Add quote tweet settings
+        if quote_tweet_id:
+            payload["quote_tweet_id"] = quote_tweet_id
+
+        # Add media if provided
+        if media_ids:
+            payload["media"] = {"media_ids": media_ids}
+
+        try:
+            response = requests.post(
+                self.TWEET_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            logger.info(f"Tweet created successfully: {data.get('data', {})}")
+            return data.get("data", {})
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter tweet creation failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to create tweet: {str(e)}")
+
+    def delete_tweet(self, access_token: str, tweet_id: str) -> bool:
+        """
+        Delete a tweet.
+
+        Args:
+            access_token: Valid Twitter access token
+            tweet_id: The ID of the tweet to delete
+
+        Returns:
+            True if deletion was successful
+        """
+        try:
+            response = requests.delete(
+                f"{self.TWEET_URL}/{tweet_id}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            return True
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter tweet deletion failed: {e}")
+            return False
+
+    def get_tweet_metrics(self, access_token: str, tweet_id: str) -> dict:
+        """
+        Get public metrics for a specific tweet.
+
+        Args:
+            access_token: Valid Twitter access token
+            tweet_id: The ID of the tweet to get metrics for
+
+        Returns:
+            Dictionary with tweet metrics
+            (impressions, likes, retweets, replies, quotes)
+        """
+        try:
+            response = requests.get(
+                f"{self.TWEET_URL}/{tweet_id}",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "tweet.fields": "public_metrics,created_at,text",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            tweet_data = data.get("data", {})
+            metrics = tweet_data.get("public_metrics", {})
+
+            return {
+                "tweet_id": tweet_id,
+                "text": tweet_data.get("text", ""),
+                "created_at": tweet_data.get("created_at"),
+                "metrics": {
+                    "impressions": metrics.get("impression_count", 0),
+                    "likes": metrics.get("like_count", 0),
+                    "retweets": metrics.get("retweet_count", 0),
+                    "replies": metrics.get("reply_count", 0),
+                    "quotes": metrics.get("quote_count", 0),
+                    "bookmarks": metrics.get("bookmark_count", 0),
+                },
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get tweet metrics: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to get tweet metrics: {str(e)}")
+
+    def get_multiple_tweet_metrics(self, access_token: str, tweet_ids: list) -> list:
+        """
+        Get public metrics for multiple tweets at once.
+
+        Args:
+            access_token: Valid Twitter access token
+            tweet_ids: List of tweet IDs to get metrics for (max 100)
+
+        Returns:
+            List of tweet metrics dictionaries
+        """
+        if not tweet_ids:
+            return []
+
+        # Twitter API allows max 100 tweets per request
+        tweet_ids = tweet_ids[:100]
+
+        try:
+            response = requests.get(
+                self.TWEET_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "ids": ",".join(tweet_ids),
+                    "tweet.fields": "public_metrics,created_at,text",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            results = []
+            for tweet_data in data.get("data", []):
+                metrics = tweet_data.get("public_metrics", {})
+                results.append(
+                    {
+                        "tweet_id": tweet_data.get("id"),
+                        "text": tweet_data.get("text", ""),
+                        "created_at": tweet_data.get("created_at"),
+                        "metrics": {
+                            "impressions": metrics.get("impression_count", 0),
+                            "likes": metrics.get("like_count", 0),
+                            "retweets": metrics.get("retweet_count", 0),
+                            "replies": metrics.get("reply_count", 0),
+                            "quotes": metrics.get("quote_count", 0),
+                            "bookmarks": metrics.get("bookmark_count", 0),
+                        },
+                    }
+                )
+
+            return results
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get multiple tweet metrics: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to get tweet metrics: {str(e)}")
+
+    def get_user_metrics(self, access_token: str) -> dict:
+        """
+        Get the authenticated user's profile metrics.
+
+        Args:
+            access_token: Valid Twitter access token
+
+        Returns:
+            Dictionary with user metrics (followers, following, tweet count)
+        """
+        try:
+            response = requests.get(
+                self.USER_INFO_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "user.fields": (
+                        "public_metrics,created_at,description,profile_image_url"
+                    ),
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            user_data = data.get("data", {})
+            metrics = user_data.get("public_metrics", {})
+
+            return {
+                "user_id": user_data.get("id"),
+                "username": user_data.get("username"),
+                "name": user_data.get("name"),
+                "description": user_data.get("description"),
+                "profile_image_url": user_data.get("profile_image_url"),
+                "created_at": user_data.get("created_at"),
+                "metrics": {
+                    "followers": metrics.get("followers_count", 0),
+                    "following": metrics.get("following_count", 0),
+                    "tweets": metrics.get("tweet_count", 0),
+                    "listed": metrics.get("listed_count", 0),
+                },
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get user metrics: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise Exception(f"Failed to get user metrics: {str(e)}")
+
+    def validate_tweet_length(self, text: str, is_premium: bool = False) -> dict:
+        """
+        Validate tweet length against Twitter's limits.
+
+        Args:
+            text: The tweet text to validate
+            is_premium: Whether the user has Twitter/X Premium
+
+        Returns:
+            Dictionary with is_valid, length, max_length, remaining
+        """
+        max_length = 25000 if is_premium else 280
+        length = len(text)
+
+        return {
+            "is_valid": length <= max_length,
+            "length": length,
+            "max_length": max_length,
+            "remaining": max_length - length,
+        }
+
+    def upload_media(
+        self,
+        access_token: str,
+        media_data: bytes,
+        media_type: str,
+        media_category: str = "tweet_image",
+    ) -> dict:
+        """
+        Upload media to Twitter for use in tweets.
+
+        Twitter uses v1.1 media upload endpoint (still required for v2 tweets).
+        Documentation: https://developer.twitter.com/en/docs/twitter-api/
+            v1/media/upload-media/overview
+
+        Args:
+            access_token: Valid Twitter access token
+            media_data: The raw bytes of the media file
+            media_type: The MIME type (e.g., "image/jpeg", "image/png", "video/mp4")
+            media_category: One of "tweet_image", "tweet_gif", "tweet_video"
+
+        Returns:
+            Dictionary with media_id and media_id_string
+        """
+        import base64
+
+        MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+
+        # For images under 5MB, use simple upload
+        if media_category == "tweet_image" and len(media_data) <= 5 * 1024 * 1024:
+            # Simple upload (base64 encoded)
+            media_b64 = base64.b64encode(media_data).decode()
+
+            try:
+                response = requests.post(
+                    MEDIA_UPLOAD_URL,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data={
+                        "media_data": media_b64,
+                        "media_category": media_category,
+                    },
+                    timeout=60,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                logger.info(f"Twitter media uploaded: {data.get('media_id_string')}")
+                return {
+                    "media_id": data.get("media_id"),
+                    "media_id_string": data.get("media_id_string"),
+                    "type": data.get("type"),
+                    "expires_after_secs": data.get("expires_after_secs"),
+                }
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Twitter media upload failed: {e}")
+                if hasattr(e, "response") and e.response is not None:
+                    logger.error(f"Response: {e.response.text}")
+                    # Check for 403 Forbidden - usually means missing permissions
+                    if e.response.status_code == 403:
+                        raise Exception(
+                            "Twitter media upload forbidden (403). "
+                            "Your Twitter Developer app needs 'Basic' "
+                            "tier ($100/mo) or ensure 'Read and Write' "
+                            "permissions are enabled in the Developer Portal."
+                        )
+                raise Exception(f"Failed to upload media: {str(e)}")
+
+        # For larger files or videos, use chunked upload
+        return self._chunked_media_upload(
+            access_token, media_data, media_type, media_category
+        )
+
+    def _chunked_media_upload(
+        self,
+        access_token: str,
+        media_data: bytes,
+        media_type: str,
+        media_category: str,
+    ) -> dict:
+        """
+        Chunked media upload for large files and videos.
+
+        Uses INIT, APPEND, FINALIZE flow.
+        """
+        import base64
+
+        MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+        total_bytes = len(media_data)
+
+        # INIT phase
+        try:
+            init_response = requests.post(
+                MEDIA_UPLOAD_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                data={
+                    "command": "INIT",
+                    "total_bytes": total_bytes,
+                    "media_type": media_type,
+                    "media_category": media_category,
+                },
+                timeout=30,
+            )
+            init_response.raise_for_status()
+            init_data = init_response.json()
+            media_id = init_data["media_id_string"]
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter media INIT failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                if e.response.status_code == 403:
+                    raise Exception(
+                        "Twitter media upload forbidden (403). "
+                        "Your Twitter Developer app needs 'Basic' "
+                        "tier ($100/mo) or ensure 'Read and Write' "
+                        "permissions are enabled in the Developer Portal."
+                    )
+            raise Exception(f"Failed to initialize media upload: {str(e)}")
+
+        # APPEND phase - upload in chunks
+        chunk_size = 4 * 1024 * 1024  # 4MB chunks
+        segment_index = 0
+
+        for i in range(0, total_bytes, chunk_size):
+            chunk = media_data[i : i + chunk_size]
+            chunk_b64 = base64.b64encode(chunk).decode()
+
+            try:
+                append_response = requests.post(
+                    MEDIA_UPLOAD_URL,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                    },
+                    data={
+                        "command": "APPEND",
+                        "media_id": media_id,
+                        "media_data": chunk_b64,
+                        "segment_index": segment_index,
+                    },
+                    timeout=120,
+                )
+                append_response.raise_for_status()
+                segment_index += 1
+
+            except requests.exceptions.RequestException as e:
+                logger.error(
+                    f"Twitter media APPEND failed at segment {segment_index}: {e}"
+                )
+                raise Exception(f"Failed to upload media chunk: {str(e)}")
+
+        # FINALIZE phase
+        try:
+            finalize_response = requests.post(
+                MEDIA_UPLOAD_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                data={
+                    "command": "FINALIZE",
+                    "media_id": media_id,
+                },
+                timeout=30,
+            )
+            finalize_response.raise_for_status()
+            finalize_data = finalize_response.json()
+
+            # Check for async processing (videos/GIFs)
+            processing_info = finalize_data.get("processing_info")
+            if processing_info:
+                logger.info(
+                    f"Twitter media {media_id} is processing: {processing_info}"
+                )
+                return {
+                    "media_id": finalize_data.get("media_id"),
+                    "media_id_string": media_id,
+                    "processing_info": processing_info,
+                    "status": "PROCESSING",
+                }
+
+            logger.info(f"Twitter media uploaded and ready: {media_id}")
+            return {
+                "media_id": finalize_data.get("media_id"),
+                "media_id_string": media_id,
+                "status": "READY",
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter media FINALIZE failed: {e}")
+            raise Exception(f"Failed to finalize media upload: {str(e)}")
+
+    def get_media_status(self, access_token: str, media_id: str) -> dict:
+        """
+        Check the processing status of uploaded media.
+
+        Args:
+            access_token: Valid Twitter access token
+            media_id: The media_id_string from upload
+
+        Returns:
+            Dictionary with processing status
+        """
+        MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+
+        try:
+            response = requests.get(
+                MEDIA_UPLOAD_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                },
+                params={
+                    "command": "STATUS",
+                    "media_id": media_id,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            processing_info = data.get("processing_info", {})
+            state = processing_info.get("state", "succeeded")
+
+            return {
+                "media_id": media_id,
+                "state": state,
+                "check_after_secs": processing_info.get("check_after_secs"),
+                "progress_percent": processing_info.get("progress_percent"),
+                "error": processing_info.get("error"),
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Twitter media status check failed: {e}")
+            raise Exception(f"Failed to get media status: {str(e)}")
+
+
+# Singleton instance
+twitter_service = TwitterService()

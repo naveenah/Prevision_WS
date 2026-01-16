@@ -90,7 +90,7 @@ SHARED_APPS = [
     "ai_services",  # AI integration (shared for logging)
     "onboarding",  # Company data (has FK to Tenant)
     "subscriptions",  # Stripe payment integration
-    "automation",  # Social media automation (shared - models reference User)
+    "automation",  # Social media automation
 ]
 
 TENANT_APPS = [
@@ -425,6 +425,14 @@ LINKEDIN_REDIRECT_URI = config(
     default="http://localhost:8000/api/v1/automation/linkedin/callback/",
 )
 
+# Twitter/X OAuth 2.0 Configuration
+TWITTER_CLIENT_ID = config("TWITTER_CLIENT_ID", default="")
+TWITTER_CLIENT_SECRET = config("TWITTER_CLIENT_SECRET", default="")
+TWITTER_REDIRECT_URI = config(
+    "TWITTER_REDIRECT_URI",
+    default="http://localhost:8000/api/v1/automation/twitter/callback/",
+)
+
 # Frontend URL for OAuth redirects
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
 
@@ -444,6 +452,9 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "publish-scheduled-posts": {
         "task": "automation.publish_scheduled_posts",
-        "schedule": 300.0,  # Run every 5 minutes (reduced from 60s for efficiency)
+        # 1-minute interval allows posts to be published within ~1 min of
+        # scheduled time. Trade-off: slight DB overhead vs user expectation
+        # of timely delivery. For lower frequency, change to 300.0 (5 min).
+        "schedule": 60.0,
     },
 }
