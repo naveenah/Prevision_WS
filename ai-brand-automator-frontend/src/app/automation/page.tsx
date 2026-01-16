@@ -633,16 +633,24 @@ function AutomationPageContent() {
         });
       } else {
         const error = await response.json();
-        setMessage({
-          type: 'error',
-          text: error.error || 'Failed to upload media',
-        });
+        // Check for Twitter 403 Forbidden - usually means missing permissions
+        if (response.status === 403 && hasTwitterOnly) {
+          setMessage({
+            type: 'error',
+            text: 'Twitter media upload failed: Your Twitter Developer app needs "Basic" tier or "Read and Write" permissions. Check your Twitter Developer Portal settings.',
+          });
+        } else {
+          setMessage({
+            type: 'error',
+            text: error.error || 'Failed to upload media',
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to upload media:', error);
       setMessage({
         type: 'error',
-        text: 'Failed to upload media',
+        text: 'Failed to upload media. Please try again.',
       });
     } finally {
       setUploading(false);

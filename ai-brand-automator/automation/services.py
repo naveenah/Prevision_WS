@@ -1198,6 +1198,13 @@ class TwitterService:
                 logger.error(f"Twitter media upload failed: {e}")
                 if hasattr(e, "response") and e.response is not None:
                     logger.error(f"Response: {e.response.text}")
+                    # Check for 403 Forbidden - usually means missing permissions
+                    if e.response.status_code == 403:
+                        raise Exception(
+                            "Twitter media upload forbidden (403). Your Twitter Developer app "
+                            "needs 'Basic' tier ($100/mo) or ensure 'Read and Write' permissions "
+                            "are enabled in the Twitter Developer Portal."
+                        )
                 raise Exception(f"Failed to upload media: {str(e)}")
 
         # For larger files or videos, use chunked upload
@@ -1243,6 +1250,13 @@ class TwitterService:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Twitter media INIT failed: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                if e.response.status_code == 403:
+                    raise Exception(
+                        "Twitter media upload forbidden (403). Your Twitter Developer app "
+                        "needs 'Basic' tier ($100/mo) or ensure 'Read and Write' permissions "
+                        "are enabled in the Twitter Developer Portal."
+                    )
             raise Exception(f"Failed to initialize media upload: {str(e)}")
 
         # APPEND phase - upload in chunks
