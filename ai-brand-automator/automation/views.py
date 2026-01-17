@@ -5525,7 +5525,9 @@ class FacebookStoryView(APIView):
                     if (now - created).total_seconds() < 86400:
                         active_stories.append(story)
                 except (ValueError, KeyError):
-                    pass
+                    # Skip malformed or incomplete cached stories
+                    # This can happen if cache contains stale/corrupted data
+                    continue
 
             # Update cache with only active stories
             _test_stories_cache[user_id] = active_stories

@@ -135,9 +135,6 @@ const FACEBOOK_MAX_IMAGE_SIZE = 4 * 1024 * 1024;  // 4MB
 const FACEBOOK_MAX_VIDEO_SIZE = 1024 * 1024 * 1024;  // 1GB
 const FACEBOOK_MAX_POST_LENGTH = 63206;  // Facebook page post limit
 
-// Shared image size limit (use smaller of the platforms)
-const MAX_IMAGE_SIZE = LINKEDIN_MAX_IMAGE_SIZE;
-
 // Twitter constants
 const TWITTER_MAX_LENGTH = 280;
 
@@ -378,11 +375,6 @@ function AutomationPageContent() {
   // Twitter Carousel mode (multi-image, max 4)
   const [twitterCarouselMode, setTwitterCarouselMode] = useState(false);
   const [twitterCarouselImages, setTwitterCarouselImages] = useState<{ url: string; file?: File; mediaId?: string }[]>([]);
-  const [uploadingTwitterCarouselImage, setUploadingTwitterCarouselImage] = useState(false);
-  // Deleting tweet
-  const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
-  // Deleting LinkedIn post
-  const [deletingLinkedInPostId, setDeletingLinkedInPostId] = useState<string | null>(null);
   // LinkedIn Carousel mode (multi-image, max 9)
   const [linkedinCarouselMode, setLinkedinCarouselMode] = useState(false);
   const [linkedinCarouselImages, setLinkedinCarouselImages] = useState<{ url: string; file?: File; mediaUrn?: string }[]>([]);
@@ -2771,106 +2763,9 @@ function AutomationPageContent() {
     // NOTE: Draft is NOT cleared here - it persists until post is successfully published
   };
 
-  // Handle deleting a Facebook post
-  const handleDeleteFacebookPost = async (postId: string) => {
-    if (!confirm('Are you sure you want to delete this Facebook post? This action cannot be undone.')) {
-      return;
-    }
-
-    setDeletingFbPostId(postId);
-    try {
-      const response = await apiClient.delete(`/automation/facebook/post/${postId}/`);
-      if (response.ok) {
-        setMessage({
-          type: 'success',
-          text: 'Facebook post deleted successfully',
-        });
-        fetchPublishedPosts();
-      } else {
-        const error = await response.json();
-        setMessage({
-          type: 'error',
-          text: error.error || 'Failed to delete Facebook post',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to delete Facebook post:', error);
-      setMessage({
-        type: 'error',
-        text: 'Failed to delete Facebook post',
-      });
-    } finally {
-      setDeletingFbPostId(null);
-    }
-  };
-
-  // Handle deleting a tweet
-  const handleDeleteTweet = async (tweetId: string) => {
-    if (!confirm('Are you sure you want to delete this tweet? This action cannot be undone.')) {
-      return;
-    }
-
-    setDeletingTweetId(tweetId);
-    try {
-      const response = await apiClient.delete(`/automation/twitter/tweet/${tweetId}/`);
-
-      if (response.ok) {
-        setMessage({
-          type: 'success',
-          text: 'Tweet deleted successfully',
-        });
-        fetchPublishedPosts();
-      } else {
-        const error = await response.json();
-        setMessage({
-          type: 'error',
-          text: error.error || 'Failed to delete tweet',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to delete tweet:', error);
-      setMessage({
-        type: 'error',
-        text: 'Failed to delete tweet',
-      });
-    } finally {
-      setDeletingTweetId(null);
-    }
-  };
-
-  // Handle deleting a LinkedIn post
-  const handleDeleteLinkedInPost = async (postUrn: string) => {
-    if (!confirm('Are you sure you want to delete this LinkedIn post? This action cannot be undone.')) {
-      return;
-    }
-
-    setDeletingLinkedInPostId(postUrn);
-    try {
-      const response = await apiClient.delete(`/automation/linkedin/post/${encodeURIComponent(postUrn)}/`);
-
-      if (response.ok) {
-        setMessage({
-          type: 'success',
-          text: 'LinkedIn post deleted successfully',
-        });
-        fetchPublishedPosts();
-      } else {
-        const error = await response.json();
-        setMessage({
-          type: 'error',
-          text: error.error || 'Failed to delete LinkedIn post',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to delete LinkedIn post:', error);
-      setMessage({
-        type: 'error',
-        text: 'Failed to delete LinkedIn post',
-      });
-    } finally {
-      setDeletingLinkedInPostId(null);
-    }
-  };
+  // Handle deleting a post (unified handler)
+  // Note: Platform-specific delete handlers (handleDeleteFacebookPost, handleDeleteTweet,
+  // handleDeleteLinkedInPost) removed - use handleDeletePost for unified delete functionality
 
   // Handle deleting a post from all platforms
   const handleDeletePost = async (post: ScheduledPost) => {
@@ -6612,7 +6507,7 @@ function AutomationPageContent() {
                 ) : (
                   <button
                     onClick={startResumableUpload}
-                    disabled={!resumableUploadFile || (resumableUploadFile && resumableUploadFile.size <= ONE_GB) || resumableUploadStatus === 'completed'}
+                    disabled={!resumableUploadFile || resumableUploadFile.size <= ONE_GB || resumableUploadStatus === 'completed'}
                     className="flex-1 py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {resumableUploadStatus === 'completed' ? (
