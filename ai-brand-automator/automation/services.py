@@ -200,7 +200,14 @@ class LinkedInService:
             List of organizations the user can administer
         """
         # Get organization access control (pages user can post to)
-        url = "https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&projection=(elements*(organization~(id,localizedName,vanityName,logoV2(original~:playableStreams))))"
+        base_url = "https://api.linkedin.com/v2/organizationAcls"
+        query = "q=roleAssignee&role=ADMINISTRATOR"
+        projection = (
+            "projection=(elements*"
+            "(organization~(id,localizedName,vanityName,"
+            "logoV2(original~:playableStreams))))"
+        )
+        url = f"{base_url}?{query}&{projection}"
 
         try:
             response = requests.get(
@@ -1125,7 +1132,8 @@ class LinkedInService:
                 return True
             else:
                 logger.error(
-                    f"LinkedIn share deletion failed: {response.status_code} - {response.text}"
+                    f"LinkedIn share deletion failed: "
+                    f"{response.status_code} - {response.text}"
                 )
                 return False
 

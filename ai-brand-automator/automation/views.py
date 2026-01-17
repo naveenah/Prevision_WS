@@ -2919,7 +2919,8 @@ class TwitterAnalyticsView(APIView):
                     {
                         "rate_limited": True,
                         "rate_limit_message": (
-                            "Twitter API rate limit reached. Please try again in 15 minutes."
+                            "Twitter API rate limit reached. "
+                            "Please try again in 15 minutes."
                         ),
                         "user": None,
                         "tweets": [],
@@ -2933,7 +2934,8 @@ class TwitterAnalyticsView(APIView):
                             "engagement_rate": 0,
                         },
                     },
-                    status=status.HTTP_200_OK,  # Return 200 with warning instead of error
+                    # Return 200 with warning instead of error
+                    status=status.HTTP_200_OK,
                 )
 
             return Response(
@@ -3338,9 +3340,11 @@ class FacebookCallbackView(APIView):
             pages = facebook_service.get_user_pages(user_token)
 
             if not pages:
+                error_msg = "No%20Facebook%20Pages%20found."
+                error_msg += "%20Please%20create%20a%20Page%20first."
                 return HttpResponseRedirect(
                     f"{frontend_url}/automation?error=no_pages_found"
-                    "&message=No%20Facebook%20Pages%20found.%20Please%20create%20a%20Page%20first."
+                    f"&message={error_msg}"
                 )
 
             # Select page - use provided page_id or first available page
@@ -4283,14 +4287,16 @@ class FacebookDeletePostView(APIView):
                 nested_id = (
                     facebook_data.get("id") if isinstance(facebook_data, dict) else None
                 )
-                # Also check for test_mode flag in nested structure (for posts without ID)
+                # Check for test_mode flag in nested structure
+                # (for posts without ID)
                 has_test_mode = (
                     facebook_data.get("test_mode")
                     if isinstance(facebook_data, dict)
                     else calendar_entry.post_results.get("test_mode")
                 )
 
-                # Match if any ID matches, or if this is a test_mode post and we're deleting test_mode
+                # Match if any ID matches, or if this is a
+                # test_mode post and we're deleting test_mode
                 id_matches = (
                     (direct_id and direct_id == post_id)
                     or (nested_id and nested_id == post_id)
@@ -4517,7 +4523,10 @@ class FacebookLinkPreviewView(APIView):
                     "test_mode": True,
                     "url": url,
                     "title": "Example Link Title",
-                    "description": "This is a sample description for the link preview in test mode.",
+                    "description": (
+                        "This is a sample description for the "
+                        "link preview in test mode."
+                    ),
                     "image": None,
                     "site_name": "Example Site",
                     "type": "website",
@@ -5340,10 +5349,9 @@ class FacebookStoryView(APIView):
             if story_type == "photo":
                 allowed_types = ["image/jpeg", "image/png"]
                 if file.content_type not in allowed_types:
+                    allowed = ", ".join(allowed_types)
                     return Response(
-                        {
-                            "error": f"Invalid photo type. Allowed: {', '.join(allowed_types)}"
-                        },
+                        {"error": f"Invalid photo type. Allowed: {allowed}"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 # Check file size (4MB max for photos)

@@ -573,7 +573,9 @@ class FacebookResumableUpload(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.file_name} ({self.get_status_display()}) - {self.progress_percent:.1f}%"
+        status_display = self.get_status_display()
+        progress = f"{self.progress_percent:.1f}%"
+        return f"{self.file_name} ({status_display}) - {progress}"
 
     @property
     def progress_percent(self) -> float:
