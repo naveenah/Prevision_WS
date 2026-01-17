@@ -159,6 +159,36 @@ FACEBOOK_MEDIA_MAX_VIDEO_SIZE_RESUMABLE = 10 * 1024 * 1024 * 1024  # 10GB (resum
 - Character counter (63,206 max)
 - Media upload with preview
 - Test mode info banner
+- **Scrollable modal** (`max-h-[90vh] overflow-y-auto`) for long content
+
+#### 4. Draft Save/Restore
+| Feature | Status | Details |
+|---------|--------|---------|
+| Draft Save Button | ✅ Complete | Manually save draft to localStorage |
+| Draft Auto-Restore | ✅ Complete | Auto-restore on modal reopen |
+| Title in Draft | ✅ Complete | Title field saved and restored |
+| Media in Draft | ✅ Complete | Base64 images < 500KB saved |
+| Media Skipped Indicator | ✅ Complete | Shows "media not saved" for large files |
+| Video Skip | ✅ Complete | Videos skipped (too large for localStorage) |
+| Quota Error Handling | ✅ Complete | Graceful fallback to text-only draft |
+
+#### 5. Carousel Mode
+- Toggle button to enable multi-image mode
+- Support for 2-10 photos per carousel
+- Upload and preview images before posting
+- URL-based or file upload supported
+
+#### 6. Stories UI
+- Create photo/video stories
+- Multi-file story queue
+- Story expiration countdown
+- Delete story with confirmation
+
+#### 7. Analytics Dashboard
+- Collapsible analytics panel
+- Page insights (reach, impressions, engagement)
+- Post-level metrics
+- Test mode support with mock data
 
 ---
 
@@ -767,6 +797,14 @@ SCOPES = ["public_profile", "pages_show_list"]
 - [x] Disconnect removes profile
 - [x] Facebook appears in schedule modal
 - [x] Scheduled posts with Facebook work
+- [x] Draft save button works
+- [x] Draft auto-restores on modal reopen
+- [x] Draft includes title and text
+- [x] Draft includes media preview (images < 500KB)
+- [x] Large media skipped with indicator
+- [x] Modal scrolls for long content
+- [x] Carousel mode toggle works
+- [x] Analytics panel opens and closes
 
 ### Production (Requires App Review)
 - [ ] Real OAuth flow
@@ -777,6 +815,19 @@ SCOPES = ["public_profile", "pages_show_list"]
 - [ ] Real stories posting
 - [ ] Real carousel posting
 - [ ] Real resumable video upload
+
+---
+
+## Changelog
+
+| Date | Changes |
+|------|---------|
+| 2026-01-16 | Added draft save/restore with media support (title, text, base64 images < 500KB) |
+| 2026-01-16 | Added modal scrolling for long content (`max-h-[90vh] overflow-y-auto`) |
+| 2026-01-16 | Added carousel mode UI for multi-image posts |
+| 2026-01-16 | Added stories UI with multi-file queue |
+| 2026-01-16 | Added analytics dashboard with page insights |
+| 2026-01-16 | Completed Facebook integration with all backend features |
 
 ---
 

@@ -202,6 +202,9 @@ CELERY_BEAT_SCHEDULE = {
 | Auto-Refresh | ✅ Complete | 30-second polling for updates |
 | Analytics Dashboard | ✅ Complete | Collapsible metrics view with engagement stats |
 | Notifications | ✅ Complete | Bell icon with unread count and dropdown |
+| **Draft Save/Restore** | ✅ Complete | Auto-restore drafts on modal reopen with title, text, and media |
+| **Carousel Mode** | ✅ Complete | Multi-image tweets (up to 4 images) |
+| **API Tier Warning** | ✅ Complete | Warning banner for media upload requiring paid API tier ($100/mo) |
 
 **Files:**
 - `src/app/automation/page.tsx` - Main automation page (3000+ lines)
@@ -558,6 +561,10 @@ The following features were implemented and are now available:
 
 | Feature | Status | Implementation Date |
 |---------|--------|---------------------|
+| Draft Save/Restore with Media | ✅ Complete | 2026-01-16 |
+| Title Support in Drafts | ✅ Complete | 2026-01-16 |
+| Carousel Mode (Multi-Image) | ✅ Complete | 2026-01-16 |
+| API Tier Warning for Media | ✅ Complete | 2026-01-16 |
 | Twitter Analytics Dashboard | ✅ Complete | 2026-01-16 |
 | Webhook Notifications | ✅ Complete | 2026-01-16 |
 | Thread posting (multiple tweets) | ✅ Complete | 2026-01-16 |
@@ -566,6 +573,9 @@ The following features were implemented and are now available:
 | Media alt text for accessibility | ✅ Complete | 2026-01-16 |
 
 **Details:**
+- **Draft Save/Restore**: Drafts persist in localStorage and auto-restore when reopening compose modal. Includes title, text, and media (base64 images under 500KB). Videos and large images are skipped with indicator.
+- **API Tier Warning**: Warning banner in compose modal notifies users that Twitter media uploads require a paid API tier ($100/mo). Text-only tweets work on free tier. Friendly error message on 403 with auto-clear of failed media.
+- **Carousel Mode**: Toggle to attach up to 4 images per tweet. Upload images one by one with preview grid.
 - **Twitter Analytics**: Collapsible dashboard showing user metrics (followers, following, tweets) and tweet performance (impressions, likes, retweets, engagement rate)
 - **Webhook Notifications**: Bell icon with unread count badge, dropdown showing recent events (likes, follows, mentions)
 - **Thread Posting**: Toggle between "Single Tweet" and "Thread" mode. Add/remove tweets in thread, posts are chained using reply_to_id
@@ -590,6 +600,10 @@ The following features were implemented and are now available:
 
 | Date | Changes |
 |------|---------|
+| 2026-01-16 | Added draft save/restore with media support (title, text, base64 images < 500KB) |
+| 2026-01-16 | Added API tier warning banner for Twitter media uploads ($100/mo requirement) |
+| 2026-01-16 | Added friendly 403 error message with auto-clear of failed media upload |
+| 2026-01-16 | Added carousel mode for multi-image tweets (up to 4 images) |
 | 2026-01-16 | Added Twitter Analytics dashboard with user and tweet metrics |
 | 2026-01-16 | Added Webhook notifications with bell icon and event dropdown |
 | 2026-01-16 | Added Thread Posting mode with multiple tweet support |
