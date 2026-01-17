@@ -41,10 +41,6 @@ from .constants import (
     TWITTER_MEDIA_MAX_GIF_SIZE,
     FACEBOOK_TEST_ACCESS_TOKEN,
     FACEBOOK_TEST_PAGE_TOKEN,
-    FACEBOOK_IMAGE_TYPES,
-    FACEBOOK_VIDEO_TYPES,
-    FACEBOOK_MEDIA_MAX_IMAGE_SIZE,
-    FACEBOOK_MEDIA_MAX_VIDEO_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -335,30 +331,34 @@ class LinkedInOrganizationsView(APIView):
 
         # Check for test mode
         if profile.access_token == TEST_ACCESS_TOKEN:
-            return Response({
-                "organizations": [
-                    {
-                        "id": "test_org_123",
-                        "urn": "urn:li:organization:test_org_123",
-                        "name": "Test Company Page",
-                        "vanity_name": "test-company",
-                        "logo_url": None,
-                    }
-                ],
-                "current_organization": profile.page_id,
-                "posting_as": "personal" if not profile.page_id else "organization",
-                "test_mode": True,
-            })
+            return Response(
+                {
+                    "organizations": [
+                        {
+                            "id": "test_org_123",
+                            "urn": "urn:li:organization:test_org_123",
+                            "name": "Test Company Page",
+                            "vanity_name": "test-company",
+                            "logo_url": None,
+                        }
+                    ],
+                    "current_organization": profile.page_id,
+                    "posting_as": "personal" if not profile.page_id else "organization",
+                    "test_mode": True,
+                }
+            )
 
         try:
             access_token = profile.get_valid_access_token()
             organizations = linkedin_service.get_organizations(access_token)
-            
-            return Response({
-                "organizations": organizations,
-                "current_organization": profile.page_id,
-                "posting_as": "personal" if not profile.page_id else "organization",
-            })
+
+            return Response(
+                {
+                    "organizations": organizations,
+                    "current_organization": profile.page_id,
+                    "posting_as": "personal" if not profile.page_id else "organization",
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to fetch LinkedIn organizations: {e}")
             return Response(
@@ -377,7 +377,7 @@ class LinkedInSelectOrganizationView(APIView):
     def post(self, request):
         """Select organization to post to, or clear to post as personal profile."""
         organization_id = request.data.get("organization_id")  # None = personal profile
-        
+
         try:
             profile = SocialProfile.objects.get(
                 user=request.user, platform="linkedin", status="connected"
@@ -392,21 +392,25 @@ class LinkedInSelectOrganizationView(APIView):
             # Set to post as organization
             profile.page_id = organization_id
             profile.save()
-            
-            return Response({
-                "message": "Now posting as organization",
-                "organization_id": organization_id,
-                "posting_as": "organization",
-            })
+
+            return Response(
+                {
+                    "message": "Now posting as organization",
+                    "organization_id": organization_id,
+                    "posting_as": "organization",
+                }
+            )
         else:
             # Clear to post as personal profile
             profile.page_id = None
             profile.save()
-            
-            return Response({
-                "message": "Now posting as personal profile",
-                "posting_as": "personal",
-            })
+
+            return Response(
+                {
+                    "message": "Now posting as personal profile",
+                    "posting_as": "personal",
+                }
+            )
 
 
 class LinkedInPostView(APIView):
@@ -596,7 +600,7 @@ class LinkedInCarouselPostView(APIView):
     LinkedIn supports up to 9 images in a single post, allowing users
     to swipe through them. This endpoint provides a carousel experience
     similar to Facebook.
-    
+
     Note: LinkedIn also supports document carousels (PDFs) which display
     as swipeable pages. For document carousels, use the regular post
     endpoint with a document URN.
@@ -668,19 +672,22 @@ class LinkedInCarouselPostView(APIView):
             )
 
         # Check for test mode - either test access token OR placeholder media URNs
-        is_test_mode = (
-            profile.access_token == TEST_ACCESS_TOKEN
-            or all(str(urn).startswith("test_") for urn in media_urns)
+        is_test_mode = profile.access_token == TEST_ACCESS_TOKEN or all(
+            str(urn).startswith("test_") for urn in media_urns
         )
-        
+
         if is_test_mode:
             test_post_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
-            logger.info(f"Test LinkedIn carousel by {request.user.email}: {text[:50]}...")
+            logger.info(
+                f"Test LinkedIn carousel by {request.user.email}: {text[:50]}..."
+            )
 
             # Create a ContentCalendar entry
             post_title = (
-                title if title 
-                else f"[Carousel] {text[:40]}..." if len(text) > 40 
+                title
+                if title
+                else f"[Carousel] {text[:40]}..."
+                if len(text) > 40
                 else f"[Carousel] {text}"
             )
             ContentCalendar.objects.create(
@@ -702,13 +709,15 @@ class LinkedInCarouselPostView(APIView):
                 },
             )
 
-            return Response({
-                "test_mode": True,
-                "message": "Carousel post simulated in test mode",
-                "post_id": test_post_id,
-                "id": test_post_id,
-                "image_count": len(media_urns),
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Carousel post simulated in test mode",
+                    "post_id": test_post_id,
+                    "id": test_post_id,
+                    "image_count": len(media_urns),
+                }
+            )
 
         try:
             # Get valid access token
@@ -724,8 +733,10 @@ class LinkedInCarouselPostView(APIView):
 
             # Store in ContentCalendar
             post_title = (
-                title if title
-                else f"[Carousel] {text[:40]}..." if len(text) > 40
+                title
+                if title
+                else f"[Carousel] {text[:40]}..."
+                if len(text) > 40
                 else f"[Carousel] {text}"
             )
             content = ContentCalendar.objects.create(
@@ -750,13 +761,15 @@ class LinkedInCarouselPostView(APIView):
                 f"(images: {len(media_urns)})"
             )
 
-            return Response({
-                "success": True,
-                "post_id": result.get("id"),
-                "message": "Carousel posted to LinkedIn successfully",
-                "image_count": len(media_urns),
-                **result,
-            })
+            return Response(
+                {
+                    "success": True,
+                    "post_id": result.get("id"),
+                    "message": "Carousel posted to LinkedIn successfully",
+                    "image_count": len(media_urns),
+                    **result,
+                }
+            )
 
         except Exception as e:
             logger.error(f"LinkedIn carousel post failed: {e}")
@@ -1244,24 +1257,32 @@ class LinkedInDeletePostView(APIView):
             ):
                 # Check if this is a LinkedIn post with matching URN
                 if calendar_entry.post_results:
-                    post_id = calendar_entry.post_results.get("id") or calendar_entry.post_results.get("post_urn")
+                    post_id = calendar_entry.post_results.get(
+                        "id"
+                    ) or calendar_entry.post_results.get("post_urn")
                     if post_id == post_urn:
                         # Verify it's a LinkedIn post
-                        if hasattr(calendar_entry, 'platforms') and "linkedin" in (calendar_entry.platforms or []):
+                        if hasattr(calendar_entry, "platforms") and "linkedin" in (
+                            calendar_entry.platforms or []
+                        ):
                             calendar_entry.delete()
                             deleted_count = 1
                             break
-                        elif calendar_entry.social_profiles.filter(platform="linkedin").exists():
+                        elif calendar_entry.social_profiles.filter(
+                            platform="linkedin"
+                        ).exists():
                             calendar_entry.delete()
                             deleted_count = 1
                             break
 
-            return Response({
-                "test_mode": True,
-                "message": "Post deleted (test mode)",
-                "post_urn": post_urn,
-                "calendar_entries_deleted": deleted_count,
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Post deleted (test mode)",
+                    "post_urn": post_urn,
+                    "calendar_entries_deleted": deleted_count,
+                }
+            )
 
         try:
             access_token = profile.get_valid_access_token()
@@ -1275,23 +1296,33 @@ class LinkedInDeletePostView(APIView):
                     status="published",
                 ):
                     if calendar_entry.post_results:
-                        post_id = calendar_entry.post_results.get("id") or calendar_entry.post_results.get("post_urn")
+                        post_id = calendar_entry.post_results.get(
+                            "id"
+                        ) or calendar_entry.post_results.get("post_urn")
                         if post_id == post_urn:
-                            if hasattr(calendar_entry, 'platforms') and "linkedin" in (calendar_entry.platforms or []):
+                            if hasattr(calendar_entry, "platforms") and "linkedin" in (
+                                calendar_entry.platforms or []
+                            ):
                                 calendar_entry.delete()
                                 deleted_count += 1
                                 break
-                            elif calendar_entry.social_profiles.filter(platform="linkedin").exists():
+                            elif calendar_entry.social_profiles.filter(
+                                platform="linkedin"
+                            ).exists():
                                 calendar_entry.delete()
                                 deleted_count += 1
                                 break
 
-                logger.info(f"LinkedIn post deleted by {request.user.email}: {post_urn}")
-                return Response({
-                    "message": "Post deleted successfully",
-                    "post_urn": post_urn,
-                    "calendar_entries_deleted": deleted_count,
-                })
+                logger.info(
+                    f"LinkedIn post deleted by {request.user.email}: {post_urn}"
+                )
+                return Response(
+                    {
+                        "message": "Post deleted successfully",
+                        "post_urn": post_urn,
+                        "calendar_entries_deleted": deleted_count,
+                    }
+                )
             else:
                 return Response(
                     {"error": "Failed to delete post"},
@@ -2428,11 +2459,10 @@ class TwitterCarouselPostView(APIView):
             )
 
         # Check for test mode - either test access token OR placeholder media IDs
-        is_test_mode = (
-            profile.access_token == TWITTER_TEST_ACCESS_TOKEN
-            or all(str(mid).startswith("test_") for mid in media_ids)
+        is_test_mode = profile.access_token == TWITTER_TEST_ACCESS_TOKEN or all(
+            str(mid).startswith("test_") for mid in media_ids
         )
-        
+
         if is_test_mode:
             test_tweet_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
             logger.info(f"Test carousel tweet by {request.user.email}: {text[:50]}...")
@@ -2440,7 +2470,9 @@ class TwitterCarouselPostView(APIView):
             # Create a ContentCalendar entry
             ContentCalendar.objects.create(
                 user=request.user,
-                title=f"[Carousel] {text[:40]}..." if len(text) > 40 else f"[Carousel] {text}",
+                title=f"[Carousel] {text[:40]}..."
+                if len(text) > 40
+                else f"[Carousel] {text}",
                 content=text,
                 media_urls=media_ids,
                 platforms=["twitter"],
@@ -2457,13 +2489,15 @@ class TwitterCarouselPostView(APIView):
                 },
             )
 
-            return Response({
-                "test_mode": True,
-                "message": "Carousel tweet simulated in test mode",
-                "tweet_id": test_tweet_id,
-                "id": test_tweet_id,
-                "image_count": len(media_ids),
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Carousel tweet simulated in test mode",
+                    "tweet_id": test_tweet_id,
+                    "id": test_tweet_id,
+                    "image_count": len(media_ids),
+                }
+            )
 
         try:
             # Get valid access token
@@ -2479,7 +2513,9 @@ class TwitterCarouselPostView(APIView):
             # Store in ContentCalendar
             ContentCalendar.objects.create(
                 user=request.user,
-                title=f"[Carousel] {text[:40]}..." if len(text) > 40 else f"[Carousel] {text}",
+                title=f"[Carousel] {text[:40]}..."
+                if len(text) > 40
+                else f"[Carousel] {text}",
                 content=text,
                 media_urls=media_ids,
                 platforms=["twitter"],
@@ -2493,13 +2529,15 @@ class TwitterCarouselPostView(APIView):
                 },
             )
 
-            return Response({
-                "success": True,
-                "tweet_id": result.get("id"),
-                "message": "Carousel posted to Twitter successfully",
-                "image_count": len(media_ids),
-                **result,
-            })
+            return Response(
+                {
+                    "success": True,
+                    "tweet_id": result.get("id"),
+                    "message": "Carousel posted to Twitter successfully",
+                    "image_count": len(media_ids),
+                    **result,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Twitter carousel post failed: {e}")
@@ -2570,24 +2608,30 @@ class TwitterDeleteTweetView(APIView):
                         post_id = calendar_entry.post_results.get("tweet", {}).get("id")
                     else:
                         post_id = calendar_entry.post_results.get("id")
-                    
+
                     if post_id == tweet_id:
                         # Verify it's a Twitter post
-                        if hasattr(calendar_entry, 'platforms') and "twitter" in (calendar_entry.platforms or []):
+                        if hasattr(calendar_entry, "platforms") and "twitter" in (
+                            calendar_entry.platforms or []
+                        ):
                             calendar_entry.delete()
                             deleted_count = 1
                             break
-                        elif calendar_entry.social_profiles.filter(platform="twitter").exists():
+                        elif calendar_entry.social_profiles.filter(
+                            platform="twitter"
+                        ).exists():
                             calendar_entry.delete()
                             deleted_count = 1
                             break
 
-            return Response({
-                "test_mode": True,
-                "message": "Tweet deleted (test mode)",
-                "tweet_id": tweet_id,
-                "calendar_entries_deleted": deleted_count,
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Tweet deleted (test mode)",
+                    "tweet_id": tweet_id,
+                    "calendar_entries_deleted": deleted_count,
+                }
+            )
 
         try:
             access_token = profile.get_valid_access_token()
@@ -2603,26 +2647,34 @@ class TwitterDeleteTweetView(APIView):
                     if calendar_entry.post_results:
                         post_id = None
                         if "tweet" in calendar_entry.post_results:
-                            post_id = calendar_entry.post_results.get("tweet", {}).get("id")
+                            post_id = calendar_entry.post_results.get("tweet", {}).get(
+                                "id"
+                            )
                         else:
                             post_id = calendar_entry.post_results.get("id")
-                        
+
                         if post_id == tweet_id:
-                            if hasattr(calendar_entry, 'platforms') and "twitter" in (calendar_entry.platforms or []):
+                            if hasattr(calendar_entry, "platforms") and "twitter" in (
+                                calendar_entry.platforms or []
+                            ):
                                 calendar_entry.delete()
                                 deleted_count += 1
                                 break
-                            elif calendar_entry.social_profiles.filter(platform="twitter").exists():
+                            elif calendar_entry.social_profiles.filter(
+                                platform="twitter"
+                            ).exists():
                                 calendar_entry.delete()
                                 deleted_count += 1
                                 break
 
                 logger.info(f"Tweet deleted by {request.user.email}: {tweet_id}")
-                return Response({
-                    "message": "Tweet deleted successfully",
-                    "tweet_id": tweet_id,
-                    "calendar_entries_deleted": deleted_count,
-                })
+                return Response(
+                    {
+                        "message": "Tweet deleted successfully",
+                        "tweet_id": tweet_id,
+                        "calendar_entries_deleted": deleted_count,
+                    }
+                )
             else:
                 return Response(
                     {"error": "Failed to delete tweet"},
@@ -2751,12 +2803,16 @@ class TwitterAnalyticsView(APIView):
                 # Get user metrics first (more likely to succeed)
                 user_metrics = None
                 rate_limited = False
-                
+
                 try:
                     user_metrics = twitter_service.get_user_metrics(access_token)
                 except Exception as e:
                     error_str = str(e).lower()
-                    if "429" in str(e) or "too many requests" in error_str or "rate" in error_str:
+                    if (
+                        "429" in str(e)
+                        or "too many requests" in error_str
+                        or "rate" in error_str
+                    ):
                         rate_limited = True
                         logger.warning(f"Twitter rate limit hit for user metrics: {e}")
                     else:
@@ -2789,9 +2845,15 @@ class TwitterAnalyticsView(APIView):
                         )
                     except Exception as e:
                         error_str = str(e).lower()
-                        if "429" in str(e) or "too many requests" in error_str or "rate" in error_str:
+                        if (
+                            "429" in str(e)
+                            or "too many requests" in error_str
+                            or "rate" in error_str
+                        ):
                             rate_limited = True
-                            logger.warning(f"Twitter rate limit hit for tweet metrics: {e}")
+                            logger.warning(
+                                f"Twitter rate limit hit for tweet metrics: {e}"
+                            )
                         else:
                             raise
 
@@ -2832,7 +2894,7 @@ class TwitterAnalyticsView(APIView):
                     "tweets": tweets_metrics,
                     "totals": totals,
                 }
-                
+
                 # Add rate limit warning if applicable
                 if rate_limited:
                     response_data["rate_limited"] = True
@@ -2840,15 +2902,19 @@ class TwitterAnalyticsView(APIView):
                         "Twitter API rate limit reached. Some data may be unavailable. "
                         "Please try again in a few minutes."
                     )
-                
+
                 return Response(response_data)
 
         except Exception as e:
             logger.error(f"Failed to get Twitter analytics: {e}")
             error_str = str(e).lower()
-            
+
             # Check if it's a rate limit error
-            if "429" in str(e) or "too many requests" in error_str or "rate" in error_str:
+            if (
+                "429" in str(e)
+                or "too many requests" in error_str
+                or "rate" in error_str
+            ):
                 return Response(
                     {
                         "rate_limited": True,
@@ -2869,7 +2935,7 @@ class TwitterAnalyticsView(APIView):
                     },
                     status=status.HTTP_200_OK,  # Return 200 with warning instead of error
                 )
-            
+
             return Response(
                 {"error": f"Failed to get analytics: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -3292,12 +3358,12 @@ class FacebookCallbackView(APIView):
                 selected_page = pages[0]
 
             page_access_token = selected_page.get("access_token")
-            
+
             # Try to get page info, but don't fail if we can't
             page_name = selected_page.get("name", "Facebook Page")
             page_picture_url = None
             page_link = f"https://facebook.com/{selected_page['id']}"
-            
+
             try:
                 page_info = facebook_service.get_page_info(
                     selected_page["id"], page_access_token
@@ -3311,9 +3377,7 @@ class FacebookCallbackView(APIView):
                 )
             except Exception as page_info_error:
                 # Log but continue - we have basic info from pages list
-                logger.warning(
-                    f"Could not fetch detailed page info: {page_info_error}"
-                )
+                logger.warning(f"Could not fetch detailed page info: {page_info_error}")
 
             # Create or update social profile with page token
             _, created = SocialProfile.objects.update_or_create(
@@ -3379,15 +3443,19 @@ class FacebookPagesView(APIView):
                     "is_selected": True,
                 },
             ]
-            return Response({
-                "pages": test_pages,
-                "selected_page_id": profile.page_id,
-                "current_page": {
-                    "id": profile.page_id,
-                    "name": profile.profile_name,
-                } if profile.page_id else None,
-                "test_mode": True,
-            })
+            return Response(
+                {
+                    "pages": test_pages,
+                    "selected_page_id": profile.page_id,
+                    "current_page": {
+                        "id": profile.page_id,
+                        "name": profile.profile_name,
+                    }
+                    if profile.page_id
+                    else None,
+                    "test_mode": True,
+                }
+            )
 
         try:
             pages = facebook_service.get_user_pages(profile.access_token)
@@ -3402,20 +3470,22 @@ class FacebookPagesView(APIView):
                     }
                     break
 
-            return Response({
-                "pages": [
-                    {
-                        "id": page.get("id"),
-                        "name": page.get("name"),
-                        "category": page.get("category"),
-                        "picture": page.get("picture"),
-                        "is_selected": page.get("id") == profile.page_id,
-                    }
-                    for page in pages
-                ],
-                "selected_page_id": profile.page_id,
-                "current_page": current_page,
-            })
+            return Response(
+                {
+                    "pages": [
+                        {
+                            "id": page.get("id"),
+                            "name": page.get("name"),
+                            "category": page.get("category"),
+                            "picture": page.get("picture"),
+                            "is_selected": page.get("id") == profile.page_id,
+                        }
+                        for page in pages
+                    ],
+                    "selected_page_id": profile.page_id,
+                    "current_page": current_page,
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to fetch Facebook pages: {e}")
             return Response(
@@ -3480,14 +3550,16 @@ class FacebookSelectPageView(APIView):
             )
             profile.save()
 
-            return Response({
-                "message": f"Selected page: {page_info.get('name')}",
-                "page": {
-                    "id": page_id,
-                    "name": page_info.get("name"),
-                    "category": page_info.get("category"),
-                },
-            })
+            return Response(
+                {
+                    "message": f"Selected page: {page_info.get('name')}",
+                    "page": {
+                        "id": page_id,
+                        "name": page_info.get("name"),
+                        "category": page_info.get("category"),
+                    },
+                }
+            )
 
         except Exception as e:
             logger.error(f"Failed to select Facebook page: {e}")
@@ -3604,7 +3676,7 @@ class FacebookPostView(APIView):
                 or profile.access_token == FACEBOOK_TEST_ACCESS_TOKEN
                 or profile.profile_id.startswith("test_facebook_")
             )
-            
+
             if is_test_mode:
                 test_post_id = f"test_post_{uuid.uuid4().hex[:8]}"
                 # Store in ContentCalendar for history even in test mode
@@ -3618,12 +3690,14 @@ class FacebookPostView(APIView):
                     published_at=timezone.now(),
                     post_results={"facebook": {"id": test_post_id}, "id": test_post_id},
                 )
-                return Response({
-                    "test_mode": True,
-                    "message": "Post simulated in test mode",
-                    "post_id": test_post_id,
-                    "id": test_post_id,
-                })
+                return Response(
+                    {
+                        "test_mode": True,
+                        "message": "Post simulated in test mode",
+                        "post_id": test_post_id,
+                        "id": test_post_id,
+                    }
+                )
 
             # Create post
             if photo_url:
@@ -3653,12 +3727,14 @@ class FacebookPostView(APIView):
                 post_results={"facebook": result, "id": result.get("id")},
             )
 
-            return Response({
-                "success": True,
-                "post_id": result.get("id"),
-                "message": "Posted to Facebook successfully",
-                **result,
-            })
+            return Response(
+                {
+                    "success": True,
+                    "post_id": result.get("id"),
+                    "message": "Posted to Facebook successfully",
+                    **result,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook post creation failed: {e}")
@@ -3703,11 +3779,13 @@ class FacebookMediaUploadView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
-            return Response({
-                "test_mode": True,
-                "message": "Media upload simulated in test mode",
-                "id": f"test_media_{uuid.uuid4().hex[:8]}",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Media upload simulated in test mode",
+                    "id": f"test_media_{uuid.uuid4().hex[:8]}",
+                }
+            )
 
         content_type = file.content_type
         file_data = file.read()
@@ -3815,19 +3893,21 @@ class FacebookResumableUploadView(APIView):
                 upload = FacebookResumableUpload.objects.get(
                     user=request.user, upload_session_id=upload_session_id
                 )
-                return Response({
-                    "upload_session_id": upload.upload_session_id,
-                    "video_id": upload.video_id,
-                    "file_name": upload.file_name,
-                    "file_size": upload.file_size,
-                    "bytes_uploaded": upload.bytes_uploaded,
-                    "progress_percent": upload.progress_percent,
-                    "status": upload.status,
-                    "status_display": upload.get_status_display(),
-                    "start_offset": upload.start_offset,
-                    "created_at": upload.created_at.isoformat(),
-                    "updated_at": upload.updated_at.isoformat(),
-                })
+                return Response(
+                    {
+                        "upload_session_id": upload.upload_session_id,
+                        "video_id": upload.video_id,
+                        "file_name": upload.file_name,
+                        "file_size": upload.file_size,
+                        "bytes_uploaded": upload.bytes_uploaded,
+                        "progress_percent": upload.progress_percent,
+                        "status": upload.status,
+                        "status_display": upload.get_status_display(),
+                        "start_offset": upload.start_offset,
+                        "created_at": upload.created_at.isoformat(),
+                        "updated_at": upload.updated_at.isoformat(),
+                    }
+                )
             except FacebookResumableUpload.DoesNotExist:
                 return Response(
                     {"error": "Upload session not found"},
@@ -3839,19 +3919,21 @@ class FacebookResumableUploadView(APIView):
                 user=request.user, page_id=profile.page_id
             ).filter(status__in=["pending", "uploading", "processing"])
 
-            return Response({
-                "uploads": [
-                    {
-                        "upload_session_id": u.upload_session_id,
-                        "file_name": u.file_name,
-                        "file_size": u.file_size,
-                        "progress_percent": u.progress_percent,
-                        "status": u.status,
-                        "created_at": u.created_at.isoformat(),
-                    }
-                    for u in uploads
-                ],
-            })
+            return Response(
+                {
+                    "uploads": [
+                        {
+                            "upload_session_id": u.upload_session_id,
+                            "file_name": u.file_name,
+                            "file_size": u.file_size,
+                            "progress_percent": u.progress_percent,
+                            "status": u.status,
+                            "created_at": u.created_at.isoformat(),
+                        }
+                        for u in uploads
+                    ],
+                }
+            )
 
     def start_upload(self, request):
         """
@@ -3903,13 +3985,15 @@ class FacebookResumableUploadView(APIView):
                 status="pending",
             )
 
-            return Response({
-                "test_mode": True,
-                "upload_session_id": upload.upload_session_id,
-                "video_id": upload.video_id,
-                "chunk_size": self.DEFAULT_CHUNK_SIZE,
-                "message": "Test upload session created",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "upload_session_id": upload.upload_session_id,
+                    "video_id": upload.video_id,
+                    "chunk_size": self.DEFAULT_CHUNK_SIZE,
+                    "message": "Test upload session created",
+                }
+            )
 
         try:
             # Start the upload with Facebook
@@ -3934,12 +4018,14 @@ class FacebookResumableUploadView(APIView):
                 status="pending",
             )
 
-            return Response({
-                "upload_session_id": upload.upload_session_id,
-                "video_id": upload.video_id,
-                "start_offset": 0,
-                "chunk_size": self.DEFAULT_CHUNK_SIZE,
-            })
+            return Response(
+                {
+                    "upload_session_id": upload.upload_session_id,
+                    "video_id": upload.video_id,
+                    "start_offset": 0,
+                    "chunk_size": self.DEFAULT_CHUNK_SIZE,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook resumable upload start failed: {e}")
@@ -3998,12 +4084,14 @@ class FacebookResumableUploadView(APIView):
 
             upload.update_progress(new_offset, new_offset)
 
-            return Response({
-                "test_mode": True,
-                "start_offset": new_offset,
-                "end_offset": new_offset,
-                "progress_percent": upload.progress_percent,
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "start_offset": new_offset,
+                    "end_offset": new_offset,
+                    "progress_percent": upload.progress_percent,
+                }
+            )
 
         try:
             chunk_data = chunk_file.read()
@@ -4021,11 +4109,13 @@ class FacebookResumableUploadView(APIView):
             new_end = result.get("end_offset", new_start)
             upload.update_progress(new_start, new_end)
 
-            return Response({
-                "start_offset": new_start,
-                "end_offset": new_end,
-                "progress_percent": upload.progress_percent,
-            })
+            return Response(
+                {
+                    "start_offset": new_start,
+                    "end_offset": new_end,
+                    "progress_percent": upload.progress_percent,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook chunk upload failed: {e}")
@@ -4075,12 +4165,14 @@ class FacebookResumableUploadView(APIView):
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
             upload.mark_completed()
-            return Response({
-                "test_mode": True,
-                "success": True,
-                "video_id": upload.video_id,
-                "message": "Video upload completed (test mode)",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "success": True,
+                    "video_id": upload.video_id,
+                    "message": "Video upload completed (test mode)",
+                }
+            )
 
         try:
             result = facebook_service.finish_video_upload(
@@ -4093,11 +4185,13 @@ class FacebookResumableUploadView(APIView):
 
             upload.mark_completed()
 
-            return Response({
-                "success": result.get("success", True),
-                "video_id": upload.video_id,
-                "message": "Video upload completed",
-            })
+            return Response(
+                {
+                    "success": result.get("success", True),
+                    "video_id": upload.video_id,
+                    "message": "Video upload completed",
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook upload finish failed: {e}")
@@ -4132,10 +4226,12 @@ class FacebookResumableUploadView(APIView):
         upload.status = "cancelled"
         upload.save()
 
-        return Response({
-            "message": "Upload cancelled",
-            "upload_session_id": upload_session_id,
-        })
+        return Response(
+            {
+                "message": "Upload cancelled",
+                "upload_session_id": upload_session_id,
+            }
+        )
 
 
 class FacebookDeletePostView(APIView):
@@ -4167,7 +4263,7 @@ class FacebookDeletePostView(APIView):
             profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
             or post_id.startswith("test_")
         )
-        
+
         if is_test_mode:
             # In test mode, delete the ContentCalendar record
             deleted_count = 0
@@ -4178,40 +4274,52 @@ class FacebookDeletePostView(APIView):
             ):
                 if not calendar_entry.post_results:
                     continue
-                    
+
                 # Check multiple possible locations for the post ID
                 # Direct: { "id": "..." }
                 direct_id = calendar_entry.post_results.get("id")
                 # Nested: { "facebook": { "id": "..." } }
                 facebook_data = calendar_entry.post_results.get("facebook", {})
-                nested_id = facebook_data.get("id") if isinstance(facebook_data, dict) else None
+                nested_id = (
+                    facebook_data.get("id") if isinstance(facebook_data, dict) else None
+                )
                 # Also check for test_mode flag in nested structure (for posts without ID)
-                has_test_mode = facebook_data.get("test_mode") if isinstance(facebook_data, dict) else calendar_entry.post_results.get("test_mode")
-                
+                has_test_mode = (
+                    facebook_data.get("test_mode")
+                    if isinstance(facebook_data, dict)
+                    else calendar_entry.post_results.get("test_mode")
+                )
+
                 # Match if any ID matches, or if this is a test_mode post and we're deleting test_mode
                 id_matches = (
-                    (direct_id and direct_id == post_id) or
-                    (nested_id and nested_id == post_id) or
-                    (post_id == "test_mode" and has_test_mode)
+                    (direct_id and direct_id == post_id)
+                    or (nested_id and nested_id == post_id)
+                    or (post_id == "test_mode" and has_test_mode)
                 )
-                
+
                 if id_matches:
                     # Verify it's a Facebook post by checking platforms
-                    if hasattr(calendar_entry, 'platforms') and "facebook" in (calendar_entry.platforms or []):
+                    if hasattr(calendar_entry, "platforms") and "facebook" in (
+                        calendar_entry.platforms or []
+                    ):
                         calendar_entry.delete()
                         deleted_count = 1
                         break
                     # Or check social_profiles
-                    elif calendar_entry.social_profiles.filter(platform="facebook").exists():
+                    elif calendar_entry.social_profiles.filter(
+                        platform="facebook"
+                    ).exists():
                         calendar_entry.delete()
                         deleted_count = 1
                         break
-            
-            return Response({
-                "test_mode": True,
-                "message": "Post deletion simulated in test mode",
-                "calendar_entries_deleted": deleted_count,
-            })
+
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Post deletion simulated in test mode",
+                    "calendar_entries_deleted": deleted_count,
+                }
+            )
 
         try:
             success = facebook_service.delete_post(post_id, profile.page_access_token)
@@ -4222,21 +4330,30 @@ class FacebookDeletePostView(APIView):
                     user=request.user,
                     status="published",
                 ):
-                    if calendar_entry.post_results and calendar_entry.post_results.get("id") == post_id:
+                    if (
+                        calendar_entry.post_results
+                        and calendar_entry.post_results.get("id") == post_id
+                    ):
                         # Verify it's a Facebook post
-                        if hasattr(calendar_entry, 'platforms') and "facebook" in (calendar_entry.platforms or []):
+                        if hasattr(calendar_entry, "platforms") and "facebook" in (
+                            calendar_entry.platforms or []
+                        ):
                             calendar_entry.delete()
                             deleted_count += 1
                             break
-                        elif calendar_entry.social_profiles.filter(platform="facebook").exists():
+                        elif calendar_entry.social_profiles.filter(
+                            platform="facebook"
+                        ).exists():
                             calendar_entry.delete()
                             deleted_count += 1
                             break
-                
-                return Response({
-                    "message": "Post deleted successfully",
-                    "calendar_entries_deleted": deleted_count,
-                })
+
+                return Response(
+                    {
+                        "message": "Post deleted successfully",
+                        "calendar_entries_deleted": deleted_count,
+                    }
+                )
             else:
                 return Response(
                     {"error": "Failed to delete post"},
@@ -4276,18 +4393,20 @@ class FacebookAnalyticsView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
-            return Response({
-                "test_mode": True,
-                "insights": {
-                    "page_impressions": 1234,
-                    "page_engaged_users": 567,
-                    "page_fans": 890,
-                    "page_fan_adds": 12,
-                    "page_post_engagements": 345,
-                    "page_views_total": 678,
-                },
-                "recent_posts": [],
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "insights": {
+                        "page_impressions": 1234,
+                        "page_engaged_users": 567,
+                        "page_fans": 890,
+                        "page_fan_adds": 12,
+                        "page_post_engagements": 345,
+                        "page_views_total": 678,
+                    },
+                    "recent_posts": [],
+                }
+            )
 
         try:
             if post_id:
@@ -4296,10 +4415,12 @@ class FacebookAnalyticsView(APIView):
                     post_id, profile.page_access_token
                 )
                 post = facebook_service.get_post(post_id, profile.page_access_token)
-                return Response({
-                    "post": post,
-                    "insights": insights,
-                })
+                return Response(
+                    {
+                        "post": post,
+                        "insights": insights,
+                    }
+                )
             else:
                 # Get page insights
                 insights = facebook_service.get_page_insights(
@@ -4310,24 +4431,30 @@ class FacebookAnalyticsView(APIView):
                     profile.page_id, profile.page_access_token, limit=10
                 )
 
-                return Response({
-                    "page_id": profile.page_id,
-                    "page_name": profile.profile_name,
-                    "insights": insights,
-                    "recent_posts": [
-                        {
-                            "id": post.get("id"),
-                            "message": post.get("message", ""),
-                            "created_time": post.get("created_time"),
-                            "permalink_url": post.get("permalink_url"),
-                            "full_picture": post.get("full_picture"),
-                            "likes": post.get("likes", {}).get("summary", {}).get("total_count", 0),
-                            "comments": post.get("comments", {}).get("summary", {}).get("total_count", 0),
-                            "shares": post.get("shares", {}).get("count", 0),
-                        }
-                        for post in posts
-                    ],
-                })
+                return Response(
+                    {
+                        "page_id": profile.page_id,
+                        "page_name": profile.profile_name,
+                        "insights": insights,
+                        "recent_posts": [
+                            {
+                                "id": post.get("id"),
+                                "message": post.get("message", ""),
+                                "created_time": post.get("created_time"),
+                                "permalink_url": post.get("permalink_url"),
+                                "full_picture": post.get("full_picture"),
+                                "likes": post.get("likes", {})
+                                .get("summary", {})
+                                .get("total_count", 0),
+                                "comments": post.get("comments", {})
+                                .get("summary", {})
+                                .get("total_count", 0),
+                                "shares": post.get("shares", {}).get("count", 0),
+                            }
+                            for post in posts
+                        ],
+                    }
+                )
 
         except Exception as e:
             logger.error(f"Facebook analytics fetch failed: {e}")
@@ -4385,20 +4512,20 @@ class FacebookLinkPreviewView(APIView):
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
             # Return mock preview data
-            return Response({
-                "test_mode": True,
-                "url": url,
-                "title": "Example Link Title",
-                "description": "This is a sample description for the link preview in test mode.",
-                "image": None,
-                "site_name": "Example Site",
-                "type": "website",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "url": url,
+                    "title": "Example Link Title",
+                    "description": "This is a sample description for the link preview in test mode.",
+                    "image": None,
+                    "site_name": "Example Site",
+                    "type": "website",
+                }
+            )
 
         try:
-            preview = facebook_service.get_link_preview(
-                url, profile.page_access_token
-            )
+            preview = facebook_service.get_link_preview(url, profile.page_access_token)
             return Response(preview)
         except Exception as e:
             logger.error(f"Facebook link preview fetch failed: {e}")
@@ -4473,18 +4600,19 @@ class FacebookCarouselPostView(APIView):
             )
 
         # Check for test mode - either test token OR placeholder URLs
-        is_test_mode = (
-            profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
-            or all(str(url).startswith("carousel_image_") for url in photo_urls)
+        is_test_mode = profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN or all(
+            str(url).startswith("carousel_image_") for url in photo_urls
         )
-        
+
         if is_test_mode:
             test_post_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
-            
+
             # Save to ContentCalendar for history (even in test mode)
             ContentCalendar.objects.create(
                 user=request.user,
-                title=f"[Carousel] {message[:40]}..." if len(message) > 40 else f"[Carousel] {message}",
+                title=f"[Carousel] {message[:40]}..."
+                if len(message) > 40
+                else f"[Carousel] {message}",
                 content=message,
                 platforms=["facebook"],
                 scheduled_date=timezone.now(),
@@ -4499,14 +4627,16 @@ class FacebookCarouselPostView(APIView):
                     }
                 },
             )
-            
-            return Response({
-                "test_mode": True,
-                "message": "Carousel post simulated in test mode",
-                "post_id": test_post_id,
-                "id": test_post_id,
-                "photo_count": total_photos,
-            })
+
+            return Response(
+                {
+                    "test_mode": True,
+                    "message": "Carousel post simulated in test mode",
+                    "post_id": test_post_id,
+                    "id": test_post_id,
+                    "photo_count": total_photos,
+                }
+            )
 
         try:
             # If photo_urls provided, create unpublished photos first
@@ -4545,13 +4675,15 @@ class FacebookCarouselPostView(APIView):
                 },
             )
 
-            return Response({
-                "success": True,
-                "post_id": result.get("id"),
-                "message": "Carousel posted to Facebook successfully",
-                "photo_count": len(all_photo_ids),
-                **result,
-            })
+            return Response(
+                {
+                    "success": True,
+                    "post_id": result.get("id"),
+                    "message": "Carousel posted to Facebook successfully",
+                    "photo_count": len(all_photo_ids),
+                    **result,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook carousel post creation failed: {e}")
@@ -4615,11 +4747,13 @@ class FacebookCarouselUploadView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
-            return Response({
-                "test_mode": True,
-                "photo_id": f"test_photo_{uuid.uuid4().hex[:8]}",
-                "message": "Photo uploaded for carousel (test mode)",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "photo_id": f"test_photo_{uuid.uuid4().hex[:8]}",
+                    "message": "Photo uploaded for carousel (test mode)",
+                }
+            )
 
         try:
             image_data = file.read()
@@ -4630,10 +4764,12 @@ class FacebookCarouselUploadView(APIView):
                 content_type=file.content_type,
             )
 
-            return Response({
-                "photo_id": result.get("id"),
-                "message": "Photo uploaded for carousel",
-            })
+            return Response(
+                {
+                    "photo_id": result.get("id"),
+                    "message": "Photo uploaded for carousel",
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook carousel photo upload failed: {e}")
@@ -4680,15 +4816,14 @@ class FacebookWebhookView(APIView):
         challenge = request.query_params.get("hub.challenge")
         verify_token = request.query_params.get("hub.verify_token")
 
-        logger.info(
-            f"Facebook webhook verification: mode={mode}, token={verify_token}"
-        )
+        logger.info(f"Facebook webhook verification: mode={mode}, token={verify_token}")
 
         if mode == "subscribe":
             if facebook_service.verify_webhook_token(verify_token):
                 logger.info("Facebook webhook verification successful")
                 # Must return the challenge as plain text
                 from django.http import HttpResponse
+
                 return HttpResponse(challenge, content_type="text/plain")
             else:
                 logger.warning("Facebook webhook verification failed - invalid token")
@@ -4731,7 +4866,9 @@ class FacebookWebhookView(APIView):
         # Validate Facebook webhook signature
         signature_header = request.headers.get("X-Hub-Signature-256", "")
 
-        if not facebook_service.verify_webhook_signature(request.body, signature_header):
+        if not facebook_service.verify_webhook_signature(
+            request.body, signature_header
+        ):
             logger.warning("Facebook webhook signature validation failed")
             return Response(
                 {"error": "Invalid signature"},
@@ -4755,7 +4892,7 @@ class FacebookWebhookView(APIView):
         # Process each entry
         for entry in entries:
             page_id = entry.get("id", "")
-            timestamp = entry.get("time")
+            # timestamp available in entry.get("time") if needed
 
             # Handle messaging events
             messaging = entry.get("messaging", [])
@@ -4782,9 +4919,11 @@ class FacebookWebhookView(APIView):
                 # Determine event type based on field and value
                 if field == "feed":
                     item = value.get("item", "")
-                    verb = value.get("verb", "")
+                    # verb = value.get("verb", "") - available if needed
                     post_id = value.get("post_id", "")
-                    sender_id = value.get("sender_id") or value.get("from", {}).get("id")
+                    sender_id = value.get("sender_id") or value.get("from", {}).get(
+                        "id"
+                    )
 
                     if item == "reaction":
                         event_type = "feed_reaction"
@@ -4808,7 +4947,9 @@ class FacebookWebhookView(APIView):
                     )
 
                 elif field == "mention":
-                    sender_id = value.get("sender_id") or value.get("from", {}).get("id")
+                    sender_id = value.get("sender_id") or value.get("from", {}).get(
+                        "id"
+                    )
                     post_id = value.get("post_id", "")
 
                     FacebookWebhookEvent.objects.create(
@@ -4910,25 +5051,27 @@ class FacebookWebhookEventsView(APIView):
         limit = int(request.query_params.get("limit", 50))
         events = queryset[:limit]
 
-        return Response({
-            "page_id": profile.page_id,
-            "page_name": profile.profile_name,
-            "events": [
-                {
-                    "id": event.id,
-                    "event_type": event.event_type,
-                    "event_type_display": event.get_event_type_display(),
-                    "sender_id": event.sender_id,
-                    "post_id": event.post_id,
-                    "payload": event.payload,
-                    "read": event.read,
-                    "created_at": event.created_at.isoformat(),
-                }
-                for event in events
-            ],
-            "total_count": queryset.count(),
-            "unread_count": queryset.filter(read=False).count(),
-        })
+        return Response(
+            {
+                "page_id": profile.page_id,
+                "page_name": profile.profile_name,
+                "events": [
+                    {
+                        "id": event.id,
+                        "event_type": event.event_type,
+                        "event_type_display": event.get_event_type_display(),
+                        "sender_id": event.sender_id,
+                        "post_id": event.post_id,
+                        "payload": event.payload,
+                        "read": event.read,
+                        "created_at": event.created_at.isoformat(),
+                    }
+                    for event in events
+                ],
+                "total_count": queryset.count(),
+                "unread_count": queryset.filter(read=False).count(),
+            }
+        )
 
     def post(self, request):
         """
@@ -4967,10 +5110,12 @@ class FacebookWebhookEventsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        return Response({
-            "message": f"Marked {updated} events as read",
-            "updated_count": updated,
-        })
+        return Response(
+            {
+                "message": f"Marked {updated} events as read",
+                "updated_count": updated,
+            }
+        )
 
 
 class FacebookWebhookSubscribeView(APIView):
@@ -5002,20 +5147,24 @@ class FacebookWebhookSubscribeView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
-            return Response({
-                "test_mode": True,
-                "success": True,
-                "message": "Webhook subscription simulated in test mode",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "success": True,
+                    "message": "Webhook subscription simulated in test mode",
+                }
+            )
 
         try:
             result = facebook_service.subscribe_to_page_webhooks(
                 profile.page_id, profile.page_access_token
             )
-            return Response({
-                "success": result.get("success", False),
-                "message": "Page subscribed to webhook events",
-            })
+            return Response(
+                {
+                    "success": result.get("success", False),
+                    "message": "Page subscribed to webhook events",
+                }
+            )
         except Exception as e:
             logger.error(f"Facebook webhook subscription failed: {e}")
             return Response(
@@ -5045,20 +5194,24 @@ class FacebookWebhookSubscribeView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
-            return Response({
-                "test_mode": True,
-                "success": True,
-                "message": "Webhook unsubscription simulated in test mode",
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "success": True,
+                    "message": "Webhook unsubscription simulated in test mode",
+                }
+            )
 
         try:
             result = facebook_service.unsubscribe_from_page_webhooks(
                 profile.page_id, profile.page_access_token
             )
-            return Response({
-                "success": result.get("success", False),
-                "message": "Page unsubscribed from webhook events",
-            })
+            return Response(
+                {
+                    "success": result.get("success", False),
+                    "message": "Page unsubscribed from webhook events",
+                }
+            )
         except Exception as e:
             logger.error(f"Facebook webhook unsubscription failed: {e}")
             return Response(
@@ -5088,21 +5241,25 @@ class FacebookWebhookSubscribeView(APIView):
 
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
-            return Response({
-                "test_mode": True,
-                "subscriptions": [
-                    {"name": "Test App", "subscribed_fields": ["feed", "mention"]},
-                ],
-            })
+            return Response(
+                {
+                    "test_mode": True,
+                    "subscriptions": [
+                        {"name": "Test App", "subscribed_fields": ["feed", "mention"]},
+                    ],
+                }
+            )
 
         try:
             subscriptions = facebook_service.get_page_webhook_subscriptions(
                 profile.page_id, profile.page_access_token
             )
-            return Response({
-                "page_id": profile.page_id,
-                "subscriptions": subscriptions,
-            })
+            return Response(
+                {
+                    "page_id": profile.page_id,
+                    "subscriptions": subscriptions,
+                }
+            )
         except Exception as e:
             logger.error(f"Facebook webhook subscriptions fetch failed: {e}")
             return Response(
@@ -5184,7 +5341,9 @@ class FacebookStoryView(APIView):
                 allowed_types = ["image/jpeg", "image/png"]
                 if file.content_type not in allowed_types:
                     return Response(
-                        {"error": f"Invalid photo type. Allowed: {', '.join(allowed_types)}"},
+                        {
+                            "error": f"Invalid photo type. Allowed: {', '.join(allowed_types)}"
+                        },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 # Check file size (4MB max for photos)
@@ -5197,7 +5356,7 @@ class FacebookStoryView(APIView):
                 allowed_types = ["video/mp4", "video/quicktime"]
                 if file.content_type not in allowed_types:
                     return Response(
-                        {"error": f"Invalid video type. Allowed: MP4, MOV"},
+                        {"error": "Invalid video type. Allowed: MP4, MOV"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 # Check file size (4GB max for videos)
@@ -5228,37 +5387,48 @@ class FacebookStoryView(APIView):
             story_id = f"test_story_{uuid.uuid4().hex[:8]}"
             created_at = timezone.now().isoformat()
             expires_at = (timezone.now() + timedelta(hours=24)).isoformat()
-            
+
             # Store in test cache
             user_id = request.user.id
             if user_id not in _test_stories_cache:
                 _test_stories_cache[user_id] = []
-            
+
             # Add new story to cache
-            _test_stories_cache[user_id].append({
-                "id": story_id,
-                "media_type": story_type.upper(),
-                "status": "ACTIVE",
-                "created_at": created_at,
-                "expires_at": expires_at,
-            })
-            
+            _test_stories_cache[user_id].append(
+                {
+                    "id": story_id,
+                    "media_type": story_type.upper(),
+                    "status": "ACTIVE",
+                    "created_at": created_at,
+                    "expires_at": expires_at,
+                }
+            )
+
             # Clean up expired stories (older than 24 hours)
             now = timezone.now()
             _test_stories_cache[user_id] = [
-                s for s in _test_stories_cache[user_id]
-                if (now - timezone.datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))).total_seconds() < 86400
+                s
+                for s in _test_stories_cache[user_id]
+                if (
+                    now
+                    - timezone.datetime.fromisoformat(
+                        s["created_at"].replace("Z", "+00:00")
+                    )
+                ).total_seconds()
+                < 86400
             ]
-            
-            return Response({
-                "test_mode": True,
-                "story_id": story_id,
-                "type": story_type,
-                "status": "created",
-                "created_at": created_at,
-                "expires_at": expires_at,
-                "message": f"Story created in test mode (expires in 24 hours)",
-            })
+
+            return Response(
+                {
+                    "test_mode": True,
+                    "story_id": story_id,
+                    "type": story_type,
+                    "status": "created",
+                    "created_at": created_at,
+                    "expires_at": expires_at,
+                    "message": "Story created in test mode (expires in 24 hours)",
+                }
+            )
 
         try:
             if story_type == "photo":
@@ -5290,12 +5460,15 @@ class FacebookStoryView(APIView):
                         title=title,
                     )
 
-            return Response({
-                "story_id": result.get("id"),
-                "type": story_type,
-                "status": "created",
-                "message": "Story created successfully (expires in 24 hours)",
-            }, status=status.HTTP_201_CREATED)
+            return Response(
+                {
+                    "story_id": result.get("id"),
+                    "type": story_type,
+                    "status": "created",
+                    "message": "Story created successfully (expires in 24 hours)",
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
         except Exception as e:
             logger.error(f"Facebook story creation failed: {e}")
@@ -5329,39 +5502,45 @@ class FacebookStoryView(APIView):
         # Check for test mode
         if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
             user_id = request.user.id
-            
+
             # Get stories from cache, filtering out expired ones
             now = timezone.now()
             cached_stories = _test_stories_cache.get(user_id, [])
-            
+
             # Filter active stories (less than 24 hours old)
             active_stories = []
             for story in cached_stories:
                 try:
-                    created = timezone.datetime.fromisoformat(story["created_at"].replace("Z", "+00:00"))
+                    created = timezone.datetime.fromisoformat(
+                        story["created_at"].replace("Z", "+00:00")
+                    )
                     if (now - created).total_seconds() < 86400:
                         active_stories.append(story)
                 except (ValueError, KeyError):
                     pass
-            
+
             # Update cache with only active stories
             _test_stories_cache[user_id] = active_stories
-            
-            return Response({
-                "test_mode": True,
-                "page_id": profile.page_id,
-                "stories": active_stories,
-            })
+
+            return Response(
+                {
+                    "test_mode": True,
+                    "page_id": profile.page_id,
+                    "stories": active_stories,
+                }
+            )
 
         try:
             stories = facebook_service.get_page_stories(
                 page_id=profile.page_id,
                 page_access_token=profile.page_access_token,
             )
-            return Response({
-                "page_id": profile.page_id,
-                "stories": stories,
-            })
+            return Response(
+                {
+                    "page_id": profile.page_id,
+                    "stories": stories,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook stories fetch failed: {e}")
@@ -5412,24 +5591,28 @@ class FacebookStoryDeleteView(APIView):
                 _test_stories_cache[user_id] = [
                     s for s in _test_stories_cache[user_id] if s["id"] != story_id
                 ]
-            
-            return Response({
-                "test_mode": True,
-                "success": True,
-                "story_id": story_id,
-                "message": "Story deleted in test mode",
-            })
+
+            return Response(
+                {
+                    "test_mode": True,
+                    "success": True,
+                    "story_id": story_id,
+                    "message": "Story deleted in test mode",
+                }
+            )
 
         try:
             result = facebook_service.delete_story(
                 story_id=story_id,
                 page_access_token=profile.page_access_token,
             )
-            return Response({
-                "success": result.get("success", True),
-                "story_id": story_id,
-                "message": "Story deleted successfully",
-            })
+            return Response(
+                {
+                    "success": result.get("success", True),
+                    "story_id": story_id,
+                    "message": "Story deleted successfully",
+                }
+            )
 
         except Exception as e:
             logger.error(f"Facebook story deletion failed: {e}")

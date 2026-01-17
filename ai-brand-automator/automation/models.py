@@ -97,9 +97,7 @@ class SocialProfile(models.Model):
     def page_access_token(self):
         """Get the decrypted page access token (Facebook only)."""
         return (
-            decrypt_token(self._page_access_token)
-            if self._page_access_token
-            else None
+            decrypt_token(self._page_access_token) if self._page_access_token else None
         )
 
     @page_access_token.setter
@@ -195,6 +193,7 @@ class SocialProfile(models.Model):
         if not self.page_access_token:
             raise ValueError("No page access token available")
         return self.page_access_token
+
     def disconnect(self):
         """Disconnect the social profile."""
         self.access_token = None

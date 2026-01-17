@@ -190,18 +190,18 @@ class LinkedInService:
     def get_organizations(self, access_token: str) -> list:
         """
         Get LinkedIn Organizations (Company Pages) the user can post to.
-        
+
         Requires 'w_organization_social' scope to post to organizations.
-        
+
         Args:
             access_token: Valid LinkedIn access token
-            
+
         Returns:
             List of organizations the user can administer
         """
         # Get organization access control (pages user can post to)
         url = "https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&projection=(elements*(organization~(id,localizedName,vanityName,logoV2(original~:playableStreams))))"
-        
+
         try:
             response = requests.get(
                 url,
@@ -211,15 +211,15 @@ class LinkedInService:
                 },
                 timeout=30,
             )
-            
+
             if response.status_code == 403:
                 # User doesn't have permission or no organization scope
                 logger.info("User does not have organization access permissions")
                 return []
-            
+
             response.raise_for_status()
             data = response.json()
-            
+
             organizations = []
             for element in data.get("elements", []):
                 org = element.get("organization~", {})
@@ -231,18 +231,24 @@ class LinkedInService:
                         original = logo_v2.get("original~", {})
                         elements = original.get("elements", [])
                         if elements:
-                            logo_url = elements[0].get("identifiers", [{}])[0].get("identifier")
-                    
-                    organizations.append({
-                        "id": org_id,
-                        "urn": f"urn:li:organization:{org_id}",
-                        "name": org.get("localizedName"),
-                        "vanity_name": org.get("vanityName"),
-                        "logo_url": logo_url,
-                    })
-            
+                            logo_url = (
+                                elements[0]
+                                .get("identifiers", [{}])[0]
+                                .get("identifier")
+                            )
+
+                    organizations.append(
+                        {
+                            "id": org_id,
+                            "urn": f"urn:li:organization:{org_id}",
+                            "name": org.get("localizedName"),
+                            "vanity_name": org.get("vanityName"),
+                            "logo_url": logo_url,
+                        }
+                    )
+
             return organizations
-            
+
         except requests.exceptions.RequestException as e:
             logger.error(f"LinkedIn organizations fetch failed: {e}")
             return []
@@ -1098,7 +1104,7 @@ class LinkedInService:
         try:
             # URL encode the URN for the API call
             encoded_urn = share_urn.replace(":", "%3A")
-            
+
             # LinkedIn uses different endpoints for different post types
             if "ugcPost" in share_urn:
                 url = f"https://api.linkedin.com/v2/ugcPosts/{encoded_urn}"
@@ -2435,9 +2441,7 @@ class FacebookService:
             raise ValueError("Carousel posts support maximum 10 photos")
 
         # Build attached_media parameter
-        attached_media = [
-            {"media_fbid": photo_id} for photo_id in photo_ids
-        ]
+        attached_media = [{"media_fbid": photo_id} for photo_id in photo_ids]
 
         payload = {
             "message": message,
@@ -2862,18 +2866,23 @@ class FacebookService:
         import hashlib
 
         if not self.app_secret:
-            logger.warning("Facebook app secret not configured, skipping signature check")
+            logger.warning(
+                "Facebook app secret not configured, skipping signature check"
+            )
             return True  # Allow in development
 
         if not signature or not signature.startswith("sha256="):
             logger.warning("Invalid Facebook webhook signature format")
             return False
 
-        expected_signature = "sha256=" + hmac.new(
-            self.app_secret.encode("utf-8"),
-            payload,
-            hashlib.sha256,
-        ).hexdigest()
+        expected_signature = (
+            "sha256="
+            + hmac.new(
+                self.app_secret.encode("utf-8"),
+                payload,
+                hashlib.sha256,
+            ).hexdigest()
+        )
 
         return hmac.compare_digest(signature, expected_signature)
 

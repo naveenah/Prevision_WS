@@ -101,6 +101,7 @@ def publish_to_platform(
                 or profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
             ):
                 import uuid
+
                 test_post_id = f"test_post_{uuid.uuid4().hex[:8]}"
                 result = {
                     "test_mode": True,
