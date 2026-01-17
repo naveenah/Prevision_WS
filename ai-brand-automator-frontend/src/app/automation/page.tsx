@@ -6,6 +6,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 
+// Draft storage keys - defined at module level
+const DRAFT_KEYS = {
+  facebook: 'fb_post_draft',
+  linkedin: 'linkedin_post_draft', 
+  twitter: 'twitter_post_draft',
+} as const;
+
 interface SocialPlatformStatus {
   connected: boolean;
   profile_name: string | null;
@@ -66,7 +73,7 @@ const PLATFORM_CONFIG = {
     ),
     color: 'bg-[#1877F2]',
     hoverColor: 'hover:bg-[#0d5fc7]',
-    available: false, // Coming soon
+    available: true, // Facebook Page integration enabled
   },
 };
 
@@ -123,8 +130,10 @@ const LINKEDIN_MAX_DOCUMENT_SIZE = 100 * 1024 * 1024;  // 100MB
 const TWITTER_MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
 const TWITTER_MAX_VIDEO_SIZE = 512 * 1024 * 1024;  // 512MB
 
-// Shared image size limit (use smaller of the two platforms)
-const MAX_IMAGE_SIZE = LINKEDIN_MAX_IMAGE_SIZE;
+// Facebook media size limits
+const FACEBOOK_MAX_IMAGE_SIZE = 4 * 1024 * 1024;  // 4MB
+const FACEBOOK_MAX_VIDEO_SIZE = 1024 * 1024 * 1024;  // 1GB
+const FACEBOOK_MAX_POST_LENGTH = 63206;  // Facebook page post limit
 
 // Twitter constants
 const TWITTER_MAX_LENGTH = 280;
@@ -133,9 +142,10 @@ const TWITTER_MAX_LENGTH = 280;
 const getMediaLimits = (platforms: string[]) => {
   const hasTwitter = platforms.includes('twitter');
   const hasLinkedIn = platforms.includes('linkedin');
+  const hasFacebook = platforms.includes('facebook');
   
-  // If no platforms or only unknown platforms, use LinkedIn defaults
-  if (!hasTwitter && !hasLinkedIn) {
+  // If no platforms selected, use LinkedIn defaults (most permissive for documents)
+  if (!hasTwitter && !hasLinkedIn && !hasFacebook) {
     return {
       maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
       maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
@@ -147,51 +157,119 @@ const getMediaLimits = (platforms: string[]) => {
     };
   }
   
-  // If only Twitter selected
-  if (hasTwitter && !hasLinkedIn) {
-    return {
-      maxImageSize: TWITTER_MAX_IMAGE_SIZE,
-      maxVideoSize: TWITTER_MAX_VIDEO_SIZE,
-      maxDocumentSize: 0, // Twitter doesn't support documents
-      imageSizeLabel: '5MB',
-      videoSizeLabel: '512MB',
-      documentSizeLabel: 'N/A',
-      supportsDocuments: false,
-    };
+  // Calculate the most restrictive limits across all selected platforms
+  let maxImage = Infinity;
+  let maxVideo = Infinity;
+  let maxDocument = Infinity;
+  let supportsDocuments = true;
+  
+  if (hasLinkedIn) {
+    maxImage = Math.min(maxImage, LINKEDIN_MAX_IMAGE_SIZE);
+    maxVideo = Math.min(maxVideo, LINKEDIN_MAX_VIDEO_SIZE);
+    maxDocument = Math.min(maxDocument, LINKEDIN_MAX_DOCUMENT_SIZE);
   }
   
-  // If only LinkedIn selected
-  if (hasLinkedIn && !hasTwitter) {
-    return {
-      maxImageSize: LINKEDIN_MAX_IMAGE_SIZE,
-      maxVideoSize: LINKEDIN_MAX_VIDEO_SIZE,
-      maxDocumentSize: LINKEDIN_MAX_DOCUMENT_SIZE,
-      imageSizeLabel: '8MB',
-      videoSizeLabel: '500MB',
-      documentSizeLabel: '100MB',
-      supportsDocuments: true,
-    };
+  if (hasTwitter) {
+    maxImage = Math.min(maxImage, TWITTER_MAX_IMAGE_SIZE);
+    maxVideo = Math.min(maxVideo, TWITTER_MAX_VIDEO_SIZE);
+    supportsDocuments = false; // Twitter doesn't support documents
   }
   
-  // If both platforms selected, use the most restrictive limits
-  return {
-    maxImageSize: Math.min(LINKEDIN_MAX_IMAGE_SIZE, TWITTER_MAX_IMAGE_SIZE), // 5MB (Twitter limit)
-    maxVideoSize: Math.min(LINKEDIN_MAX_VIDEO_SIZE, TWITTER_MAX_VIDEO_SIZE), // 500MB (LinkedIn limit)
-    maxDocumentSize: 0, // Twitter doesn't support documents
-    imageSizeLabel: '5MB',
-    videoSizeLabel: '500MB',
-    documentSizeLabel: 'N/A',
-    supportsDocuments: false, // Twitter doesn't support documents
+  if (hasFacebook) {
+    maxImage = Math.min(maxImage, FACEBOOK_MAX_IMAGE_SIZE);
+    maxVideo = Math.min(maxVideo, FACEBOOK_MAX_VIDEO_SIZE);
+    supportsDocuments = false; // Facebook doesn't support document uploads
+  }
+  
+  // If Twitter or Facebook selected, documents not supported
+  if (!supportsDocuments) {
+    maxDocument = 0;
+  }
+  
+  // Format size labels
+  const formatSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024 * 1024) return `${bytes / (1024 * 1024 * 1024)}GB`;
+    return `${bytes / (1024 * 1024)}MB`;
   };
+  
+  return {
+    maxImageSize: maxImage === Infinity ? LINKEDIN_MAX_IMAGE_SIZE : maxImage,
+    maxVideoSize: maxVideo === Infinity ? LINKEDIN_MAX_VIDEO_SIZE : maxVideo,
+    maxDocumentSize: supportsDocuments ? maxDocument : 0,
+    imageSizeLabel: formatSize(maxImage === Infinity ? LINKEDIN_MAX_IMAGE_SIZE : maxImage),
+    videoSizeLabel: formatSize(maxVideo === Infinity ? LINKEDIN_MAX_VIDEO_SIZE : maxVideo),
+    documentSizeLabel: supportsDocuments ? formatSize(maxDocument) : 'N/A',
+    supportsDocuments,
+  };
+};
+
+// Helper function to extract post ID for a specific platform from post_results
+// Handles both single-platform and multi-platform post structures
+// Returns 'test_mode' for test mode posts without an ID (allows calendar deletion)
+const getPostIdForPlatform = (postResults: Record<string, unknown> | undefined, platform: string): string | null => {
+  if (!postResults) return null;
+
+  // Check for platform-specific nested structure (multi-platform posts)
+  const platformData = postResults[platform] as Record<string, unknown> | undefined;
+  if (platformData) {
+    // LinkedIn: { linkedin: { post_urn: "..." } } or { linkedin: { id: "..." } }
+    if (platform === 'linkedin') {
+      return (platformData.post_urn as string) || (platformData.id as string) || 
+        (platformData.test_mode ? 'test_mode' : null);
+    }
+    // Twitter: { twitter: { id: "..." } } or { twitter: { tweet: { id: "..." } } }
+    if (platform === 'twitter') {
+      const tweetData = platformData.tweet as Record<string, unknown> | undefined;
+      return (platformData.id as string) || (tweetData?.id as string) || 
+        (platformData.test_mode ? 'test_mode' : null);
+    }
+    // Facebook: { facebook: { id: "...", post_id: "...", video_id: "..." } }
+    if (platform === 'facebook') {
+      return (platformData.id as string) || (platformData.post_id as string) || (platformData.video_id as string) || 
+        (platformData.test_mode ? 'test_mode' : null);
+    }
+  }
+
+  // Check for direct structure (single-platform posts)
+  // Twitter: { tweet: { id: "..." } } or { id: "..." }
+  if (platform === 'twitter') {
+    const tweetData = postResults.tweet as Record<string, unknown> | undefined;
+    return (postResults.id as string) || (tweetData?.id as string) || 
+      (postResults.test_mode ? 'test_mode' : null);
+  }
+  // LinkedIn: { post_urn: "..." } or { id: "..." }
+  if (platform === 'linkedin') {
+    return (postResults.post_urn as string) || (postResults.id as string) || 
+      (postResults.test_mode ? 'test_mode' : null);
+  }
+  // Facebook: { id: "...", post_id: "...", video_id: "..." }
+  if (platform === 'facebook') {
+    return (postResults.id as string) || (postResults.post_id as string) || (postResults.video_id as string) || 
+      (postResults.test_mode ? 'test_mode' : null);
+  }
+
+  return null;
+};
+
+// Helper function to check if any platform has a deletable post ID
+// Returns true if we should show delete button (even for posts without IDs to allow calendar cleanup)
+const hasAnyDeletablePostId = (postResults: Record<string, unknown> | undefined | null, platforms: string[]): boolean => {
+  // Always allow deletion if there are platforms - allows cleaning up posts from calendar
+  // even if they don't have post_results (failed posts, old posts, etc.)
+  if (platforms && platforms.length > 0) {
+    return true;
+  }
+  return false;
 };
 
 // Helper function to get media helper text based on selected platforms
 const getMediaHelperText = (platforms: string[]) => {
   const limits = getMediaLimits(platforms);
   const hasTwitter = platforms.includes('twitter');
+  const hasFacebook = platforms.includes('facebook');
   
-  if (hasTwitter && !limits.supportsDocuments) {
-    return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Note: Documents not supported on Twitter`;
+  if ((hasTwitter || hasFacebook) && !limits.supportsDocuments) {
+    return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Note: Documents not supported on ${hasTwitter && hasFacebook ? 'Twitter/Facebook' : hasTwitter ? 'Twitter' : 'Facebook'}`;
   }
   
   return `Images: JPEG, PNG, GIF (max ${limits.imageSizeLabel}) • Video: MP4 (max ${limits.videoSizeLabel}) • Documents: PDF, DOC, PPT (max ${limits.documentSizeLabel})`;
@@ -294,8 +372,1012 @@ function AutomationPageContent() {
   // Thread mode
   const [isThreadMode, setIsThreadMode] = useState(false);
   const [threadTweets, setThreadTweets] = useState<string[]>(['']);
-  // Deleting tweet
-  const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
+  // Twitter Carousel mode (multi-image, max 4)
+  const [twitterCarouselMode, setTwitterCarouselMode] = useState(false);
+  const [twitterCarouselImages, setTwitterCarouselImages] = useState<{ url: string; file?: File; mediaId?: string }[]>([]);
+  // LinkedIn Carousel mode (multi-image, max 9)
+  const [linkedinCarouselMode, setLinkedinCarouselMode] = useState(false);
+  const [linkedinCarouselImages, setLinkedinCarouselImages] = useState<{ url: string; file?: File; mediaUrn?: string }[]>([]);
+  const [uploadingLinkedinCarouselImage, setUploadingLinkedinCarouselImage] = useState(false);
+
+  // Facebook compose state
+  const [showFacebookComposeModal, setShowFacebookComposeModal] = useState(false);
+  const [fbPostTitle, setFbPostTitle] = useState('');
+  const [fbPostText, setFbPostText] = useState('');
+  const [fbMediaUrns, setFbMediaUrns] = useState<string[]>([]);
+  const [fbMediaPreview, setFbMediaPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [uploadingFbMedia, setUploadingFbMedia] = useState(false);
+  const [fbPosting, setFbPosting] = useState(false);
+  // Carousel mode state
+  const [fbCarouselMode, setFbCarouselMode] = useState(false);
+  const [fbCarouselImages, setFbCarouselImages] = useState<{ url: string; file?: File }[]>([]);
+  const [uploadingCarouselImage, setUploadingCarouselImage] = useState(false);
+  // Stories state
+  const [showFacebookStoriesModal, setShowFacebookStoriesModal] = useState(false);
+  const [fbStories, setFbStories] = useState<Array<{ id: string; media_type: string; created_at: string; expires_at?: string }>>([]);
+  const [loadingFbStories, setLoadingFbStories] = useState(false);
+  // Multi-file story queue
+  interface StoryQueueItem {
+    id: string;
+    file: File;
+    type: 'photo' | 'video';
+    preview: string;
+    status: 'pending' | 'uploading' | 'success' | 'failed';
+  }
+  const [fbStoryQueue, setFbStoryQueue] = useState<StoryQueueItem[]>([]);
+  const [postingFbStory, setPostingFbStory] = useState(false);
+  const [storyUploadProgress, setStoryUploadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [deletingFbStoryId, setDeletingFbStoryId] = useState<string | null>(null);
+  
+  // Facebook Resumable Upload state (for large videos > 1GB)
+  interface ResumableUpload {
+    upload_session_id: string;
+    file_name: string;
+    file_size: number;
+    bytes_uploaded: number;
+    progress_percent: number;
+    status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed';
+  }
+  const [fbResumableUploads, setFbResumableUploads] = useState<ResumableUpload[]>([]);
+  const [showResumableUploadModal, setShowResumableUploadModal] = useState(false);
+  const [resumableUploadFile, setResumableUploadFile] = useState<File | null>(null);
+  const [resumableUploadProgress, setResumableUploadProgress] = useState(0);
+  const [resumableUploadStatus, setResumableUploadStatus] = useState<'idle' | 'uploading' | 'paused' | 'completed' | 'failed'>('idle');
+  const [resumableUploadTitle, setResumableUploadTitle] = useState('');
+  const [resumableUploadDescription, setResumableUploadDescription] = useState('');
+  const [currentUploadSessionId, setCurrentUploadSessionId] = useState<string | null>(null);
+  
+  // Link Preview state
+  interface LinkPreview {
+    url: string;
+    title: string;
+    description: string;
+    image: string | null;
+    site_name: string;
+    type: string;
+    test_mode?: boolean;
+  }
+  const [fbLinkPreview, setFbLinkPreview] = useState<LinkPreview | null>(null);
+  const [fetchingLinkPreview, setFetchingLinkPreview] = useState(false);
+  const [lastFetchedUrl, setLastFetchedUrl] = useState<string | null>(null);
+  
+  // Deleting Facebook post
+  const [deletingFbPostId, setDeletingFbPostId] = useState<string | null>(null);
+  // Deleting multi-platform post
+  const [deletingPostId, setDeletingPostId] = useState<number | null>(null);
+
+  // Post Preview Tab state (compose vs preview)
+  const [fbComposeTab, setFbComposeTab] = useState<'compose' | 'preview'>('compose');
+  const [linkedInComposeTab, setLinkedInComposeTab] = useState<'compose' | 'preview'>('compose');
+  const [twitterComposeTab, setTwitterComposeTab] = useState<'compose' | 'preview'>('compose');
+
+  // Draft saving state
+  const [fbDraft, setFbDraft] = useState<{ 
+    title: string; 
+    text: string; 
+    savedAt: string;
+    mediaUrns?: string[];
+    mediaPreview?: { url: string; type: 'image' | 'video' } | null;
+    mediaSkipped?: boolean;
+  } | null>(null);
+  const [linkedInDraft, setLinkedInDraft] = useState<{ 
+    title?: string;
+    text: string; 
+    savedAt: string;
+    mediaUrns?: string[];
+    mediaPreview?: { url: string; type: 'image' | 'video' } | null;
+    mediaSkipped?: boolean;
+  } | null>(null);
+  const [twitterDraft, setTwitterDraft] = useState<{ 
+    text: string; 
+    savedAt: string;
+    mediaUrns?: string[];
+    mediaPreview?: { url: string; type: 'image' | 'video' } | null;
+    mediaSkipped?: boolean;
+  } | null>(null);
+
+  // Facebook multi-page state
+  interface FacebookPage {
+    id: string;
+    name: string;
+    category?: string;
+    picture?: { data?: { url?: string } };
+    access_token?: string;
+  }
+  const [fbPages, setFbPages] = useState<FacebookPage[]>([]);
+  const [loadingFbPages, setLoadingFbPages] = useState(false);
+  const [showFbPageSwitcher, setShowFbPageSwitcher] = useState(false);
+  const [switchingFbPage, setSwitchingFbPage] = useState(false);
+  const [currentFbPage, setCurrentFbPage] = useState<{ id: string; name: string } | null>(null);
+
+  // Facebook Analytics state
+  interface FbAnalytics {
+    test_mode?: boolean;
+    page_id?: string;
+    page_name?: string;
+    insights: {
+      page_impressions?: number;
+      page_engaged_users?: number;
+      page_fans?: number;
+      page_fan_adds?: number;
+      page_post_engagements?: number;
+      page_views_total?: number;
+    };
+    recent_posts: Array<{
+      id: string;
+      message: string;
+      created_time: string;
+      permalink_url?: string;
+      full_picture?: string;
+      likes: number;
+      comments: number;
+      shares: number;
+    }>;
+  }
+  const [fbAnalytics, setFbAnalytics] = useState<FbAnalytics | null>(null);
+  const [loadingFbAnalytics, setLoadingFbAnalytics] = useState(false);
+  const [showFbAnalytics, setShowFbAnalytics] = useState(false);
+
+  // Facebook Webhook Events state
+  interface FbWebhookEvent {
+    id: number;
+    event_type: string;
+    event_type_display: string;
+    sender_id: string;
+    post_id: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+    created_at: string;
+  }
+  interface FbWebhookEventsData {
+    page_id: string;
+    page_name: string;
+    events: FbWebhookEvent[];
+    total_count: number;
+    unread_count: number;
+  }
+  const [fbWebhookEvents, setFbWebhookEvents] = useState<FbWebhookEventsData | null>(null);
+  const [loadingFbWebhookEvents, setLoadingFbWebhookEvents] = useState(false);
+  const [showFbWebhookEvents, setShowFbWebhookEvents] = useState(false);
+
+  // Facebook Webhook Subscription state
+  interface FbWebhookSubscription {
+    name: string;
+    subscribed_fields: string[];
+  }
+  interface FbWebhookSubscriptionsData {
+    test_mode?: boolean;
+    page_id?: string;
+    subscriptions: FbWebhookSubscription[];
+  }
+  const [fbWebhookSubscriptions, setFbWebhookSubscriptions] = useState<FbWebhookSubscriptionsData | null>(null);
+  const [loadingFbWebhookSubscriptions, setLoadingFbWebhookSubscriptions] = useState(false);
+  const [showFbWebhookSettings, setShowFbWebhookSettings] = useState(false);
+  const [togglingWebhookSubscription, setTogglingWebhookSubscription] = useState(false);
+
+  // Fetch Facebook pages
+  const fetchFacebookPages = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setLoadingFbPages(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/pages/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbPages(data.pages || []);
+        if (data.current_page) {
+          setCurrentFbPage(data.current_page);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook pages:', error);
+    } finally {
+      setLoadingFbPages(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Switch Facebook page
+  const handleSwitchFacebookPage = async (pageId: string) => {
+    setSwitchingFbPage(true);
+    try {
+      const response = await apiClient.post('/automation/facebook/pages/select/', {
+        page_id: pageId,
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentFbPage({ id: data.page_id, name: data.page_name });
+        setShowFbPageSwitcher(false);
+        setMessage({
+          type: 'success',
+          text: `Switched to page: ${data.page_name}`,
+        });
+        // Refresh profiles to update status
+        fetchProfiles();
+        // Refresh analytics for new page
+        setFbAnalytics(null);
+      } else {
+        const errorData = await response.json();
+        setMessage({
+          type: 'error',
+          text: errorData.error || 'Failed to switch page',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to switch Facebook page:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to switch page. Please try again.',
+      });
+    } finally {
+      setSwitchingFbPage(false);
+    }
+  };
+
+  // Fetch Facebook Analytics
+  const fetchFbAnalytics = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setLoadingFbAnalytics(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook analytics:', error);
+    } finally {
+      setLoadingFbAnalytics(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Fetch Facebook Webhook Events
+  const fetchFbWebhookEvents = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setLoadingFbWebhookEvents(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/webhooks/events/?limit=20');
+      if (response.ok) {
+        const data = await response.json();
+        setFbWebhookEvents(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook webhook events:', error);
+    } finally {
+      setLoadingFbWebhookEvents(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Mark webhook events as read
+  const markFbWebhookEventsAsRead = async (eventIds: number[], markAll = false) => {
+    try {
+      const response = await apiClient.post('/automation/facebook/webhooks/events/', {
+        event_ids: eventIds,
+        mark_all: markAll,
+      });
+      if (response.ok) {
+        // Refresh events
+        fetchFbWebhookEvents();
+      }
+    } catch (error) {
+      console.error('Failed to mark events as read:', error);
+    }
+  };
+
+  // Fetch Facebook webhook subscriptions
+  const fetchFbWebhookSubscriptions = async () => {
+    setLoadingFbWebhookSubscriptions(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/webhooks/subscribe/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbWebhookSubscriptions(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch webhook subscriptions:', error);
+    } finally {
+      setLoadingFbWebhookSubscriptions(false);
+    }
+  };
+
+  // Subscribe to Facebook webhooks
+  const subscribeFbToWebhooks = async () => {
+    setTogglingWebhookSubscription(true);
+    try {
+      const response = await apiClient.post('/automation/facebook/webhooks/subscribe/', {});
+      if (response.ok) {
+        // Refresh subscriptions
+        fetchFbWebhookSubscriptions();
+      }
+    } catch (error) {
+      console.error('Failed to subscribe to webhooks:', error);
+    } finally {
+      setTogglingWebhookSubscription(false);
+    }
+  };
+
+  // Unsubscribe from Facebook webhooks
+  const unsubscribeFbFromWebhooks = async () => {
+    setTogglingWebhookSubscription(true);
+    try {
+      const response = await apiClient.delete('/automation/facebook/webhooks/subscribe/');
+      if (response.ok) {
+        // Refresh subscriptions
+        fetchFbWebhookSubscriptions();
+      }
+    } catch (error) {
+      console.error('Failed to unsubscribe from webhooks:', error);
+    } finally {
+      setTogglingWebhookSubscription(false);
+    }
+  };
+
+  // LinkedIn multi-organization (Company Page) state
+  interface LinkedInOrganization {
+    id: string;
+    urn: string;
+    name: string;
+    vanity_name?: string;
+    logo_url?: string;
+  }
+  const [linkedInOrgs, setLinkedInOrgs] = useState<LinkedInOrganization[]>([]);
+  const [loadingLinkedInOrgs, setLoadingLinkedInOrgs] = useState(false);
+  const [showLinkedInOrgSwitcher, setShowLinkedInOrgSwitcher] = useState(false);
+  const [switchingLinkedInOrg, setSwitchingLinkedInOrg] = useState(false);
+  const [currentLinkedInOrg, setCurrentLinkedInOrg] = useState<{ id: string; name: string } | null>(null);
+  const [linkedInPostingAs, setLinkedInPostingAs] = useState<'personal' | 'organization'>('personal');
+
+  // LinkedIn Analytics state
+  interface LinkedInPost {
+    post_urn: string;
+    text: string;
+    created_time: number;
+    metrics: {
+      likes: number;
+      comments: number;
+      shares: number;
+      impressions: number;
+    };
+  }
+  interface LinkedInAnalytics {
+    test_mode?: boolean;
+    profile?: {
+      name: string;
+      email: string;
+      picture?: string | null;
+    };
+    network?: {
+      connections: number;
+    };
+    posts: LinkedInPost[];
+    totals?: {
+      total_posts: number;
+      total_likes: number;
+      total_comments: number;
+      engagement_rate: number;
+    };
+  }
+  const [linkedInAnalytics, setLinkedInAnalytics] = useState<LinkedInAnalytics | null>(null);
+  const [loadingLinkedInAnalytics, setLoadingLinkedInAnalytics] = useState(false);
+  const [showLinkedInAnalytics, setShowLinkedInAnalytics] = useState(false);
+
+  // LinkedIn Webhook Events state
+  interface LinkedInWebhookEvent {
+    id: number;
+    event_type: string;
+    created_at: string;
+    resource_urn?: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+  }
+  interface LinkedInWebhookEventsData {
+    test_mode?: boolean;
+    events: LinkedInWebhookEvent[];
+    unread_count: number;
+  }
+  const [linkedInWebhookEvents, setLinkedInWebhookEvents] = useState<LinkedInWebhookEventsData | null>(null);
+  const [loadingLinkedInWebhookEvents, setLoadingLinkedInWebhookEvents] = useState(false);
+  const [showLinkedInWebhookEvents, setShowLinkedInWebhookEvents] = useState(false);
+
+  // Twitter account panel state
+  const [showTwitterAccountPanel, setShowTwitterAccountPanel] = useState(false);
+
+  // Twitter Analytics state
+  interface TwitterTweet {
+    tweet_id: string;
+    text: string;
+    created_at: string;
+    metrics: {
+      impressions: number;
+      likes: number;
+      retweets: number;
+      replies: number;
+      quotes: number;
+      bookmarks: number;
+    };
+  }
+  interface TwitterAnalytics {
+    test_mode?: boolean;
+    user?: {
+      user_id: string;
+      username: string;
+      name: string;
+      profile_image_url?: string | null;
+      metrics?: {
+        followers: number;
+        following: number;
+        tweets: number;
+        listed: number;
+      };
+    };
+    tweets: TwitterTweet[];
+    totals?: {
+      total_impressions: number;
+      total_likes: number;
+      total_retweets: number;
+      total_replies: number;
+      total_quotes: number;
+      total_bookmarks: number;
+      engagement_rate: number;
+    };
+  }
+  const [twitterAnalytics, setTwitterAnalytics] = useState<TwitterAnalytics | null>(null);
+  const [loadingTwitterAnalytics, setLoadingTwitterAnalytics] = useState(false);
+  const [showTwitterAnalytics, setShowTwitterAnalytics] = useState(false);
+
+  // Twitter Webhook Events state
+  interface TwitterWebhookEvent {
+    id: number;
+    event_type: string;
+    created_at: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+  }
+  interface TwitterWebhookEventsData {
+    test_mode?: boolean;
+    events: TwitterWebhookEvent[];
+    unread_count: number;
+  }
+  const [twitterWebhookEvents, setTwitterWebhookEvents] = useState<TwitterWebhookEventsData | null>(null);
+  const [loadingTwitterWebhookEvents, setLoadingTwitterWebhookEvents] = useState(false);
+  const [showTwitterWebhookEvents, setShowTwitterWebhookEvents] = useState(false);
+
+  // Fetch LinkedIn organizations
+  const fetchLinkedInOrganizations = useCallback(async () => {
+    if (!profiles?.linkedin?.connected) return;
+    
+    setLoadingLinkedInOrgs(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/organizations/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInOrgs(data.organizations || []);
+        setLinkedInPostingAs(data.posting_as || 'personal');
+        if (data.current_organization && data.organizations) {
+          const currentOrg = data.organizations.find((org: LinkedInOrganization) => org.id === data.current_organization);
+          if (currentOrg) {
+            setCurrentLinkedInOrg({ id: currentOrg.id, name: currentOrg.name });
+          }
+        } else {
+          setCurrentLinkedInOrg(null);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn organizations:', error);
+    } finally {
+      setLoadingLinkedInOrgs(false);
+    }
+  }, [profiles?.linkedin?.connected]);
+
+  // Switch LinkedIn posting entity (personal or organization)
+  const handleSwitchLinkedInOrg = async (organizationId: string | null) => {
+    setSwitchingLinkedInOrg(true);
+    try {
+      const response = await apiClient.post('/automation/linkedin/organizations/select/', {
+        organization_id: organizationId,
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (organizationId) {
+          const selectedOrg = linkedInOrgs.find(org => org.id === organizationId);
+          setCurrentLinkedInOrg(selectedOrg ? { id: selectedOrg.id, name: selectedOrg.name } : null);
+        } else {
+          setCurrentLinkedInOrg(null);
+        }
+        setLinkedInPostingAs(data.posting_as);
+        setShowLinkedInOrgSwitcher(false);
+        setMessage({
+          type: 'success',
+          text: data.posting_as === 'personal' 
+            ? 'Now posting as personal profile' 
+            : `Now posting as: ${linkedInOrgs.find(org => org.id === organizationId)?.name || 'Organization'}`,
+        });
+        fetchProfiles();
+      } else {
+        const errorData = await response.json();
+        setMessage({
+          type: 'error',
+          text: errorData.error || 'Failed to switch posting entity',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to switch LinkedIn organization:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to switch. Please try again.',
+      });
+    } finally {
+      setSwitchingLinkedInOrg(false);
+    }
+  };
+
+  // Fetch LinkedIn Analytics
+  const fetchLinkedInAnalytics = async () => {
+    setLoadingLinkedInAnalytics(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn analytics:', error);
+    } finally {
+      setLoadingLinkedInAnalytics(false);
+    }
+  };
+
+  // Fetch LinkedIn Webhook Events
+  const fetchLinkedInWebhookEvents = async () => {
+    setLoadingLinkedInWebhookEvents(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/webhooks/events/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInWebhookEvents(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn webhook events:', error);
+    } finally {
+      setLoadingLinkedInWebhookEvents(false);
+    }
+  };
+
+  // Mark LinkedIn webhook events as read
+  const markLinkedInWebhookEventsAsRead = async (eventIds: number[], markAll = false) => {
+    try {
+      const response = await apiClient.post('/automation/linkedin/webhooks/events/', {
+        event_ids: eventIds,
+        mark_all: markAll,
+      });
+      if (response.ok) {
+        fetchLinkedInWebhookEvents();
+      }
+    } catch (error) {
+      console.error('Failed to mark LinkedIn events as read:', error);
+    }
+  };
+
+  // Fetch Twitter Analytics
+  const fetchTwitterAnalytics = async () => {
+    setLoadingTwitterAnalytics(true);
+    try {
+      const response = await apiClient.get('/automation/twitter/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setTwitterAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Twitter analytics:', error);
+    } finally {
+      setLoadingTwitterAnalytics(false);
+    }
+  };
+
+  // Fetch Twitter Webhook Events
+  const fetchTwitterWebhookEvents = async () => {
+    setLoadingTwitterWebhookEvents(true);
+    try {
+      const response = await apiClient.get('/automation/twitter/webhooks/events/');
+      if (response.ok) {
+        const data = await response.json();
+        setTwitterWebhookEvents(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Twitter webhook events:', error);
+    } finally {
+      setLoadingTwitterWebhookEvents(false);
+    }
+  };
+
+  // Mark Twitter webhook events as read
+  const markTwitterWebhookEventsAsRead = async (eventIds: number[], markAll = false) => {
+    try {
+      const response = await apiClient.post('/automation/twitter/webhooks/events/', {
+        event_ids: eventIds,
+        mark_all: markAll,
+      });
+      if (response.ok) {
+        fetchTwitterWebhookEvents();
+      }
+    } catch (error) {
+      console.error('Failed to mark Twitter events as read:', error);
+    }
+  };
+
+  // Draft saving functions
+  
+  // Helper to convert blob URL to base64
+  const blobUrlToBase64 = async (blobUrl: string): Promise<string | null> => {
+    try {
+      const response = await fetch(blobUrl);
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const saveFbDraft = async () => {
+    if (fbPostText || fbPostTitle || fbMediaUrns.length > 0 || fbMediaPreview) {
+      // Try to convert blob preview to base64 if exists (only for small images)
+      let mediaPreviewData: { url: string; type: 'image' | 'video' } | null = null;
+      let mediaSkipped = false;
+      let savedMediaUrns: string[] | undefined = undefined;
+      
+      if (fbMediaPreview && fbMediaPreview.type === 'image') {
+        try {
+          const base64 = await blobUrlToBase64(fbMediaPreview.url);
+          // Only include if smaller than 500KB to avoid quota issues
+          if (base64 && base64.length < 500000) {
+            mediaPreviewData = { url: base64, type: fbMediaPreview.type };
+            savedMediaUrns = fbMediaUrns.length > 0 ? fbMediaUrns : undefined;
+            console.log('Media preview included in draft (size:', base64.length, 'bytes)');
+          } else {
+            mediaSkipped = true;
+            console.log('Media preview too large, skipping (size:', base64?.length || 0, 'bytes)');
+          }
+        } catch {
+          mediaSkipped = true;
+          console.log('Media preview conversion failed, skipping');
+        }
+      } else if (fbMediaPreview && fbMediaPreview.type === 'video') {
+        mediaSkipped = true;
+        console.log('Video previews cannot be saved in draft');
+      }
+
+      const draft = {
+        title: fbPostTitle,
+        text: fbPostText,
+        savedAt: new Date().toISOString(),
+        mediaUrns: savedMediaUrns,
+        mediaPreview: mediaPreviewData,
+        mediaSkipped,
+      };
+
+      try {
+        localStorage.setItem(DRAFT_KEYS.facebook, JSON.stringify(draft));
+        setFbDraft(draft);
+        if (mediaSkipped) {
+          console.log('Draft saved (media skipped - you will need to re-upload)');
+        } else {
+          console.log('Draft saved successfully with media');
+        }
+      } catch (e) {
+        // If quota exceeded, try saving without media preview
+        console.warn('Draft too large, saving without media');
+        const draftWithoutMedia = {
+          title: fbPostTitle,
+          text: fbPostText,
+          savedAt: new Date().toISOString(),
+          mediaSkipped: true,
+        };
+        try {
+          localStorage.setItem(DRAFT_KEYS.facebook, JSON.stringify(draftWithoutMedia));
+          setFbDraft(draftWithoutMedia);
+          console.log('Draft saved (without media due to size)');
+        } catch {
+          console.error('Failed to save draft:', e);
+          alert('Draft too large to save. Try removing media or shortening text.');
+        }
+      }
+    }
+  };
+
+  const loadFbDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEYS.facebook);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setFbDraft(draft);
+        return draft;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearFbDraft = () => {
+    localStorage.removeItem(DRAFT_KEYS.facebook);
+    setFbDraft(null);
+  };
+
+  const restoreFbDraft = () => {
+    if (fbDraft) {
+      setFbPostTitle(fbDraft.title);
+      setFbPostText(fbDraft.text);
+      if (fbDraft.mediaUrns) {
+        setFbMediaUrns(fbDraft.mediaUrns);
+      }
+      if (fbDraft.mediaPreview) {
+        setFbMediaPreview(fbDraft.mediaPreview);
+      }
+    }
+  };
+
+  // Open Facebook compose modal with auto-restore draft
+  const openFacebookComposeModal = () => {
+    // Load draft from localStorage
+    const saved = localStorage.getItem(DRAFT_KEYS.facebook);
+    console.log('=== OPENING FACEBOOK MODAL ===');
+    
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        console.log('Restoring draft with media:', draft);
+        setFbDraft(draft);
+        setFbPostTitle(draft.title || '');
+        setFbPostText(draft.text || '');
+        // Restore media
+        if (draft.mediaUrns && draft.mediaUrns.length > 0) {
+          setFbMediaUrns(draft.mediaUrns);
+        }
+        if (draft.mediaPreview) {
+          setFbMediaPreview(draft.mediaPreview);
+        }
+      } catch (e) {
+        console.error('Failed to parse draft:', e);
+      }
+    } else {
+      console.log('No saved draft found');
+    }
+    // Then open the modal
+    setShowFacebookComposeModal(true);
+  };
+
+  const saveLinkedInDraft = async () => {
+    if (postText || postTitle || postMediaUrns.length > 0 || postMediaPreview) {
+      // Try to convert blob preview to base64 if exists (only for small images)
+      let mediaPreviewData: { url: string; type: 'image' | 'video' } | null = null;
+      let mediaSkipped = false;
+      let savedMediaUrns: string[] | undefined = undefined;
+      
+      if (postMediaPreview && postMediaPreview.type === 'image') {
+        try {
+          const base64 = await blobUrlToBase64(postMediaPreview.url);
+          if (base64 && base64.length < 500000) {
+            mediaPreviewData = { url: base64, type: postMediaPreview.type };
+            savedMediaUrns = postMediaUrns.length > 0 ? postMediaUrns : undefined;
+          } else {
+            mediaSkipped = true;
+          }
+        } catch {
+          mediaSkipped = true;
+        }
+      } else if (postMediaPreview && postMediaPreview.type === 'video') {
+        mediaSkipped = true;
+      }
+
+      const draft = {
+        title: postTitle || undefined,
+        text: postText,
+        savedAt: new Date().toISOString(),
+        mediaUrns: savedMediaUrns,
+        mediaPreview: mediaPreviewData,
+        mediaSkipped,
+      };
+
+      try {
+        localStorage.setItem(DRAFT_KEYS.linkedin, JSON.stringify(draft));
+        setLinkedInDraft(draft);
+      } catch {
+        // If quota exceeded, save without media
+        const draftWithoutMedia = {
+          title: postTitle || undefined,
+          text: postText,
+          savedAt: new Date().toISOString(),
+          mediaSkipped: true,
+        };
+        try {
+          localStorage.setItem(DRAFT_KEYS.linkedin, JSON.stringify(draftWithoutMedia));
+          setLinkedInDraft(draftWithoutMedia);
+        } catch {
+          alert('Draft too large to save.');
+        }
+      }
+    }
+  };
+
+  const loadLinkedInDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEYS.linkedin);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setLinkedInDraft(draft);
+        return draft;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearLinkedInDraft = () => {
+    localStorage.removeItem(DRAFT_KEYS.linkedin);
+    setLinkedInDraft(null);
+  };
+
+  const restoreLinkedInDraft = () => {
+    if (linkedInDraft) {
+      setPostTitle(linkedInDraft.title || '');
+      setPostText(linkedInDraft.text);
+      if (linkedInDraft.mediaUrns) {
+        setPostMediaUrns(linkedInDraft.mediaUrns);
+      }
+      if (linkedInDraft.mediaPreview) {
+        setPostMediaPreview(linkedInDraft.mediaPreview);
+      }
+    }
+  };
+
+  // Open LinkedIn compose modal with auto-restore draft
+  const openLinkedInComposeModal = () => {
+    // Load draft from localStorage
+    const saved = localStorage.getItem(DRAFT_KEYS.linkedin);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setLinkedInDraft(draft);
+        setPostTitle(draft.title || '');
+        setPostText(draft.text || '');
+        if (draft.mediaUrns && draft.mediaUrns.length > 0) {
+          setPostMediaUrns(draft.mediaUrns);
+        }
+        if (draft.mediaPreview) {
+          setPostMediaPreview(draft.mediaPreview);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    // Then open the modal
+    setShowComposeModal(true);
+  };
+
+  const saveTwitterDraft = async () => {
+    if (tweetText || tweetMediaUrns.length > 0 || tweetMediaPreview) {
+      // Try to convert blob preview to base64 if exists (only for small images)
+      let mediaPreviewData: { url: string; type: 'image' | 'video' } | null = null;
+      let mediaSkipped = false;
+      let savedMediaUrns: string[] | undefined = undefined;
+      
+      if (tweetMediaPreview && tweetMediaPreview.type === 'image') {
+        try {
+          const base64 = await blobUrlToBase64(tweetMediaPreview.url);
+          if (base64 && base64.length < 500000) {
+            mediaPreviewData = { url: base64, type: tweetMediaPreview.type };
+            savedMediaUrns = tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined;
+          } else {
+            mediaSkipped = true;
+          }
+        } catch {
+          mediaSkipped = true;
+        }
+      } else if (tweetMediaPreview && tweetMediaPreview.type === 'video') {
+        mediaSkipped = true;
+      }
+
+      const draft = {
+        title: tweetTitle,
+        text: tweetText,
+        savedAt: new Date().toISOString(),
+        mediaUrns: savedMediaUrns,
+        mediaPreview: mediaPreviewData,
+        mediaSkipped,
+      };
+
+      try {
+        localStorage.setItem(DRAFT_KEYS.twitter, JSON.stringify(draft));
+        setTwitterDraft(draft);
+      } catch {
+        // If quota exceeded, save without media
+        const draftWithoutMedia = {
+          title: tweetTitle,
+          text: tweetText,
+          savedAt: new Date().toISOString(),
+          mediaSkipped: true,
+        };
+        try {
+          localStorage.setItem(DRAFT_KEYS.twitter, JSON.stringify(draftWithoutMedia));
+          setTwitterDraft(draftWithoutMedia);
+        } catch {
+          alert('Draft too large to save.');
+        }
+      }
+    }
+  };
+
+  const loadTwitterDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEYS.twitter);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setTwitterDraft(draft);
+        return draft;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearTwitterDraft = () => {
+    localStorage.removeItem(DRAFT_KEYS.twitter);
+    setTwitterDraft(null);
+  };
+
+  const restoreTwitterDraft = () => {
+    if (twitterDraft) {
+      setTweetText(twitterDraft.text);
+      if (twitterDraft.mediaUrns) {
+        setTweetMediaUrns(twitterDraft.mediaUrns);
+      }
+      if (twitterDraft.mediaPreview) {
+        setTweetMediaPreview(twitterDraft.mediaPreview);
+      }
+    }
+  };
+
+  // Open Twitter compose modal with auto-restore draft
+  const openTwitterComposeModal = () => {
+    // Load draft from localStorage
+    const saved = localStorage.getItem(DRAFT_KEYS.twitter);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setTwitterDraft(draft);
+        setTweetTitle(draft.title || '');
+        setTweetText(draft.text || '');
+        if (draft.mediaUrns && draft.mediaUrns.length > 0) {
+          setTweetMediaUrns(draft.mediaUrns);
+        }
+        if (draft.mediaPreview) {
+          setTweetMediaPreview(draft.mediaPreview);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    // Then open the modal
+    setShowTwitterComposeModal(true);
+  };
+
+  // Load drafts on mount
+  useEffect(() => {
+    loadFbDraft();
+    loadLinkedInDraft();
+    loadTwitterDraft();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -364,6 +1446,19 @@ function AutomationPageContent() {
     fetchData();
   }, []);
 
+  // Fetch social profiles (for refresh after actions)
+  const fetchProfiles = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/automation/social-profiles/status/');
+      if (response.ok) {
+        const data = await response.json();
+        setProfiles(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch profiles:', error);
+    }
+  }, []);
+
   // Fetch scheduled posts function (for refresh after actions)
   const fetchScheduledPosts = useCallback(async () => {
     try {
@@ -422,8 +1517,22 @@ function AutomationPageContent() {
     return () => clearInterval(interval);
   }, [fetchScheduledPosts, fetchPublishedPosts, fetchAutomationTasks]);
 
+  // Fetch Facebook pages when connected
+  useEffect(() => {
+    if (profiles?.facebook?.connected) {
+      fetchFacebookPages();
+    }
+  }, [profiles?.facebook?.connected, fetchFacebookPages]);
+
+  // Fetch LinkedIn organizations when connected
+  useEffect(() => {
+    if (profiles?.linkedin?.connected) {
+      fetchLinkedInOrganizations();
+    }
+  }, [profiles?.linkedin?.connected, fetchLinkedInOrganizations]);
+
   const handleConnect = async (platform: string) => {
-    if (platform !== 'linkedin' && platform !== 'twitter') {
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') {
       setMessage({
         type: 'error',
         text: `${PLATFORM_CONFIG[platform as keyof typeof PLATFORM_CONFIG].name} integration coming soon!`,
@@ -458,7 +1567,7 @@ function AutomationPageContent() {
 
   // Test connection (dev mode only - no real platform data)
   const handleTestConnect = async (platform: string) => {
-    if (platform !== 'linkedin' && platform !== 'twitter') return;
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') return;
 
     setConnecting(platform);
     try {
@@ -494,7 +1603,7 @@ function AutomationPageContent() {
   };
 
   const handleDisconnect = async (platform: string) => {
-    if (platform !== 'linkedin' && platform !== 'twitter') return;
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'facebook') return;
 
     setConnecting(platform);
     try {
@@ -554,7 +1663,7 @@ function AutomationPageContent() {
     if (isDocument && !limits.supportsDocuments) {
       setMessage({
         type: 'error',
-        text: 'Documents are not supported on Twitter. Please upload an image or video instead.',
+        text: 'Documents are not supported on Twitter or Facebook. Please upload an image or video instead.',
       });
       return;
     }
@@ -632,8 +1741,10 @@ function AutomationPageContent() {
         if (response.status === 403 && hasTwitterOnly) {
           setMessage({
             type: 'error',
-            text: 'Twitter media upload failed: Your Twitter Developer app needs "Basic" tier or "Read and Write" permissions. Check your Twitter Developer Portal settings.',
+            text: '⚠️ Twitter media upload requires a paid API tier ($100/mo). Your tweet will still work without media!',
           });
+          // Clear the failed media upload attempt
+          setMediaUrns([]);
         } else {
           setMessage({
             type: 'error',
@@ -685,6 +1796,10 @@ function AutomationPageContent() {
           setPostMediaPreview(null);
         }
         setShowComposeModal(false);
+        // Reset compose tab
+        setLinkedInComposeTab('compose');
+        // Clear draft after successful post
+        clearLinkedInDraft();
         // Refresh published posts list
         fetchPublishedPosts();
       } else {
@@ -703,6 +1818,108 @@ function AutomationPageContent() {
     } finally {
       setPosting(false);
     }
+  };
+
+  // Handle LinkedIn Carousel Post (multi-image, max 9)
+  const handleLinkedInCarouselPost = async () => {
+    if (linkedinCarouselImages.length < 2) {
+      setMessage({ type: 'error', text: 'Carousel posts require at least 2 images' });
+      return;
+    }
+    if (linkedinCarouselImages.length > 9) {
+      setMessage({ type: 'error', text: 'LinkedIn supports maximum 9 images per post' });
+      return;
+    }
+    if (!postText.trim()) {
+      setMessage({ type: 'error', text: 'Please enter some text for your post' });
+      return;
+    }
+
+    setPosting(true);
+    try {
+      // In test mode, send placeholder media_urns (backend will simulate)
+      const mediaUrns = linkedinCarouselImages.map((_, index) => `test_urn_${index + 1}`);
+      
+      const response = await apiClient.post('/automation/linkedin/carousel/post/', {
+        text: postText,
+        title: postTitle.trim() || undefined,
+        media_urns: mediaUrns,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Carousel post simulated (Test Mode)' 
+            : '✅ Carousel posted to LinkedIn successfully!',
+        });
+        clearLinkedInDraft();
+        resetLinkedInComposeForm();
+        setShowComposeModal(false);
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create carousel post',
+        });
+      }
+    } catch (error) {
+      console.error('LinkedIn carousel post error:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create carousel post',
+      });
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  // Reset LinkedIn compose form (does NOT clear draft - draft persists until post is published)
+  const resetLinkedInComposeForm = () => {
+    setPostTitle('');
+    setPostText('');
+    setPostMediaUrns([]);
+    if (postMediaPreview) {
+      URL.revokeObjectURL(postMediaPreview.url);
+      setPostMediaPreview(null);
+    }
+    setLinkedinCarouselMode(false);
+    linkedinCarouselImages.forEach(img => URL.revokeObjectURL(img.url));
+    setLinkedinCarouselImages([]);
+    // Reset compose tab
+    setLinkedInComposeTab('compose');
+    // NOTE: Draft is NOT cleared here - it persists until post is successfully published
+  };
+
+  // Add images to LinkedIn carousel
+  const addLinkedinCarouselImages = (files: FileList | null) => {
+    if (!files) return;
+    
+    const currentCount = linkedinCarouselImages.length;
+    const maxAllowed = 9 - currentCount;
+    
+    if (maxAllowed <= 0) {
+      setMessage({ type: 'error', text: 'Maximum 9 images allowed' });
+      return;
+    }
+    
+    const newImages = Array.from(files).slice(0, maxAllowed).map(file => ({
+      url: URL.createObjectURL(file),
+      file,
+    }));
+    
+    setLinkedinCarouselImages(prev => [...prev, ...newImages]);
+  };
+
+  // Remove image from LinkedIn carousel
+  const removeLinkedinCarouselImage = (index: number) => {
+    setLinkedinCarouselImages(prev => {
+      const removed = prev[index];
+      if (removed) URL.revokeObjectURL(removed.url);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   // Handle posting to Twitter/X
@@ -769,6 +1986,7 @@ function AutomationPageContent() {
             ? '🧪 Tweet simulated (Test Mode - saved to history)' 
             : `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
         });
+        clearTwitterDraft();
         resetTwitterComposeForm();
         setShowTwitterComposeModal(false);
         // Refresh published posts to show the new tweet
@@ -791,7 +2009,7 @@ function AutomationPageContent() {
     }
   };
 
-  // Reset Twitter compose form
+  // Reset Twitter compose form (does NOT clear draft - draft persists until post is published)
   const resetTwitterComposeForm = () => {
     setTweetTitle('');
     setTweetText('');
@@ -805,6 +2023,97 @@ function AutomationPageContent() {
       URL.revokeObjectURL(tweetMediaPreview.url);
       setTweetMediaPreview(null);
     }
+    // Reset carousel state
+    setTwitterCarouselMode(false);
+    twitterCarouselImages.forEach(img => URL.revokeObjectURL(img.url));
+    setTwitterCarouselImages([]);
+    // Reset compose tab
+    setTwitterComposeTab('compose');
+    // NOTE: Draft is NOT cleared here - it persists until post is successfully published
+  };
+
+  // Handle Twitter Carousel Post (multi-image, max 4)
+  const handleTwitterCarouselPost = async () => {
+    if (twitterCarouselImages.length < 2) {
+      setMessage({ type: 'error', text: 'Carousel posts require at least 2 images' });
+      return;
+    }
+    if (twitterCarouselImages.length > 4) {
+      setMessage({ type: 'error', text: 'Twitter supports maximum 4 images per tweet' });
+      return;
+    }
+    if (!tweetText.trim()) {
+      setMessage({ type: 'error', text: 'Please enter some text for your tweet' });
+      return;
+    }
+
+    setTweetPosting(true);
+    try {
+      // In test mode, send placeholder media_ids (backend will simulate)
+      const mediaIds = twitterCarouselImages.map((_, index) => `test_media_${index + 1}`);
+      
+      const response = await apiClient.post('/automation/twitter/carousel/post/', {
+        text: tweetText,
+        media_ids: mediaIds,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Carousel tweet simulated (Test Mode)' 
+            : '✅ Carousel tweet posted successfully!',
+        });
+        clearTwitterDraft();
+        resetTwitterComposeForm();
+        setShowTwitterComposeModal(false);
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create carousel tweet',
+        });
+      }
+    } catch (error) {
+      console.error('Twitter carousel post error:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create carousel tweet',
+      });
+    } finally {
+      setTweetPosting(false);
+    }
+  };
+
+  // Add images to Twitter carousel
+  const addTwitterCarouselImages = (files: FileList | null) => {
+    if (!files) return;
+    
+    const currentCount = twitterCarouselImages.length;
+    const maxAllowed = 4 - currentCount;
+    
+    if (maxAllowed <= 0) {
+      setMessage({ type: 'error', text: 'Maximum 4 images allowed' });
+      return;
+    }
+    
+    const newImages = Array.from(files).slice(0, maxAllowed).map(file => ({
+      url: URL.createObjectURL(file),
+      file,
+    }));
+    
+    setTwitterCarouselImages(prev => [...prev, ...newImages]);
+  };
+
+  // Remove image from Twitter carousel
+  const removeTwitterCarouselImage = (index: number) => {
+    setTwitterCarouselImages(prev => {
+      const removed = prev[index];
+      if (removed) URL.revokeObjectURL(removed.url);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   // Handle thread posting (multiple tweets in sequence)
@@ -883,37 +2192,674 @@ function AutomationPageContent() {
     }
   };
 
-  // Handle deleting a tweet
-  const handleDeleteTweet = async (tweetId: string) => {
-    if (!confirm('Are you sure you want to delete this tweet? This action cannot be undone.')) {
+  // Handle posting to Facebook Page
+  const handleFacebookPost = async () => {
+    if (!fbPostText.trim()) {
+      setMessage({
+        type: 'error',
+        text: 'Please enter some text for your Facebook post',
+      });
       return;
     }
 
-    setDeletingTweetId(tweetId);
+    if (fbPostText.length > FACEBOOK_MAX_POST_LENGTH) {
+      setMessage({
+        type: 'error',
+        text: `Post exceeds ${FACEBOOK_MAX_POST_LENGTH} characters`,
+      });
+      return;
+    }
+
+    setFbPosting(true);
     try {
-      const response = await apiClient.delete(`/automation/twitter/tweet/${tweetId}/`);
+      // Build request payload
+      const payload: Record<string, unknown> = {
+        title: fbPostTitle.trim() || undefined,
+        message: fbPostText,
+      };
+      
+      if (fbMediaUrns.length > 0) {
+        payload.media_urls = fbMediaUrns;
+      }
+      
+      const response = await apiClient.post('/automation/facebook/post/', payload);
 
       if (response.ok) {
+        const data = await response.json();
+        const isTestMode = data.test_mode === true;
         setMessage({
           type: 'success',
-          text: 'Tweet deleted successfully',
+          text: isTestMode 
+            ? '🧪 Facebook post simulated (Test Mode - saved to history)' 
+            : `Posted to Facebook successfully! Post ID: ${data.post_id}`,
         });
+        // Clear draft on successful post
+        clearFbDraft();
+        resetFacebookComposeForm();
+        setShowFacebookComposeModal(false);
+        // Refresh published posts to show the new post
         fetchPublishedPosts();
       } else {
         const error = await response.json();
         setMessage({
           type: 'error',
-          text: error.error || 'Failed to delete tweet',
+          text: error.error || 'Failed to post to Facebook',
         });
       }
     } catch (error) {
-      console.error('Failed to delete tweet:', error);
+      console.error('Failed to post to Facebook:', error);
       setMessage({
         type: 'error',
-        text: 'Failed to delete tweet',
+        text: 'Failed to post to Facebook',
       });
     } finally {
-      setDeletingTweetId(null);
+      setFbPosting(false);
+    }
+  };
+
+  // Handle Facebook Carousel Post
+  const handleFacebookCarouselPost = async () => {
+    if (fbCarouselImages.length < 2) {
+      setMessage({ type: 'error', text: 'Carousel posts require at least 2 images' });
+      return;
+    }
+    if (fbCarouselImages.length > 10) {
+      setMessage({ type: 'error', text: 'Carousel posts can have at most 10 images' });
+      return;
+    }
+
+    setFbPosting(true);
+    try {
+      // For test mode, send placeholder URLs (backend will simulate the carousel)
+      // For production, images would need to be uploaded first
+      const photoUrls = fbCarouselImages.map((_, index) => `carousel_image_${index + 1}`);
+      
+      const response = await apiClient.post('/automation/facebook/carousel/post/', {
+        message: fbPostText || 'Check out these photos!',
+        photo_urls: photoUrls,
+        title: fbPostTitle || undefined,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Carousel post simulated (Test Mode)' 
+            : '✅ Carousel post published successfully!',
+        });
+        resetFacebookComposeForm();
+        setShowFacebookComposeModal(false);
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create carousel post',
+        });
+      }
+    } catch (error) {
+      console.error('Carousel post error:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create carousel post',
+      });
+    } finally {
+      setFbPosting(false);
+    }
+  };
+
+  // Add files to story queue
+  const addToStoryQueue = (files: FileList | null) => {
+    if (!files) return;
+    
+    const newItems: StoryQueueItem[] = [];
+    
+    Array.from(files).forEach((file) => {
+      // Determine type based on file mime type
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      
+      if (!isVideo && !isImage) {
+        setMessage({ type: 'error', text: `${file.name} is not a valid image or video file` });
+        return;
+      }
+      
+      // Validate file sizes
+      if (isImage && file.size > 4 * 1024 * 1024) {
+        setMessage({ type: 'error', text: `${file.name} is too large. Max 4MB for photos.` });
+        return;
+      }
+      if (isVideo && file.size > 4 * 1024 * 1024 * 1024) {
+        setMessage({ type: 'error', text: `${file.name} is too large. Max 4GB for videos.` });
+        return;
+      }
+      
+      newItems.push({
+        id: `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        type: isVideo ? 'video' : 'photo',
+        preview: URL.createObjectURL(file),
+        status: 'pending',
+      });
+    });
+    
+    setFbStoryQueue(prev => [...prev, ...newItems]);
+  };
+
+  // Remove item from story queue
+  const removeFromStoryQueue = (id: string) => {
+    setFbStoryQueue(prev => {
+      const item = prev.find(i => i.id === id);
+      if (item) {
+        URL.revokeObjectURL(item.preview);
+      }
+      return prev.filter(i => i.id !== id);
+    });
+  };
+
+  // Handle Facebook Story Post - posts all items in queue
+  const handleFacebookStoryPost = async () => {
+    if (fbStoryQueue.length === 0) {
+      setMessage({ type: 'error', text: 'Please add at least one photo or video to your story' });
+      return;
+    }
+
+    setPostingFbStory(true);
+    setStoryUploadProgress({ current: 0, total: fbStoryQueue.length });
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    // Update queue with uploading status
+    setFbStoryQueue(prev => prev.map(item => ({ ...item, status: 'pending' as const })));
+
+    try {
+      for (let i = 0; i < fbStoryQueue.length; i++) {
+        const item = fbStoryQueue[i];
+        setStoryUploadProgress({ current: i + 1, total: fbStoryQueue.length });
+        
+        // Mark current item as uploading
+        setFbStoryQueue(prev => prev.map(q => 
+          q.id === item.id ? { ...q, status: 'uploading' as const } : q
+        ));
+        
+        try {
+          const formData = new FormData();
+          formData.append('type', item.type);
+          formData.append('file', item.file);
+
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/stories/`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+              },
+              body: formData,
+            }
+          );
+
+          if (response.ok) {
+            successCount++;
+            setFbStoryQueue(prev => prev.map(q => 
+              q.id === item.id ? { ...q, status: 'success' as const } : q
+            ));
+          } else {
+            failCount++;
+            setFbStoryQueue(prev => prev.map(q => 
+              q.id === item.id ? { ...q, status: 'failed' as const } : q
+            ));
+          }
+        } catch {
+          failCount++;
+          setFbStoryQueue(prev => prev.map(q => 
+            q.id === item.id ? { ...q, status: 'failed' as const } : q
+          ));
+        }
+        
+        // Small delay between uploads to avoid rate limiting
+        if (i < fbStoryQueue.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      // Show result message
+      if (failCount === 0) {
+        setMessage({
+          type: 'success',
+          text: `✅ ${successCount} ${successCount === 1 ? 'story' : 'stories'} published successfully!`,
+        });
+        resetFacebookStoryForm();
+        setShowFacebookStoriesModal(false);
+      } else if (successCount === 0) {
+        setMessage({
+          type: 'error',
+          text: `Failed to post ${failCount} ${failCount === 1 ? 'story' : 'stories'}`,
+        });
+      } else {
+        setMessage({
+          type: 'success',
+          text: `Posted ${successCount} stories, ${failCount} failed`,
+        });
+      }
+      
+      fetchFacebookStories();
+      
+    } finally {
+      setPostingFbStory(false);
+      setStoryUploadProgress({ current: 0, total: 0 });
+    }
+  };
+
+  // Fetch Facebook Stories
+  const fetchFacebookStories = async () => {
+    setLoadingFbStories(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/stories/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbStories(data.stories || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch stories:', error);
+    } finally {
+      setLoadingFbStories(false);
+    }
+  };
+
+  // Delete Facebook Story
+  const handleDeleteFacebookStory = async (storyId: string) => {
+    if (!confirm('Are you sure you want to delete this story?')) {
+      return;
+    }
+
+    setDeletingFbStoryId(storyId);
+    try {
+      const response = await apiClient.delete(`/automation/facebook/stories/${storyId}/`);
+      if (response.ok) {
+        setMessage({ type: 'success', text: 'Story deleted successfully' });
+        fetchFacebookStories();
+      } else {
+        const error = await response.json();
+        setMessage({ type: 'error', text: error.error || 'Failed to delete story' });
+      }
+    } catch (error) {
+      console.error('Failed to delete story:', error);
+      setMessage({ type: 'error', text: 'Failed to delete story' });
+    } finally {
+      setDeletingFbStoryId(null);
+    }
+  };
+
+  // Reset Facebook Story Form
+  const resetFacebookStoryForm = () => {
+    // Clean up all preview URLs
+    fbStoryQueue.forEach(item => URL.revokeObjectURL(item.preview));
+    setFbStoryQueue([]);
+    setStoryUploadProgress({ current: 0, total: 0 });
+  };
+
+  // ========== RESUMABLE UPLOAD FUNCTIONS ==========
+  // Chunk size: 4MB (Facebook recommends 4MB-1GB chunks)
+  const CHUNK_SIZE = 4 * 1024 * 1024;
+  const ONE_GB = 1 * 1024 * 1024 * 1024;
+
+  // Check if a file should use resumable upload (> 1GB)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const shouldUseResumableUpload = (file: File) => file.size > ONE_GB;
+
+  // Fetch active resumable uploads
+  const fetchResumableUploads = async () => {
+    try {
+      const response = await apiClient.get('/automation/facebook/upload/resumable/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbResumableUploads(data.uploads || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch resumable uploads:', error);
+    }
+  };
+
+  // Start a resumable upload session
+  const startResumableUpload = async () => {
+    if (!resumableUploadFile) {
+      setMessage({ type: 'error', text: 'Please select a video file' });
+      return;
+    }
+
+    if (resumableUploadFile.size <= ONE_GB) {
+      setMessage({ type: 'error', text: 'Use regular upload for videos under 1GB. Resumable upload is for large files > 1GB.' });
+      return;
+    }
+
+    try {
+      setResumableUploadStatus('uploading');
+      setResumableUploadProgress(0);
+
+      // Step 1: Start the upload session
+      const startResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/upload/resumable/start/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+          body: JSON.stringify({
+            file_size: resumableUploadFile.size,
+            file_name: resumableUploadFile.name,
+            title: resumableUploadTitle || resumableUploadFile.name,
+            description: resumableUploadDescription,
+          }),
+        }
+      );
+
+      if (!startResponse.ok) {
+        const errorData = await startResponse.json();
+        throw new Error(errorData.error || 'Failed to start upload');
+      }
+
+      const startData = await startResponse.json();
+      const uploadSessionId = startData.upload_session_id;
+      setCurrentUploadSessionId(uploadSessionId);
+
+      // Step 2: Upload chunks
+      let offset = 0;
+      const totalChunks = Math.ceil(resumableUploadFile.size / CHUNK_SIZE);
+      let chunkIndex = 0;
+
+      while (offset < resumableUploadFile.size) {
+        // Check if paused (via ref to avoid stale closure)
+        if (resumableUploadStatus === 'paused') {
+          setMessage({ type: 'success', text: 'Upload paused. You can resume later.' });
+          return;
+        }
+
+        const chunk = resumableUploadFile.slice(offset, offset + CHUNK_SIZE);
+        const formData = new FormData();
+        formData.append('upload_session_id', uploadSessionId);
+        formData.append('start_offset', String(offset));
+        formData.append('file', chunk);
+
+        const chunkResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/upload/resumable/chunk/`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            },
+            body: formData,
+          }
+        );
+
+        if (!chunkResponse.ok) {
+          const errorData = await chunkResponse.json();
+          throw new Error(errorData.error || 'Chunk upload failed');
+        }
+
+        const chunkData = await chunkResponse.json();
+        offset = chunkData.start_offset || offset + CHUNK_SIZE;
+        chunkIndex++;
+        setResumableUploadProgress(Math.min(100, Math.round((chunkIndex / totalChunks) * 100)));
+      }
+
+      // Step 3: Finish the upload
+      const finishResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/automation/facebook/upload/resumable/finish/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+          body: JSON.stringify({
+            upload_session_id: uploadSessionId,
+            title: resumableUploadTitle || resumableUploadFile.name,
+            description: resumableUploadDescription,
+          }),
+        }
+      );
+
+      if (!finishResponse.ok) {
+        const errorData = await finishResponse.json();
+        throw new Error(errorData.error || 'Failed to finalize upload');
+      }
+
+      setResumableUploadStatus('completed');
+      setResumableUploadProgress(100);
+      setMessage({ type: 'success', text: 'Large video uploaded successfully!' });
+      
+      // Refresh uploads list
+      fetchResumableUploads();
+      
+      // Reset form after delay
+      setTimeout(() => {
+        resetResumableUploadForm();
+      }, 2000);
+
+    } catch (error: unknown) {
+      console.error('Resumable upload failed:', error);
+      setResumableUploadStatus('failed');
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed';
+      setMessage({ type: 'error', text: errorMessage });
+    }
+  };
+
+  // Resume an interrupted upload
+  const resumeUpload = async (uploadSessionId: string) => {
+    try {
+      const response = await apiClient.get(`/automation/facebook/upload/resumable/?upload_session_id=${uploadSessionId}`);
+      if (!response.ok) {
+        throw new Error('Failed to get upload status');
+      }
+      
+      const data = await response.json();
+      const { start_offset, file_size, file_name } = data;
+
+      setMessage({ type: 'success', text: `Resuming upload of ${file_name} from ${Math.round((start_offset / file_size) * 100)}%` });
+      
+      // User needs to select the same file again to resume
+      setCurrentUploadSessionId(uploadSessionId);
+      setResumableUploadStatus('paused');
+      setResumableUploadProgress(Math.round((start_offset / file_size) * 100));
+      setShowResumableUploadModal(true);
+      
+    } catch (error) {
+      console.error('Failed to get upload status:', error);
+      setMessage({ type: 'error', text: 'Failed to resume upload. The session may have expired.' });
+    }
+  };
+
+  // Reset resumable upload form
+  const resetResumableUploadForm = () => {
+    setResumableUploadFile(null);
+    setResumableUploadProgress(0);
+    setResumableUploadStatus('idle');
+    setResumableUploadTitle('');
+    setResumableUploadDescription('');
+    setCurrentUploadSessionId(null);
+    setShowResumableUploadModal(false);
+  };
+
+  // Format file size for display
+  const formatFileSize = (bytes: number): string => {
+    if (bytes >= ONE_GB) {
+      return `${(bytes / ONE_GB).toFixed(2)} GB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  // Extract first URL from text
+  const extractFirstUrl = (text: string): string | null => {
+    const urlRegex = /(https?:\/\/[^\s]+)/gi;
+    const matches = text.match(urlRegex);
+    return matches ? matches[0] : null;
+  };
+
+  // Fetch link preview for Facebook post
+  const fetchLinkPreview = async (url: string) => {
+    if (!url || url === lastFetchedUrl) return;
+    
+    setFetchingLinkPreview(true);
+    try {
+      const response = await apiClient.get(`/automation/facebook/link-preview/?url=${encodeURIComponent(url)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setFbLinkPreview(data);
+        setLastFetchedUrl(url);
+      }
+    } catch (error) {
+      console.error('Failed to fetch link preview:', error);
+    } finally {
+      setFetchingLinkPreview(false);
+    }
+  };
+
+  // Handle Facebook post text change with link detection
+  const handleFbPostTextChange = (text: string) => {
+    setFbPostText(text);
+    
+    // Detect URL in text and fetch preview (with debounce)
+    const url = extractFirstUrl(text);
+    if (url && url !== lastFetchedUrl && !fetchingLinkPreview) {
+      // Simple debounce - only fetch if URL is complete (ends with space or is at end)
+      const urlEndIndex = text.indexOf(url) + url.length;
+      if (urlEndIndex === text.length || text[urlEndIndex] === ' ' || text[urlEndIndex] === '\n') {
+        fetchLinkPreview(url);
+      }
+    }
+    
+    // Clear preview if no URL in text
+    if (!url) {
+      setFbLinkPreview(null);
+      setLastFetchedUrl(null);
+    }
+  };
+
+  // Reset Facebook compose form (does NOT clear draft - draft persists until post is published)
+  const resetFacebookComposeForm = () => {
+    setFbPostTitle('');
+    setFbPostText('');
+    setFbMediaUrns([]);
+    if (fbMediaPreview) {
+      URL.revokeObjectURL(fbMediaPreview.url);
+      setFbMediaPreview(null);
+    }
+    // Reset carousel state
+    setFbCarouselMode(false);
+    fbCarouselImages.forEach(img => {
+      if (img.url.startsWith('blob:')) {
+        URL.revokeObjectURL(img.url);
+      }
+    });
+    setFbCarouselImages([]);
+    // Reset link preview
+    setFbLinkPreview(null);
+    setLastFetchedUrl(null);
+    // Reset compose tab
+    setFbComposeTab('compose');
+    // NOTE: Draft is NOT cleared here - it persists until post is successfully published
+  };
+
+  // Handle deleting a post (unified handler)
+  // Note: Platform-specific delete handlers (handleDeleteFacebookPost, handleDeleteTweet,
+  // handleDeleteLinkedInPost) removed - use handleDeletePost for unified delete functionality
+
+  // Handle deleting a post from all platforms
+  const handleDeletePost = async (post: ScheduledPost) => {
+    const platformCount = post.platforms.length;
+    const platformNames = post.platforms.join(', ');
+    
+    if (!confirm(`Are you sure you want to delete this post from ${platformNames}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingPostId(post.id);
+    const errors: string[] = [];
+    let successCount = 0;
+    let hasAnyPostId = false;
+
+    try {
+      // Delete from each platform
+      for (const platform of post.platforms) {
+        try {
+          let response: Response;
+          
+          // Extract post ID using helper that handles both single and multi-platform structures
+          const postId = getPostIdForPlatform(post.post_results as Record<string, unknown>, platform);
+          
+          if (!postId) {
+            // No post ID for this platform, skip the platform API call
+            // The post will be deleted from ContentCalendar at the end
+            continue;
+          }
+          
+          hasAnyPostId = true;
+          
+          // For test mode posts without real IDs, the delete API will still clean up ContentCalendar
+          // The backend handles test_mode detection and skips actual platform API calls
+          if (platform === 'twitter') {
+            response = await apiClient.delete(`/automation/twitter/tweet/${postId}/`);
+          } else if (platform === 'facebook') {
+            response = await apiClient.delete(`/automation/facebook/post/${postId}/`);
+          } else if (platform === 'linkedin') {
+            response = await apiClient.delete(`/automation/linkedin/post/${encodeURIComponent(postId)}/`);
+          } else {
+            // Platform not supported for deletion
+            continue;
+          }
+
+          if (response.ok) {
+            successCount++;
+          } else {
+            const error = await response.json();
+            errors.push(`${platform}: ${error.error || 'Failed to delete'}`);
+          }
+        } catch (error) {
+          console.error(`Failed to delete from ${platform}:`, error);
+          errors.push(`${platform}: Network error`);
+        }
+      }
+
+      // If no platform had a post ID, delete directly from ContentCalendar
+      if (!hasAnyPostId) {
+        try {
+          const response = await apiClient.delete(`/automation/content-calendar/${post.id}/`);
+          if (response.ok) {
+            successCount = platformCount;
+          } else {
+            const error = await response.json();
+            errors.push(`Calendar: ${error.error || 'Failed to delete'}`);
+          }
+        } catch (error) {
+          console.error('Failed to delete from calendar:', error);
+          errors.push('Calendar: Network error');
+        }
+      }
+
+      // Show result message
+      if (successCount === platformCount || (successCount > 0 && !hasAnyPostId)) {
+        setMessage({
+          type: 'success',
+          text: `Post deleted successfully`,
+        });
+      } else if (successCount > 0) {
+        setMessage({
+          type: 'success',
+          text: `Post deleted from ${successCount}/${platformCount} platforms. Errors: ${errors.join('; ')}`,
+        });
+      } else {
+        setMessage({
+          type: 'error',
+          text: `Failed to delete post: ${errors.join('; ')}`,
+        });
+      }
+
+      fetchPublishedPosts();
+    } finally {
+      setDeletingPostId(null);
     }
   };
 
@@ -1229,7 +3175,7 @@ function AutomationPageContent() {
                     </a>
                     {platform === 'linkedin' && (
                       <button
-                        onClick={() => setShowComposeModal(true)}
+                        onClick={openLinkedInComposeModal}
                         className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1240,7 +3186,7 @@ function AutomationPageContent() {
                     )}
                     {platform === 'twitter' && (
                       <button
-                        onClick={() => setShowTwitterComposeModal(true)}
+                        onClick={openTwitterComposeModal}
                         className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1248,6 +3194,951 @@ function AutomationPageContent() {
                         </svg>
                         Create Tweet
                       </button>
+                    )}
+                    {platform === 'facebook' && (
+                      <button
+                        onClick={openFacebookComposeModal}
+                        className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Post
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Page Switcher */}
+                {platform === 'facebook' && isConnected && fbPages.length > 0 && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70">
+                        {currentFbPage ? `Page: ${currentFbPage.name}` : 'Select a page'}
+                      </span>
+                      <button
+                        onClick={() => setShowFbPageSwitcher(!showFbPageSwitcher)}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showFbPageSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {fbPages.length > 1 ? 'Switch Page' : 'View Pages'}
+                      </button>
+                    </div>
+                    
+                    {showFbPageSwitcher && (
+                      <div className="bg-white/5 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                        {loadingFbPages ? (
+                          <div className="text-center py-2">
+                            <span className="text-brand-silver/50 text-sm">Loading pages...</span>
+                          </div>
+                        ) : (
+                          fbPages.map((page) => (
+                            <button
+                              key={page.id}
+                              onClick={() => handleSwitchFacebookPage(page.id)}
+                              disabled={switchingFbPage || currentFbPage?.id === page.id}
+                              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                currentFbPage?.id === page.id
+                                  ? 'bg-brand-electric/20 border border-brand-electric/30'
+                                  : 'hover:bg-white/10'
+                              } disabled:opacity-50`}
+                            >
+                              {page.picture?.data?.url ? (
+                                <img
+                                  src={page.picture.data.url}
+                                  alt={page.name}
+                                  className="w-8 h-8 rounded-full"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-[#1877F2] flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                  </svg>
+                                </div>
+                              )}
+                              <div className="flex-1 text-left">
+                                <p className="text-sm text-white font-medium">{page.name}</p>
+                                {page.category && (
+                                  <p className="text-xs text-brand-silver/50">{page.category}</p>
+                                )}
+                              </div>
+                              {currentFbPage?.id === page.id && (
+                                <span className="text-brand-mint text-xs">Active</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Analytics Section */}
+                {platform === 'facebook' && isConnected && (
+                  <div className="mt-4 border-t border-brand-ghost/20 pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70 font-medium">📊 Page Analytics</span>
+                      <button
+                        onClick={() => {
+                          setShowFbAnalytics(!showFbAnalytics);
+                          if (!fbAnalytics && !loadingFbAnalytics) {
+                            fetchFbAnalytics();
+                          }
+                        }}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showFbAnalytics ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {showFbAnalytics ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    
+                    {showFbAnalytics && (
+                      <div className="bg-white/5 rounded-lg p-3">
+                        {loadingFbAnalytics ? (
+                          <div className="flex items-center justify-center py-4">
+                            <svg className="animate-spin w-5 h-5 text-brand-electric" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </div>
+                        ) : fbAnalytics ? (
+                          <>
+                            {fbAnalytics.test_mode && (
+                              <div className="mb-3 px-2 py-1.5 bg-blue-500/10 rounded text-xs text-blue-400">
+                                🧪 Test mode - showing sample data
+                              </div>
+                            )}
+                            
+                            {/* Insights Grid */}
+                            <div className="grid grid-cols-3 gap-2 mb-3">
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_fans || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Followers</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_impressions || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Impressions</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_engaged_users || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Engaged</p>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-3 gap-2 mb-3">
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-green-400">
+                                  +{(fbAnalytics.insights.page_fan_adds || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">New Fans</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_post_engagements || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Engagements</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_views_total || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Views</p>
+                              </div>
+                            </div>
+                            
+                            {/* Recent Posts */}
+                            {fbAnalytics.recent_posts && fbAnalytics.recent_posts.length > 0 && (
+                              <div className="mt-3 border-t border-brand-ghost/20 pt-3">
+                                <p className="text-xs font-medium text-brand-silver mb-2">Recent Posts</p>
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                  {fbAnalytics.recent_posts.slice(0, 3).map((post) => (
+                                    <div key={post.id} className="flex items-start gap-2 p-2 bg-white/5 rounded text-xs">
+                                      {post.full_picture && (
+                                        <img src={post.full_picture} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-white truncate">{post.message || '(No text)'}</p>
+                                        <div className="flex gap-2 text-brand-silver/50 mt-0.5">
+                                          <span>❤️ {post.likes}</span>
+                                          <span>💬 {post.comments}</span>
+                                          <span>🔗 {post.shares}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Refresh Button */}
+                            <button
+                              onClick={fetchFbAnalytics}
+                              className="mt-3 w-full text-xs text-brand-electric hover:underline"
+                            >
+                              ↻ Refresh Analytics
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No analytics data available
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Webhook Events Section */}
+                {platform === 'facebook' && isConnected && (
+                  <div className="mt-4 border-t border-brand-ghost/20 pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">🔔 Webhook Events</span>
+                        {fbWebhookEvents && fbWebhookEvents.unread_count > 0 && (
+                          <span className="px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                            {fbWebhookEvents.unread_count}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowFbWebhookEvents(!showFbWebhookEvents);
+                          if (!fbWebhookEvents && !loadingFbWebhookEvents) {
+                            fetchFbWebhookEvents();
+                          }
+                        }}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showFbWebhookEvents ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {showFbWebhookEvents ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    
+                    {showFbWebhookEvents && (
+                      <div className="bg-white/5 rounded-lg p-3">
+                        {loadingFbWebhookEvents ? (
+                          <div className="flex items-center justify-center py-4">
+                            <svg className="animate-spin w-5 h-5 text-brand-electric" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </div>
+                        ) : fbWebhookEvents && fbWebhookEvents.events.length > 0 ? (
+                          <>
+                            <div className="flex items-center justify-between mb-2 text-xs text-brand-silver/70">
+                              <span>{fbWebhookEvents.total_count} events total</span>
+                              {fbWebhookEvents.unread_count > 0 && (
+                                <button
+                                  onClick={() => markFbWebhookEventsAsRead([], true)}
+                                  className="text-brand-electric hover:underline"
+                                >
+                                  Mark all as read
+                                </button>
+                              )}
+                            </div>
+                            
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {fbWebhookEvents.events.map((event) => (
+                                <div 
+                                  key={event.id} 
+                                  className={`p-2 rounded text-xs ${event.read ? 'bg-white/5' : 'bg-blue-500/10 border border-blue-500/20'}`}
+                                >
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className={`font-medium ${event.read ? 'text-brand-silver' : 'text-white'}`}>
+                                          {event.event_type_display || event.event_type}
+                                        </span>
+                                        {!event.read && (
+                                          <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                                        )}
+                                      </div>
+                                      {event.post_id && (
+                                        <p className="text-brand-silver/50 mt-0.5">Post: {event.post_id}</p>
+                                      )}
+                                      <p className="text-brand-silver/50 mt-0.5">
+                                        {new Date(event.created_at).toLocaleString()}
+                                      </p>
+                                    </div>
+                                    {!event.read && (
+                                      <button
+                                        onClick={() => markFbWebhookEventsAsRead([event.id])}
+                                        className="text-brand-silver/50 hover:text-brand-electric"
+                                        title="Mark as read"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            
+                            <button
+                              onClick={fetchFbWebhookEvents}
+                              className="mt-3 w-full text-xs text-brand-electric hover:underline"
+                            >
+                              ↻ Refresh Events
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No webhook events yet. Events will appear here when Facebook sends notifications about your page activity.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Webhook Subscription Settings */}
+                {platform === 'facebook' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowFbWebhookSettings(!showFbWebhookSettings);
+                        if (!showFbWebhookSettings && !fbWebhookSubscriptions) {
+                          fetchFbWebhookSubscriptions();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">⚙️ Webhook Settings</span>
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showFbWebhookSettings ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showFbWebhookSettings && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-3">
+                        {loadingFbWebhookSubscriptions ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : fbWebhookSubscriptions ? (
+                          <>
+                            {fbWebhookSubscriptions.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {fbWebhookSubscriptions.subscriptions && fbWebhookSubscriptions.subscriptions.length > 0 ? (
+                              <div className="space-y-3">
+                                <div className="text-xs text-brand-silver/70">
+                                  <strong>Current Subscriptions:</strong>
+                                </div>
+                                {fbWebhookSubscriptions.subscriptions.map((sub, idx) => (
+                                  <div key={idx} className="bg-white/5 rounded-lg p-2">
+                                    <div className="text-sm text-white font-medium">{sub.name}</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {sub.subscribed_fields.map((field, fieldIdx) => (
+                                        <span
+                                          key={fieldIdx}
+                                          className="text-xs bg-brand-electric/20 text-brand-electric px-2 py-0.5 rounded"
+                                        >
+                                          {field}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                                <button
+                                  onClick={unsubscribeFbFromWebhooks}
+                                  disabled={togglingWebhookSubscription}
+                                  className="w-full text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                  {togglingWebhookSubscription ? 'Unsubscribing...' : '🔕 Unsubscribe from Webhooks'}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="text-center py-2 text-brand-silver/50 text-sm">
+                                  Not subscribed to webhooks. Subscribe to receive real-time notifications about your page activity.
+                                </div>
+                                <button
+                                  onClick={subscribeFbToWebhooks}
+                                  disabled={togglingWebhookSubscription}
+                                  className="w-full text-xs bg-brand-electric/20 text-brand-electric hover:bg-brand-electric/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                  {togglingWebhookSubscription ? 'Subscribing...' : '🔔 Subscribe to Webhooks'}
+                                </button>
+                              </div>
+                            )}
+                            <button
+                              onClick={fetchFbWebhookSubscriptions}
+                              disabled={loadingFbWebhookSubscriptions}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            Failed to load subscription settings. Click refresh to try again.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* LinkedIn Organization Switcher */}
+                {platform === 'linkedin' && isConnected && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70">
+                        {linkedInPostingAs === 'organization' && currentLinkedInOrg 
+                          ? `Posting as: ${currentLinkedInOrg.name}` 
+                          : `Posting as: ${profiles?.linkedin?.profile_name || 'Personal Profile'}`}
+                      </span>
+                      <button
+                        onClick={() => setShowLinkedInOrgSwitcher(!showLinkedInOrgSwitcher)}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showLinkedInOrgSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {linkedInOrgs.length > 0 ? 'Switch Account' : 'View Account'}
+                      </button>
+                    </div>
+                    
+                    {showLinkedInOrgSwitcher && (
+                      <div className="bg-white/5 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                        {loadingLinkedInOrgs ? (
+                          <div className="text-center py-2">
+                            <span className="text-brand-silver/50 text-sm">Loading...</span>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Personal Profile Option */}
+                            <button
+                              onClick={() => handleSwitchLinkedInOrg(null)}
+                              disabled={switchingLinkedInOrg || linkedInPostingAs === 'personal'}
+                              className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                linkedInPostingAs === 'personal'
+                                  ? 'bg-brand-electric/20 border border-brand-electric/30'
+                                  : 'hover:bg-white/10'
+                              } disabled:opacity-50`}
+                            >
+                              {profiles?.linkedin?.profile_image_url ? (
+                                <img
+                                  src={profiles.linkedin.profile_image_url}
+                                  alt={profiles.linkedin.profile_name || 'Profile'}
+                                  className="w-8 h-8 rounded-full"
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-[#0A66C2] flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                  </svg>
+                                </div>
+                              )}
+                              <div className="flex-1 text-left">
+                                <p className="text-sm text-white font-medium">{profiles?.linkedin?.profile_name || 'Personal Profile'}</p>
+                                <p className="text-xs text-brand-silver/50">Personal Account</p>
+                              </div>
+                              {linkedInPostingAs === 'personal' && (
+                                <span className="text-brand-mint text-xs">Active</span>
+                              )}
+                            </button>
+                            
+                            {/* Organization Options */}
+                            {linkedInOrgs.map((org) => (
+                              <button
+                                key={org.id}
+                                onClick={() => handleSwitchLinkedInOrg(org.id)}
+                                disabled={switchingLinkedInOrg || currentLinkedInOrg?.id === org.id}
+                                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                                  currentLinkedInOrg?.id === org.id
+                                    ? 'bg-brand-electric/20 border border-brand-electric/30'
+                                    : 'hover:bg-white/10'
+                                } disabled:opacity-50`}
+                              >
+                                {org.logo_url ? (
+                                  <img
+                                    src={org.logo_url}
+                                    alt={org.name}
+                                    className="w-8 h-8 rounded-full"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-[#0A66C2] flex items-center justify-center">
+                                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                    </svg>
+                                  </div>
+                                )}
+                                <div className="flex-1 text-left">
+                                  <p className="text-sm text-white font-medium">{org.name}</p>
+                                  <p className="text-xs text-brand-silver/50">Company Page</p>
+                                </div>
+                                {currentLinkedInOrg?.id === org.id && (
+                                  <span className="text-brand-mint text-xs">Active</span>
+                                )}
+                              </button>
+                            ))}
+                            
+                            {linkedInOrgs.length === 0 && (
+                              <p className="text-xs text-brand-silver/50 text-center py-2">
+                                No company pages available. You&apos;re posting as your personal profile.
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* LinkedIn Analytics Section */}
+                {platform === 'linkedin' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowLinkedInAnalytics(!showLinkedInAnalytics);
+                        if (!showLinkedInAnalytics && !linkedInAnalytics) {
+                          fetchLinkedInAnalytics();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">📊 Analytics</span>
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showLinkedInAnalytics ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showLinkedInAnalytics && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-3">
+                        {loadingLinkedInAnalytics ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : linkedInAnalytics ? (
+                          <>
+                            {linkedInAnalytics.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {/* Profile & Network Stats */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-brand-electric">{linkedInAnalytics.network?.connections || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Connections</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-green-400">{linkedInAnalytics.totals?.total_posts || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Posts</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-blue-400">{linkedInAnalytics.totals?.total_likes || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Likes</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-purple-400">{linkedInAnalytics.totals?.engagement_rate?.toFixed(1) || 0}%</div>
+                                <div className="text-xs text-brand-silver/60">Engagement</div>
+                              </div>
+                            </div>
+                            {/* Recent Posts */}
+                            {linkedInAnalytics.posts && linkedInAnalytics.posts.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs text-brand-silver/70 font-medium">Recent Posts</div>
+                                {linkedInAnalytics.posts.slice(0, 3).map((post) => (
+                                  <div key={post.post_urn} className="bg-white/5 rounded-lg p-2">
+                                    <div className="text-xs text-white line-clamp-2">{post.text}</div>
+                                    <div className="flex gap-3 mt-1 text-xs text-brand-silver/60">
+                                      <span>👍 {post.metrics.likes}</span>
+                                      <span>💬 {post.metrics.comments}</span>
+                                      <span>🔄 {post.metrics.shares}</span>
+                                      <span>👁 {post.metrics.impressions}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              onClick={fetchLinkedInAnalytics}
+                              disabled={loadingLinkedInAnalytics}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No analytics data available yet.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* LinkedIn Webhook Events Section */}
+                {platform === 'linkedin' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowLinkedInWebhookEvents(!showLinkedInWebhookEvents);
+                        if (!showLinkedInWebhookEvents && !linkedInWebhookEvents) {
+                          fetchLinkedInWebhookEvents();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">🔔 Webhook Events</span>
+                        {linkedInWebhookEvents && linkedInWebhookEvents.unread_count > 0 && (
+                          <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                            {linkedInWebhookEvents.unread_count}
+                          </span>
+                        )}
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showLinkedInWebhookEvents ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showLinkedInWebhookEvents && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-2 max-h-64 overflow-y-auto">
+                        {loadingLinkedInWebhookEvents ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : linkedInWebhookEvents && linkedInWebhookEvents.events.length > 0 ? (
+                          <>
+                            {linkedInWebhookEvents.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {linkedInWebhookEvents.events.map((event) => (
+                              <div
+                                key={event.id}
+                                className={`p-2 rounded-lg ${event.read ? 'bg-white/5' : 'bg-brand-electric/10 border border-brand-electric/20'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-white capitalize">
+                                    {event.event_type.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-xs text-brand-silver/50">
+                                    {new Date(event.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+                                {event.payload && (
+                                  <div className="text-xs text-brand-silver/60 mt-1">
+                                    {(event.payload as { actor?: { name?: string } })?.actor?.name && (
+                                      <span>by {(event.payload as { actor: { name: string } }).actor.name}</span>
+                                    )}
+                                  </div>
+                                )}
+                                {!event.read && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markLinkedInWebhookEventsAsRead([event.id]);
+                                    }}
+                                    className="text-xs text-brand-electric hover:underline mt-1"
+                                  >
+                                    Mark as read
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {linkedInWebhookEvents.unread_count > 0 && (
+                              <button
+                                onClick={() => markLinkedInWebhookEventsAsRead([], true)}
+                                className="text-xs text-brand-electric hover:underline"
+                              >
+                                Mark all as read
+                              </button>
+                            )}
+                            <button
+                              onClick={fetchLinkedInWebhookEvents}
+                              disabled={loadingLinkedInWebhookEvents}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh Events
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No webhook events yet. Events will appear here when LinkedIn sends notifications about your activity.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Twitter Account Switcher */}
+                {platform === 'twitter' && isConnected && (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70">
+                        Posting as: @{profiles?.twitter?.profile_name || 'Twitter Account'}
+                      </span>
+                      <button
+                        onClick={() => setShowTwitterAccountPanel(!showTwitterAccountPanel)}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showTwitterAccountPanel ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        View Account
+                      </button>
+                    </div>
+                    {showTwitterAccountPanel && (
+                    <div className="bg-white/5 rounded-lg p-3">
+                      <div className="flex items-center gap-3 p-2 rounded-lg bg-brand-electric/20 border border-brand-electric/30">
+                        {profiles?.twitter?.profile_image_url ? (
+                          <img
+                            src={profiles.twitter.profile_image_url}
+                            alt={profiles.twitter.profile_name || 'Profile'}
+                            className="w-8 h-8 rounded-full"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center">
+                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                            </svg>
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <p className="text-sm text-white font-medium">{profiles?.twitter?.profile_name || 'Twitter Account'}</p>
+                          <p className="text-xs text-brand-silver/50">Personal Account</p>
+                        </div>
+                        <span className="text-brand-mint text-xs">Active</span>
+                      </div>
+                      <p className="text-xs text-brand-silver/40 mt-2 text-center">
+                        Twitter/X only supports personal account posting
+                      </p>
+                    </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Twitter Analytics Section */}
+                {platform === 'twitter' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowTwitterAnalytics(!showTwitterAnalytics);
+                        if (!showTwitterAnalytics && !twitterAnalytics) {
+                          fetchTwitterAnalytics();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">📊 Analytics</span>
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showTwitterAnalytics ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showTwitterAnalytics && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-3">
+                        {loadingTwitterAnalytics ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : twitterAnalytics ? (
+                          <>
+                            {twitterAnalytics.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {/* User Stats */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-brand-electric">{twitterAnalytics.user?.metrics?.followers || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Followers</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-green-400">{twitterAnalytics.user?.metrics?.following || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Following</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-blue-400">{twitterAnalytics.totals?.total_impressions || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Impressions</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-purple-400">{twitterAnalytics.totals?.engagement_rate?.toFixed(1) || 0}%</div>
+                                <div className="text-xs text-brand-silver/60">Engagement</div>
+                              </div>
+                            </div>
+                            {/* Recent Tweets */}
+                            {twitterAnalytics.tweets && twitterAnalytics.tweets.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs text-brand-silver/70 font-medium">Recent Tweets</div>
+                                {twitterAnalytics.tweets.slice(0, 3).map((tweet) => (
+                                  <div key={tweet.tweet_id} className="bg-white/5 rounded-lg p-2">
+                                    <div className="text-xs text-white line-clamp-2">{tweet.text}</div>
+                                    <div className="flex gap-3 mt-1 text-xs text-brand-silver/60">
+                                      <span>❤️ {tweet.metrics.likes}</span>
+                                      <span>🔁 {tweet.metrics.retweets}</span>
+                                      <span>💬 {tweet.metrics.replies}</span>
+                                      <span>👁 {tweet.metrics.impressions}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              onClick={fetchTwitterAnalytics}
+                              disabled={loadingTwitterAnalytics}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No analytics data available yet.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Twitter Webhook Events Section */}
+                {platform === 'twitter' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowTwitterWebhookEvents(!showTwitterWebhookEvents);
+                        if (!showTwitterWebhookEvents && !twitterWebhookEvents) {
+                          fetchTwitterWebhookEvents();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">🔔 Webhook Events</span>
+                        {twitterWebhookEvents && twitterWebhookEvents.unread_count > 0 && (
+                          <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                            {twitterWebhookEvents.unread_count}
+                          </span>
+                        )}
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showTwitterWebhookEvents ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showTwitterWebhookEvents && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-2 max-h-64 overflow-y-auto">
+                        {loadingTwitterWebhookEvents ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : twitterWebhookEvents && twitterWebhookEvents.events.length > 0 ? (
+                          <>
+                            {twitterWebhookEvents.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {twitterWebhookEvents.events.map((event) => (
+                              <div
+                                key={event.id}
+                                className={`p-2 rounded-lg ${event.read ? 'bg-white/5' : 'bg-brand-electric/10 border border-brand-electric/20'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-white capitalize">
+                                    {event.event_type.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-xs text-brand-silver/50">
+                                    {new Date(event.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+                                {event.payload && (
+                                  <div className="text-xs text-brand-silver/60 mt-1">
+                                    {(event.payload as { user?: { screen_name?: string }; source?: { screen_name?: string } })?.user?.screen_name && (
+                                      <span>@{(event.payload as { user: { screen_name: string } }).user.screen_name}</span>
+                                    )}
+                                    {(event.payload as { source?: { screen_name?: string } })?.source?.screen_name && (
+                                      <span>@{(event.payload as { source: { screen_name: string } }).source.screen_name}</span>
+                                    )}
+                                  </div>
+                                )}
+                                {!event.read && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markTwitterWebhookEventsAsRead([event.id]);
+                                    }}
+                                    className="text-xs text-brand-electric hover:underline mt-1"
+                                  >
+                                    Mark as read
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {twitterWebhookEvents.unread_count > 0 && (
+                              <button
+                                onClick={() => markTwitterWebhookEventsAsRead([], true)}
+                                className="text-xs text-brand-electric hover:underline"
+                              >
+                                Mark all as read
+                              </button>
+                            )}
+                            <button
+                              onClick={fetchTwitterWebhookEvents}
+                              disabled={loadingTwitterWebhookEvents}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh Events
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No webhook events yet. Events will appear here when Twitter sends notifications about your activity.
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -1258,7 +4149,7 @@ function AutomationPageContent() {
                     <>
                       {platform === 'linkedin' && (
                         <button
-                          onClick={() => setShowComposeModal(true)}
+                          onClick={openLinkedInComposeModal}
                           className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                         >
                           📝 Compose Post
@@ -1266,11 +4157,39 @@ function AutomationPageContent() {
                       )}
                       {platform === 'twitter' && (
                         <button
-                          onClick={() => setShowTwitterComposeModal(true)}
+                          onClick={openTwitterComposeModal}
                           className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                         >
                           🐦 Compose Tweet
                         </button>
+                      )}
+                      {platform === 'facebook' && (
+                        <>
+                          <button
+                            onClick={openFacebookComposeModal}
+                            className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
+                          >
+                            📘 Compose Post
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowFacebookStoriesModal(true);
+                              fetchFacebookStories();
+                            }}
+                            className="w-full py-2 px-4 rounded-lg border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
+                          >
+                            📸 Create Story
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowResumableUploadModal(true);
+                              fetchResumableUploads();
+                            }}
+                            className="w-full py-2 px-4 rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-colors"
+                          >
+                            📹 Upload Large Video (&gt;1GB)
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={() => handleDisconnect(platform)}
@@ -1290,7 +4209,7 @@ function AutomationPageContent() {
                         {isLoading ? 'Connecting...' : `Connect ${config.name}`}
                       </button>
                       {/* Test Connect Button - Dev Mode Only */}
-                      {(platform === 'linkedin' || platform === 'twitter') && (
+                      {(platform === 'linkedin' || platform === 'twitter' || platform === 'facebook') && (
                         <button
                           onClick={() => handleTestConnect(platform)}
                           disabled={isLoading || loading}
@@ -1374,6 +4293,13 @@ function AutomationPageContent() {
                             <div className="p-1 rounded bg-black" title="Twitter/X">
                               <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                              </svg>
+                            </div>
+                          )}
+                          {post.platforms.includes('facebook') && (
+                            <div className="p-1 rounded bg-[#1877F2]" title="Facebook">
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                               </svg>
                             </div>
                           )}
@@ -1498,6 +4424,13 @@ function AutomationPageContent() {
                           </svg>
                         </div>
                       )}
+                      {post.platforms.includes('facebook') && (
+                        <div className="p-1.5 rounded bg-[#1877F2]" title="Facebook">
+                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                          </svg>
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1525,15 +4458,15 @@ function AutomationPageContent() {
                             minute: '2-digit'
                           })}
                         </span>
-                        {/* Delete Button for Twitter posts */}
-                        {post.platforms.includes('twitter') && post.post_results?.id && (
+                        {/* Delete Button - works for all platforms */}
+                        {hasAnyDeletablePostId(post.post_results as Record<string, unknown>, post.platforms) ? (
                           <button
-                            onClick={() => handleDeleteTweet(post.post_results!.id!)}
-                            disabled={deletingTweetId === post.post_results!.id}
+                            onClick={() => handleDeletePost(post)}
+                            disabled={deletingPostId === post.id}
                             className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
-                            title="Delete tweet"
+                            title={`Delete from ${post.platforms.join(', ')}`}
                           >
-                            {deletingTweetId === post.post_results!.id ? (
+                            {deletingPostId === post.id ? (
                               <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1543,9 +4476,9 @@ function AutomationPageContent() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             )}
-                            Delete
+                            {post.platforms.length > 1 ? 'Delete All' : 'Delete'}
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1673,7 +4606,7 @@ function AutomationPageContent() {
       {/* Compose Post Modal */}
       {showComposeModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="glass-card w-full max-w-lg p-6 relative">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
             {/* Close button */}
             <button
               onClick={() => {
@@ -1696,11 +4629,164 @@ function AutomationPageContent() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-heading font-bold text-white">Create LinkedIn Post</h2>
+                <h2 className="text-xl font-heading font-bold text-white">
+                  {linkedinCarouselMode ? 'Create Carousel Post' : 'Create LinkedIn Post'}
+                </h2>
                 <p className="text-sm text-brand-silver/70">
-                  Share your thoughts with your network
+                  {linkedinCarouselMode ? 'Share multiple images your network can swipe through' : 'Share your thoughts with your network'}
                 </p>
               </div>
+            </div>
+
+            {/* Draft Indicator & Save */}
+            {(linkedInDraft || postText || postTitle) && (
+              <div className="mb-4 flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2 text-amber-400 text-sm">
+                  <span>📝</span>
+                  {linkedInDraft && !postText && !postTitle ? (
+                    <>
+                      <span>Draft saved {new Date(linkedInDraft.savedAt).toLocaleString()}</span>
+                      {linkedInDraft.mediaSkipped && <span className="text-amber-300 text-xs">(media not saved)</span>}
+                      <button
+                        onClick={restoreLinkedInDraft}
+                        className="text-amber-300 hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  ) : linkedInDraft && linkedInDraft.text === postText && linkedInDraft.title === postTitle ? (
+                    <span className="text-green-400">
+                      ✓ Draft saved {new Date(linkedInDraft.savedAt).toLocaleString()}
+                      {linkedInDraft.mediaSkipped && <span className="text-amber-300 text-xs ml-1">(media not saved - too large)</span>}
+                    </span>
+                  ) : (
+                    <span>Unsaved changes</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveLinkedInDraft}
+                    className="text-xs text-amber-300 hover:text-amber-200"
+                  >
+                    💾 Save Draft
+                  </button>
+                  {linkedInDraft && (
+                    <button
+                      onClick={clearLinkedInDraft}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compose / Preview Tab Toggle */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setLinkedInComposeTab('compose')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  linkedInComposeTab === 'compose'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                ✏️ Compose
+              </button>
+              <button
+                onClick={() => setLinkedInComposeTab('preview')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  linkedInComposeTab === 'preview'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                👁️ Preview
+              </button>
+            </div>
+
+            {/* Preview Tab */}
+            {linkedInComposeTab === 'preview' && (
+              <div className="mb-6">
+                <div className="bg-white rounded-lg overflow-hidden shadow-lg">
+                  {/* LinkedIn Post Header */}
+                  <div className="p-3 flex items-center gap-3">
+                    {profiles?.linkedin?.profile_image_url ? (
+                      <img 
+                        src={profiles.linkedin.profile_image_url} 
+                        alt="Profile" 
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-[#0A66C2] flex items-center justify-center text-white font-bold">
+                        {(profiles?.linkedin?.profile_name || 'U')[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">
+                        {linkedInPostingAs === 'organization' && currentLinkedInOrg 
+                          ? currentLinkedInOrg.name 
+                          : profiles?.linkedin?.profile_name || 'Your Name'}
+                      </p>
+                      <p className="text-xs text-gray-500">Just now • 🌐</p>
+                    </div>
+                  </div>
+                  {/* Post Content */}
+                  <div className="px-3 pb-2">
+                    <p className="text-gray-900 text-sm whitespace-pre-wrap">
+                      {postText || 'Your post content will appear here...'}
+                    </p>
+                  </div>
+                  {/* Carousel Images Preview */}
+                  {linkedinCarouselMode && linkedinCarouselImages.length > 0 && (
+                    <div className="flex overflow-x-auto gap-2 px-3 pb-3">
+                      {linkedinCarouselImages.map((img, idx) => (
+                        <div key={idx} className="flex-shrink-0 w-48 h-48 rounded-lg overflow-hidden">
+                          <img src={img.url} alt={`Slide ${idx + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Engagement Bar */}
+                  <div className="px-3 py-2 border-t border-gray-200 flex justify-between text-xs text-gray-500">
+                    <span>👍 Like</span>
+                    <span>💬 Comment</span>
+                    <span>↗️ Repost</span>
+                    <span>📤 Send</span>
+                  </div>
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-2 text-center">
+                  This is a preview. Actual appearance may vary slightly.
+                </p>
+              </div>
+            )}
+
+            {/* Compose Tab Content */}
+            {linkedInComposeTab === 'compose' && (
+              <>
+            {/* Mode Toggle: Single Post / Carousel */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setLinkedinCarouselMode(false)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !linkedinCarouselMode 
+                    ? 'bg-[#0A66C2] text-white' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                Single Post
+              </button>
+              <button
+                onClick={() => setLinkedinCarouselMode(true)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  linkedinCarouselMode 
+                    ? 'bg-[#0A66C2] text-white' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                🖼️ Carousel (2-9 images)
+              </button>
             </div>
 
             {/* Form Fields */}
@@ -1820,7 +4906,63 @@ function AutomationPageContent() {
                 )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['linkedin'])}</p>
               </div>
+
+              {/* LinkedIn Carousel Mode */}
+              {linkedinCarouselMode && (
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-2">
+                    Carousel Images ({linkedinCarouselImages.length}/9)
+                  </label>
+                  <p className="text-xs text-brand-silver/50 mb-3">
+                    Add 2-9 images. Your network can swipe through them.
+                  </p>
+                  
+                  {/* Carousel Image Grid */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {linkedinCarouselImages.map((img, index) => (
+                      <div key={index} className="relative aspect-square group">
+                        <img
+                          src={img.url}
+                          alt={`Carousel image ${index + 1}`}
+                          className="w-full h-full object-cover rounded-lg border border-brand-ghost/30"
+                        />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                          {index + 1}
+                        </div>
+                        <button
+                          onClick={() => removeLinkedinCarouselImage(index)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    
+                    {/* Add Image Button - Inside Grid */}
+                    {linkedinCarouselImages.length < 9 && (
+                      <label className="aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer">
+                        <svg className="w-6 h-6 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="text-xs text-brand-silver mt-1">Add</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            addLinkedinCarouselImages(e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
+              </>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3 justify-end">
@@ -1840,8 +4982,13 @@ function AutomationPageContent() {
                 Cancel
               </button>
               <button
-                onClick={handlePost}
-                disabled={posting || uploadingMedia || !postText.trim()}
+                onClick={linkedinCarouselMode ? handleLinkedInCarouselPost : handlePost}
+                disabled={
+                  posting || 
+                  uploadingMedia || 
+                  !postText.trim() ||
+                  (linkedinCarouselMode && linkedinCarouselImages.length < 2)
+                }
                 className="px-6 py-2.5 rounded-lg bg-[#0A66C2] hover:bg-[#004182] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {posting ? (
@@ -1850,10 +4997,12 @@ function AutomationPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Posting...
+                    {linkedinCarouselMode ? 'Posting Carousel...' : 'Posting...'}
                   </>
                 ) : (
-                  'Post'
+                  linkedinCarouselMode 
+                    ? `Post Carousel (${linkedinCarouselImages.length} images)` 
+                    : 'Post'
                 )}
               </button>
             </div>
@@ -1895,12 +5044,149 @@ function AutomationPageContent() {
               </div>
             </div>
 
-            {/* Mode Toggle: Single Tweet / Thread */}
+            {/* Draft Indicator & Save */}
+            {(twitterDraft || tweetText) && (
+              <div className="mb-4 flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2 text-amber-400 text-sm">
+                  <span>📝</span>
+                  {twitterDraft && !tweetText ? (
+                    <>
+                      <span>Draft saved {new Date(twitterDraft.savedAt).toLocaleString()}</span>
+                      {twitterDraft.mediaSkipped && <span className="text-amber-300 text-xs">(media not saved)</span>}
+                      <button
+                        onClick={restoreTwitterDraft}
+                        className="text-amber-300 hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  ) : twitterDraft && twitterDraft.text === tweetText ? (
+                    <span className="text-green-400">
+                      ✓ Draft saved {new Date(twitterDraft.savedAt).toLocaleString()}
+                      {twitterDraft.mediaSkipped && <span className="text-amber-300 text-xs ml-1">(media not saved - too large)</span>}
+                    </span>
+                  ) : (
+                    <span>Unsaved changes</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveTwitterDraft}
+                    className="text-xs text-amber-300 hover:text-amber-200"
+                  >
+                    💾 Save Draft
+                  </button>
+                  {twitterDraft && (
+                    <button
+                      onClick={clearTwitterDraft}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compose / Preview Tab Toggle */}
             <div className="mb-4 flex gap-2">
               <button
-                onClick={() => setIsThreadMode(false)}
+                onClick={() => setTwitterComposeTab('compose')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  twitterComposeTab === 'compose'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                ✏️ Compose
+              </button>
+              <button
+                onClick={() => setTwitterComposeTab('preview')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  twitterComposeTab === 'preview'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                👁️ Preview
+              </button>
+            </div>
+
+            {/* Preview Tab */}
+            {twitterComposeTab === 'preview' && (
+              <div className="mb-6">
+                <div className="bg-black rounded-xl overflow-hidden border border-gray-800">
+                  {/* Twitter Post Header */}
+                  <div className="p-4 flex items-start gap-3">
+                    {profiles?.twitter?.profile_image_url ? (
+                      <img 
+                        src={profiles.twitter.profile_image_url} 
+                        alt="Profile" 
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-white font-bold">
+                        {(profiles?.twitter?.profile_name || 'U')[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">
+                          {profiles?.twitter?.profile_name || 'Your Name'}
+                        </span>
+                        <span className="text-gray-500 text-sm">
+                          @{profiles?.twitter?.profile_name?.toLowerCase().replace(/\s/g, '') || 'username'}
+                        </span>
+                        <span className="text-gray-500 text-sm">· Just now</span>
+                      </div>
+                      {/* Tweet Content */}
+                      <div className="mt-1">
+                        <p className="text-white text-sm whitespace-pre-wrap">
+                          {tweetText || 'Your tweet will appear here...'}
+                        </p>
+                      </div>
+                      {/* Carousel Images Preview */}
+                      {twitterCarouselMode && twitterCarouselImages.length > 0 && (
+                        <div className={`mt-3 grid gap-0.5 rounded-xl overflow-hidden ${
+                          twitterCarouselImages.length === 1 ? 'grid-cols-1' : 
+                          twitterCarouselImages.length === 2 ? 'grid-cols-2' :
+                          twitterCarouselImages.length === 3 ? 'grid-cols-2' : 'grid-cols-2'
+                        }`}>
+                          {twitterCarouselImages.slice(0, 4).map((img, idx) => (
+                            <div key={idx} className={`aspect-video ${
+                              twitterCarouselImages.length === 3 && idx === 0 ? 'row-span-2' : ''
+                            }`}>
+                              <img src={img.url} alt={`Media ${idx + 1}`} className="w-full h-full object-cover" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Engagement Bar */}
+                      <div className="mt-3 flex justify-between text-gray-500 text-sm max-w-xs">
+                        <span>💬 0</span>
+                        <span>🔄 0</span>
+                        <span>❤️ 0</span>
+                        <span>📈 0</span>
+                        <span>📤</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-2 text-center">
+                  This is a preview. Actual appearance may vary slightly.
+                </p>
+              </div>
+            )}
+
+            {/* Compose Tab Content */}
+            {twitterComposeTab === 'compose' && (
+              <>
+            {/* Mode Toggle: Single Tweet / Thread / Carousel */}
+            <div className="mb-4 flex gap-2 flex-wrap">
+              <button
+                onClick={() => { setIsThreadMode(false); setTwitterCarouselMode(false); }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !isThreadMode 
+                  !isThreadMode && !twitterCarouselMode
                     ? 'bg-brand-electric text-brand-midnight' 
                     : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
                 }`}
@@ -1908,7 +5194,7 @@ function AutomationPageContent() {
                 Single Tweet
               </button>
               <button
-                onClick={() => setIsThreadMode(true)}
+                onClick={() => { setIsThreadMode(true); setTwitterCarouselMode(false); }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isThreadMode 
                     ? 'bg-brand-electric text-brand-midnight' 
@@ -1916,6 +5202,16 @@ function AutomationPageContent() {
                 }`}
               >
                 🧵 Thread
+              </button>
+              <button
+                onClick={() => { setTwitterCarouselMode(true); setIsThreadMode(false); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  twitterCarouselMode 
+                    ? 'bg-brand-electric text-brand-midnight' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                🖼️ Carousel (2-4 images)
               </button>
             </div>
 
@@ -2045,6 +5341,10 @@ function AutomationPageContent() {
               {/* Media Upload for Twitter */}
               <div>
                 <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                {/* Twitter API Tier Warning */}
+                <div className="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
+                  ⚠️ <strong>Note:</strong> Twitter media uploads require a paid API tier ($100/mo). Text-only tweets work on the free tier.
+                </div>
                 <div className="flex items-center gap-3">
                   <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingTweetMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2143,7 +5443,63 @@ function AutomationPageContent() {
                 )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['twitter'])}</p>
               </div>
+
+              {/* Twitter Carousel Mode */}
+              {twitterCarouselMode && (
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-2">
+                    Carousel Images ({twitterCarouselImages.length}/4)
+                  </label>
+                  <p className="text-xs text-brand-silver/50 mb-3">
+                    Add 2-4 images. Users can swipe through them.
+                  </p>
+                  
+                  {/* Carousel Image Grid */}
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {twitterCarouselImages.map((img, index) => (
+                      <div key={index} className="relative aspect-square group">
+                        <img
+                          src={img.url}
+                          alt={`Carousel image ${index + 1}`}
+                          className="w-full h-full object-cover rounded-lg border border-brand-ghost/30"
+                        />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                          {index + 1}
+                        </div>
+                        <button
+                          onClick={() => removeTwitterCarouselImage(index)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    
+                    {/* Add Image Button - Inside Grid */}
+                    {twitterCarouselImages.length < 4 && (
+                      <label className="aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer">
+                        <svg className="w-6 h-6 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="text-xs text-brand-silver mt-1">Add</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            addTwitterCarouselImages(e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
+              </>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3 justify-end">
@@ -2157,14 +5513,16 @@ function AutomationPageContent() {
                 Cancel
               </button>
               <button
-                onClick={handleTwitterPost}
+                onClick={twitterCarouselMode ? handleTwitterCarouselPost : handleTwitterPost}
                 disabled={
                   tweetPosting || 
                   uploadingTweetMedia || 
                   !tweetTitle.trim() || 
-                  (isThreadMode 
-                    ? threadTweets.filter(t => t.trim()).length === 0 || threadTweets.some(t => t.length > TWITTER_MAX_LENGTH)
-                    : !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH
+                  (twitterCarouselMode
+                    ? twitterCarouselImages.length < 2 || !tweetText.trim()
+                    : isThreadMode 
+                      ? threadTweets.filter(t => t.trim()).length === 0 || threadTweets.some(t => t.length > TWITTER_MAX_LENGTH)
+                      : !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH
                   )
                 }
                 className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-black hover:bg-gray-800"
@@ -2175,12 +5533,1002 @@ function AutomationPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    {isThreadMode ? 'Posting Thread...' : 'Posting...'}
+                    {twitterCarouselMode ? 'Posting Carousel...' : isThreadMode ? 'Posting Thread...' : 'Posting...'}
                   </>
                 ) : (
-                  isThreadMode ? `Post Thread (${threadTweets.filter(t => t.trim()).length} tweets)` : 'Post Tweet'
+                  twitterCarouselMode 
+                    ? `Post Carousel (${twitterCarouselImages.length} images)` 
+                    : isThreadMode 
+                      ? `Post Thread (${threadTweets.filter(t => t.trim()).length} tweets)` 
+                      : 'Post Tweet'
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Facebook Compose Modal */}
+      {showFacebookComposeModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowFacebookComposeModal(false);
+                resetFacebookComposeForm();
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-blue-600 text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Create Facebook Post</h2>
+                <p className="text-sm text-brand-silver/70">Share content to your Facebook Page</p>
+              </div>
+            </div>
+
+            {/* Info about test mode */}
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <p className="text-blue-400 text-sm">
+                ℹ️ Test mode is automatically enabled when using test credentials. Connect real Facebook Page access to post live content.
+              </p>
+            </div>
+
+            {/* Draft Indicator & Save */}
+            {(fbDraft || fbPostText || fbPostTitle) && (
+              <div className="mb-4 flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2 text-amber-400 text-sm">
+                  <span>📝</span>
+                  {fbDraft && !fbPostText && !fbPostTitle ? (
+                    <>
+                      <span>Draft saved {new Date(fbDraft.savedAt).toLocaleString()}</span>
+                      {fbDraft.mediaSkipped && <span className="text-amber-300 text-xs">(media not saved)</span>}
+                      <button
+                        onClick={restoreFbDraft}
+                        className="text-amber-300 hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  ) : fbDraft && fbDraft.text === fbPostText && fbDraft.title === fbPostTitle ? (
+                    <span className="text-green-400">
+                      ✓ Draft saved {new Date(fbDraft.savedAt).toLocaleString()}
+                      {fbDraft.mediaSkipped && <span className="text-amber-300 text-xs ml-1">(media not saved - too large)</span>}
+                    </span>
+                  ) : (
+                    <span>Unsaved changes</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveFbDraft}
+                    className="text-xs text-amber-300 hover:text-amber-200"
+                  >
+                    💾 Save Draft
+                  </button>
+                  {fbDraft && (
+                    <button
+                      onClick={clearFbDraft}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compose / Preview Tab Toggle */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setFbComposeTab('compose')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  fbComposeTab === 'compose'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                ✏️ Compose
+              </button>
+              <button
+                onClick={() => setFbComposeTab('preview')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  fbComposeTab === 'preview'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                👁️ Preview
+              </button>
+            </div>
+
+            {/* Preview Tab */}
+            {fbComposeTab === 'preview' && (
+              <div className="mb-6">
+                <div className="bg-white rounded-lg overflow-hidden shadow-lg">
+                  {/* Facebook Post Header */}
+                  <div className="p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
+                      {(currentFbPage?.name || profiles?.facebook?.profile_name || 'P')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">
+                        {currentFbPage?.name || profiles?.facebook?.profile_name || 'Your Page'}
+                      </p>
+                      <p className="text-xs text-gray-500">Just now · 🌐</p>
+                    </div>
+                  </div>
+                  {/* Post Content */}
+                  <div className="px-3 pb-2">
+                    <p className="text-gray-900 text-sm whitespace-pre-wrap">
+                      {fbPostText || 'Your post content will appear here...'}
+                    </p>
+                  </div>
+                  {/* Image/Carousel Preview */}
+                  {fbCarouselMode && fbCarouselImages.length > 0 && (
+                    <div className={`grid gap-1 ${fbCarouselImages.length === 1 ? 'grid-cols-1' : fbCarouselImages.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
+                      {fbCarouselImages.slice(0, 4).map((img, idx) => (
+                        <div key={idx} className="relative aspect-square">
+                          <img src={img.url} alt={`Preview ${idx + 1}`} className="w-full h-full object-cover" />
+                          {idx === 3 && fbCarouselImages.length > 4 && (
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-2xl font-bold">
+                              +{fbCarouselImages.length - 4}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!fbCarouselMode && fbMediaPreview && (
+                    <div className="aspect-video bg-gray-100">
+                      {fbMediaPreview.type === 'image' ? (
+                        <img src={fbMediaPreview.url} alt="Preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <video src={fbMediaPreview.url} className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                  )}
+                  {/* Link Preview in Post */}
+                  {fbLinkPreview && (
+                    <div className="mx-3 mb-3 border border-gray-200 rounded-lg overflow-hidden">
+                      {fbLinkPreview.image && (
+                        <img src={fbLinkPreview.image} alt="" className="w-full h-32 object-cover" />
+                      )}
+                      <div className="p-2 bg-gray-50">
+                        <p className="text-xs text-gray-500 uppercase">
+                          {fbLinkPreview.site_name || new URL(fbLinkPreview.url).hostname}
+                        </p>
+                        <p className="font-semibold text-gray-900 text-sm">{fbLinkPreview.title}</p>
+                        <p className="text-xs text-gray-600 line-clamp-2">{fbLinkPreview.description}</p>
+                      </div>
+                    </div>
+                  )}
+                  {/* Engagement Bar */}
+                  <div className="px-3 py-2 border-t border-gray-200 flex justify-between text-xs text-gray-500">
+                    <span>👍 Like</span>
+                    <span>💬 Comment</span>
+                    <span>↗️ Share</span>
+                  </div>
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-2 text-center">
+                  This is a preview. Actual appearance may vary slightly.
+                </p>
+              </div>
+            )}
+
+            {/* Compose Tab Content */}
+            {fbComposeTab === 'compose' && (
+              <>
+            {/* Post Type Toggle */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-brand-silver mb-2">Post Type</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFbCarouselMode(false)}
+                  className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                    !fbCarouselMode
+                      ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                      : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                  }`}
+                >
+                  📝 Single Post
+                </button>
+                <button
+                  onClick={() => setFbCarouselMode(true)}
+                  className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                    fbCarouselMode
+                      ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                      : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                  }`}
+                >
+                  🎠 Carousel (2-10 images)
+                </button>
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Title (for tracking)</label>
+                <input
+                  type="text"
+                  value={fbPostTitle}
+                  onChange={(e) => setFbPostTitle(e.target.value)}
+                  placeholder="Give your post a title"
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
+                <textarea
+                  value={fbPostText}
+                  onChange={(e) => handleFbPostTextChange(e.target.value)}
+                  placeholder="What's on your mind? Paste a URL to see a preview!"
+                  rows={5}
+                  maxLength={FACEBOOK_MAX_POST_LENGTH}
+                  className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
+                />
+                <div className="flex justify-between items-center mt-1 text-xs">
+                  <span className={`${
+                    fbPostText.length > FACEBOOK_MAX_POST_LENGTH - 1000 
+                      ? fbPostText.length > FACEBOOK_MAX_POST_LENGTH 
+                        ? 'text-red-400' 
+                        : 'text-amber-400' 
+                      : 'text-brand-silver/50'
+                  }`}>
+                    {fbPostText.length} / {FACEBOOK_MAX_POST_LENGTH} characters
+                  </span>
+                </div>
+                
+                {/* Link Preview */}
+                {fetchingLinkPreview && (
+                  <div className="mt-3 p-3 rounded-lg border border-brand-ghost/30 bg-brand-midnight/50">
+                    <div className="flex items-center gap-2 text-brand-silver">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Fetching link preview...
+                    </div>
+                  </div>
+                )}
+                
+                {fbLinkPreview && !fetchingLinkPreview && (
+                  <div className="mt-3 rounded-lg border border-brand-ghost/30 overflow-hidden bg-brand-midnight/50">
+                    <div className="flex">
+                      {fbLinkPreview.image && (
+                        <div className="w-24 h-24 flex-shrink-0">
+                          <img 
+                            src={fbLinkPreview.image} 
+                            alt="Link preview" 
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      <div className="flex-1 p-3 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs text-brand-silver/50 uppercase truncate">
+                              {fbLinkPreview.site_name || new URL(fbLinkPreview.url).hostname}
+                            </p>
+                            <h4 className="text-sm font-medium text-white truncate mt-0.5">
+                              {fbLinkPreview.title || 'No title'}
+                            </h4>
+                            <p className="text-xs text-brand-silver/70 line-clamp-2 mt-0.5">
+                              {fbLinkPreview.description || 'No description available'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setFbLinkPreview(null);
+                              setLastFetchedUrl(null);
+                            }}
+                            className="text-brand-silver/50 hover:text-red-400 flex-shrink-0"
+                            title="Remove preview"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {fbLinkPreview.test_mode && (
+                      <div className="px-3 py-1.5 bg-blue-500/10 border-t border-brand-ghost/30">
+                        <span className="text-xs text-blue-400">🧪 Test mode preview</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Media Upload for Facebook - Single Post Mode */}
+              {!fbCarouselMode && (
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                <div className="flex items-center gap-3">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingFbMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {uploadingFbMedia ? 'Uploading...' : 'Add Media'}
+                    <input
+                      type="file"
+                      accept={getAcceptedFileTypes(['facebook'])}
+                      className="hidden"
+                      disabled={uploadingFbMedia}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          // Create a local preview URL
+                          const previewUrl = URL.createObjectURL(file);
+                          const isVideo = file.type.startsWith('video/');
+                          setFbMediaPreview({ url: previewUrl, type: isVideo ? 'video' : 'image' });
+                          handleMediaUpload(file, setFbMediaUrns, setUploadingFbMedia, ['facebook']);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {fbMediaUrns.length > 0 && (
+                    <div className="flex items-center gap-2 text-green-400 text-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {fbMediaUrns.length} file{fbMediaUrns.length > 1 ? 's' : ''} attached
+                      <button
+                        onClick={() => {
+                          setFbMediaUrns([]);
+                          if (fbMediaPreview) {
+                            URL.revokeObjectURL(fbMediaPreview.url);
+                            setFbMediaPreview(null);
+                          }
+                        }}
+                        className="text-red-400 hover:text-red-300 ml-2"
+                        title="Remove media"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/* Media Preview */}
+                {fbMediaPreview && (
+                  <div className="mt-3 relative inline-block">
+                    {fbMediaPreview.type === 'video' ? (
+                      <video 
+                        src={fbMediaPreview.url} 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30"
+                        controls
+                      />
+                    ) : (
+                      <img 
+                        src={fbMediaPreview.url} 
+                        alt="Media preview" 
+                        className="max-w-full max-h-48 rounded-lg border border-brand-ghost/30 object-cover"
+                      />
+                    )}
+                    {uploadingFbMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-2 text-white">
+                          <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Uploading...
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['facebook'])}</p>
+              </div>
+              )}
+
+              {/* Carousel Images - Carousel Mode */}
+              {fbCarouselMode && (
+              <div>
+                <label className="block text-sm font-medium text-brand-silver mb-1">
+                  Carousel Images ({fbCarouselImages.length}/10)
+                </label>
+                <p className="text-xs text-brand-silver/50 mb-3">
+                  Add 2-10 images for your carousel post. Images will be displayed in the order shown.
+                </p>
+                
+                {/* Image Grid */}
+                <div className="grid grid-cols-5 gap-2 mb-3">
+                  {fbCarouselImages.map((img, index) => (
+                    <div key={index} className="relative aspect-square group">
+                      <img
+                        src={img.url}
+                        alt={`Carousel image ${index + 1}`}
+                        className="w-full h-full object-cover rounded-lg border border-brand-ghost/30"
+                      />
+                      <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                        {index + 1}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newImages = [...fbCarouselImages];
+                          if (newImages[index].url.startsWith('blob:')) {
+                            URL.revokeObjectURL(newImages[index].url);
+                          }
+                          newImages.splice(index, 1);
+                          setFbCarouselImages(newImages);
+                        }}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Add Image Button */}
+                  {fbCarouselImages.length < 10 && (
+                    <label className={`aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer ${uploadingCarouselImage ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                      {uploadingCarouselImage ? (
+                        <svg className="animate-spin w-6 h-6 text-brand-silver" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      ) : (
+                        <>
+                          <svg className="w-6 h-6 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          <span className="text-xs text-brand-silver mt-1">Add</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        disabled={uploadingCarouselImage}
+                        onChange={(e) => {
+                          const files = e.target.files;
+                          if (files) {
+                            const newImages: { url: string; file: File }[] = [];
+                            const maxToAdd = 10 - fbCarouselImages.length;
+                            
+                            Array.from(files).slice(0, maxToAdd).forEach(file => {
+                              if (file.type.startsWith('image/')) {
+                                const previewUrl = URL.createObjectURL(file);
+                                newImages.push({ url: previewUrl, file });
+                              }
+                            });
+                            
+                            if (newImages.length > 0) {
+                              setFbCarouselImages(prev => [...prev, ...newImages]);
+                            }
+                            
+                            if (files.length > maxToAdd) {
+                              setMessage({ type: 'error', text: `Only added ${maxToAdd} images. Maximum is 10.` });
+                            }
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+                
+                {/* Validation Message */}
+                {fbCarouselImages.length > 0 && fbCarouselImages.length < 2 && (
+                  <p className="text-xs text-amber-400">⚠️ Add at least 2 images for a carousel post</p>
+                )}
+                {fbCarouselImages.length >= 2 && (
+                  <p className="text-xs text-green-400">✓ Ready to post carousel with {fbCarouselImages.length} images</p>
+                )}
+              </div>
+              )}
+            </div>
+              </>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowFacebookComposeModal(false);
+                  resetFacebookComposeForm();
+                }}
+                className="px-6 py-2.5 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={fbCarouselMode ? handleFacebookCarouselPost : handleFacebookPost}
+                disabled={
+                  fbPosting || 
+                  uploadingFbMedia || 
+                  uploadingCarouselImage ||
+                  (!fbCarouselMode && !fbPostText.trim()) ||
+                  (fbCarouselMode && fbCarouselImages.length < 2) ||
+                  fbPostText.length > FACEBOOK_MAX_POST_LENGTH
+                }
+                className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+              >
+                {fbPosting ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Posting...
+                  </>
+                ) : (
+                  fbCarouselMode ? `Post Carousel (${fbCarouselImages.length} images)` : 'Post to Facebook'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Facebook Stories Modal */}
+      {showFacebookStoriesModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setShowFacebookStoriesModal(false);
+                resetFacebookStoryForm();
+              }}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 text-white">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Facebook Stories</h2>
+                <p className="text-sm text-brand-silver/70">Create 24-hour ephemeral content</p>
+              </div>
+            </div>
+
+            {/* Active Stories */}
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-brand-silver mb-3">Active Stories</h3>
+              {loadingFbStories ? (
+                <div className="flex justify-center py-4">
+                  <svg className="animate-spin w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                </div>
+              ) : fbStories.length === 0 ? (
+                <div className="text-center py-4 text-brand-silver/50 text-sm">
+                  No active stories. Stories disappear after 24 hours.
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                  {fbStories.map((story) => (
+                    <div key={story.id} className="flex-shrink-0 relative group">
+                      <div className="w-20 h-32 rounded-lg bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-orange-500/20 border border-brand-ghost/30 flex items-center justify-center">
+                        <span className="text-2xl">{story.media_type === 'VIDEO' ? '🎬' : '📷'}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteFacebookStory(story.id)}
+                        disabled={deletingFbStoryId === story.id}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                      >
+                        {deletingFbStoryId === story.id ? '...' : '×'}
+                      </button>
+                      <p className="text-xs text-brand-silver/50 text-center mt-1">
+                        {new Date(story.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Create Story Section */}
+            <div className="border-t border-brand-ghost/30 pt-6">
+              <h3 className="text-sm font-medium text-brand-silver mb-3">Create New Stories</h3>
+              
+              {/* Info Banner */}
+              <div className="mb-4 p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
+                <p className="text-purple-400 text-xs">
+                  📸 Add multiple photos and videos to post as a sequence of stories. Each file becomes a separate story.
+                </p>
+                <p className="text-purple-400/70 text-xs mt-1">
+                  Photos: JPEG/PNG, max 4MB • Videos: MP4/MOV, max 4GB, 1-60 seconds
+                </p>
+              </div>
+
+              {/* File Upload Area */}
+              <div className="mb-4">
+                <label className={`flex flex-col items-center justify-center w-full h-32 rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-purple-500 hover:bg-purple-500/10 transition-colors cursor-pointer ${postingFbStory ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <svg className="w-8 h-8 text-brand-silver mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  <span className="text-brand-silver text-sm">
+                    Click to add photos or videos
+                  </span>
+                  <span className="text-brand-silver/50 text-xs mt-1">
+                    Select multiple files at once
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    multiple
+                    className="hidden"
+                    disabled={postingFbStory}
+                    onChange={(e) => {
+                      addToStoryQueue(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Story Queue */}
+              {fbStoryQueue.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-sm text-brand-silver">Story Queue ({fbStoryQueue.length} items)</h4>
+                    <button
+                      onClick={resetFacebookStoryForm}
+                      disabled={postingFbStory}
+                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {fbStoryQueue.map((item, index) => (
+                      <div key={item.id} className="flex-shrink-0 relative group">
+                        <div className={`w-16 h-24 rounded-lg overflow-hidden border-2 ${
+                          item.status === 'uploading' ? 'border-blue-500' :
+                          item.status === 'success' ? 'border-green-500' :
+                          item.status === 'failed' ? 'border-red-500' :
+                          'border-brand-ghost/30'
+                        }`}>
+                          {item.type === 'video' ? (
+                            <video 
+                              src={item.preview} 
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <img 
+                              src={item.preview} 
+                              alt={`Story ${index + 1}`} 
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                          {/* Status overlay */}
+                          {item.status !== 'pending' && (
+                            <div className={`absolute inset-0 flex items-center justify-center ${
+                              item.status === 'uploading' ? 'bg-blue-500/50' :
+                              item.status === 'success' ? 'bg-green-500/50' :
+                              item.status === 'failed' ? 'bg-red-500/50' : ''
+                            }`}>
+                              {item.status === 'uploading' && (
+                                <svg className="animate-spin w-6 h-6 text-white" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                              )}
+                              {item.status === 'success' && <span className="text-white text-lg">✓</span>}
+                              {item.status === 'failed' && <span className="text-white text-lg">✗</span>}
+                            </div>
+                          )}
+                        </div>
+                        {/* Type indicator */}
+                        <div className="absolute bottom-1 left-1 text-xs">
+                          {item.type === 'video' ? '🎬' : '📷'}
+                        </div>
+                        {/* Remove button */}
+                        {!postingFbStory && item.status === 'pending' && (
+                          <button
+                            onClick={() => removeFromStoryQueue(item.id)}
+                            className="absolute top-0 right-0 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-1 -translate-y-1"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Progress */}
+              {postingFbStory && storyUploadProgress.total > 0 && (
+                <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-blue-400 text-sm">Uploading stories...</span>
+                    <span className="text-blue-400 text-sm">{storyUploadProgress.current} / {storyUploadProgress.total}</span>
+                  </div>
+                  <div className="h-2 bg-brand-ghost/30 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 transition-all duration-300"
+                      style={{ width: `${(storyUploadProgress.current / storyUploadProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Post Story Button */}
+              <button
+                onClick={handleFacebookStoryPost}
+                disabled={postingFbStory || fbStoryQueue.length === 0}
+                className="w-full py-2.5 px-4 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 hover:from-purple-600 hover:via-pink-600 hover:to-orange-600"
+              >
+                {postingFbStory ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Posting {storyUploadProgress.current} of {storyUploadProgress.total}...
+                  </>
+                ) : fbStoryQueue.length === 0 ? (
+                  '✨ Add media to share'
+                ) : fbStoryQueue.length === 1 ? (
+                  '✨ Share to Story'
+                ) : (
+                  `✨ Share ${fbStoryQueue.length} Stories`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Facebook Resumable Upload Modal (for large videos > 1GB) */}
+      {showResumableUploadModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+            {/* Close button */}
+            <button
+              onClick={resetResumableUploadForm}
+              className="absolute top-4 right-4 text-brand-silver hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-heading font-bold text-white">Large Video Upload</h2>
+                <p className="text-sm text-brand-silver/70">Resumable upload for videos &gt; 1GB</p>
+              </div>
+            </div>
+
+            {/* Info Banner */}
+            <div className="mb-6 p-4 rounded-lg bg-purple-500/10 border border-purple-500/30">
+              <p className="text-purple-400 text-sm">
+                📹 This upload method supports videos larger than 1GB with:
+              </p>
+              <ul className="text-purple-400/80 text-sm mt-2 ml-4 list-disc space-y-1">
+                <li>Chunked upload (4MB chunks)</li>
+                <li>Resume interrupted uploads</li>
+                <li>Progress tracking</li>
+              </ul>
+            </div>
+
+            {/* Active Uploads */}
+            {fbResumableUploads.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-brand-silver mb-3">In-Progress Uploads</h3>
+                <div className="space-y-2">
+                  {fbResumableUploads.map((upload) => (
+                    <div key={upload.upload_session_id} className="p-3 rounded-lg bg-brand-obsidian/50 border border-brand-ghost/30">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-white text-sm truncate flex-1">{upload.file_name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          upload.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                          upload.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                          upload.status === 'uploading' ? 'bg-blue-500/20 text-blue-400' :
+                          'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {upload.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-2 bg-brand-ghost/30 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
+                            style={{ width: `${upload.progress_percent}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-brand-silver">{upload.progress_percent}%</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-2 text-xs text-brand-silver/50">
+                        <span>{formatFileSize(upload.bytes_uploaded)} / {formatFileSize(upload.file_size)}</span>
+                        {upload.status !== 'completed' && upload.status !== 'failed' && (
+                          <button
+                            onClick={() => resumeUpload(upload.upload_session_id)}
+                            className="text-blue-400 hover:text-blue-300"
+                          >
+                            Resume
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* New Upload Section */}
+            <div className="border-t border-brand-ghost/30 pt-6">
+              <h3 className="text-sm font-medium text-brand-silver mb-3">Upload New Video</h3>
+              
+              {/* Title Input */}
+              <div className="mb-4">
+                <label className="block text-sm text-brand-silver mb-1">Video Title</label>
+                <input
+                  type="text"
+                  value={resumableUploadTitle}
+                  onChange={(e) => setResumableUploadTitle(e.target.value)}
+                  placeholder="Enter video title..."
+                  disabled={resumableUploadStatus === 'uploading'}
+                  className="w-full p-3 rounded-lg bg-brand-obsidian border border-brand-ghost/30 text-white placeholder-brand-silver/50 focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+
+              {/* Description Input */}
+              <div className="mb-4">
+                <label className="block text-sm text-brand-silver mb-1">Description</label>
+                <textarea
+                  value={resumableUploadDescription}
+                  onChange={(e) => setResumableUploadDescription(e.target.value)}
+                  placeholder="Enter video description..."
+                  rows={3}
+                  disabled={resumableUploadStatus === 'uploading'}
+                  className="w-full p-3 rounded-lg bg-brand-obsidian border border-brand-ghost/30 text-white placeholder-brand-silver/50 focus:border-purple-500 focus:outline-none resize-none disabled:opacity-50"
+                />
+              </div>
+
+              {/* File Selection */}
+              <div className="mb-4">
+                <label className={`flex flex-col items-center justify-center w-full h-32 rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-purple-500 hover:bg-purple-500/10 transition-colors cursor-pointer ${resumableUploadStatus === 'uploading' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  {resumableUploadFile ? (
+                    <div className="text-center px-4">
+                      <span className="text-3xl">📹</span>
+                      <p className="text-white text-sm mt-2 truncate max-w-full">{resumableUploadFile.name}</p>
+                      <p className="text-purple-400 text-xs mt-1">{formatFileSize(resumableUploadFile.size)}</p>
+                      {resumableUploadFile.size <= ONE_GB && (
+                        <p className="text-yellow-400 text-xs mt-1">⚠️ File is under 1GB - use regular upload</p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <svg className="w-10 h-10 text-brand-silver mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <span className="text-brand-silver text-sm">Click to select video file (&gt;1GB)</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    disabled={resumableUploadStatus === 'uploading'}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setResumableUploadFile(file);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Upload Progress */}
+              {resumableUploadStatus !== 'idle' && (
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-brand-silver">Upload Progress</span>
+                    <span className={`text-sm ${
+                      resumableUploadStatus === 'completed' ? 'text-green-400' :
+                      resumableUploadStatus === 'failed' ? 'text-red-400' :
+                      resumableUploadStatus === 'paused' ? 'text-yellow-400' :
+                      'text-blue-400'
+                    }`}>
+                      {resumableUploadStatus === 'uploading' ? `Uploading... ${resumableUploadProgress}%` :
+                       resumableUploadStatus === 'completed' ? 'Completed!' :
+                       resumableUploadStatus === 'paused' ? 'Paused' :
+                       resumableUploadStatus === 'failed' ? 'Failed' : ''}
+                    </span>
+                  </div>
+                  <div className="h-3 bg-brand-ghost/30 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 ${
+                        resumableUploadStatus === 'completed' ? 'bg-green-500' :
+                        resumableUploadStatus === 'failed' ? 'bg-red-500' :
+                        'bg-gradient-to-r from-blue-500 to-purple-500'
+                      }`}
+                      style={{ width: `${resumableUploadProgress}%` }}
+                    />
+                  </div>
+                  {resumableUploadStatus === 'uploading' && resumableUploadFile && (
+                    <p className="text-xs text-brand-silver/50 mt-1 text-center">
+                      Uploading in 4MB chunks... Do not close this window.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                {resumableUploadStatus === 'uploading' ? (
+                  <button
+                    onClick={() => setResumableUploadStatus('paused')}
+                    className="flex-1 py-2.5 px-4 rounded-lg border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10 transition-colors"
+                  >
+                    ⏸️ Pause Upload
+                  </button>
+                ) : resumableUploadStatus === 'paused' ? (
+                  <button
+                    onClick={startResumableUpload}
+                    className="flex-1 py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 transition-colors"
+                  >
+                    ▶️ Resume Upload
+                  </button>
+                ) : (
+                  <button
+                    onClick={startResumableUpload}
+                    disabled={!resumableUploadFile || resumableUploadFile.size <= ONE_GB || resumableUploadStatus === 'completed'}
+                    className="flex-1 py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {resumableUploadStatus === 'completed' ? (
+                      '✅ Upload Complete'
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        Start Upload
+                      </>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={resetResumableUploadForm}
+                  className="py-2.5 px-4 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2320,6 +6668,29 @@ function AutomationPageContent() {
                     </div>
                     <span className="text-sm text-white">Twitter/X</span>
                     <span className="text-xs text-brand-silver/50 ml-auto">Max {TWITTER_MAX_LENGTH} chars</span>
+                  </label>
+                  
+                  {/* Facebook Option */}
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-white/5 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={schedulePlatforms.includes('facebook')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSchedulePlatforms([...schedulePlatforms, 'facebook']);
+                        } else {
+                          setSchedulePlatforms(schedulePlatforms.filter(p => p !== 'facebook'));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-brand-ghost/30 text-brand-electric focus:ring-brand-electric/50"
+                    />
+                    <div className="p-1.5 rounded bg-[#1877F2]">
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-white">Facebook</span>
+                    <span className="text-xs text-brand-silver/50 ml-auto">Max 63,206 chars</span>
                   </label>
                 </div>
                 

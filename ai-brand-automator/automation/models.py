@@ -41,6 +41,14 @@ class SocialProfile(models.Model):
     _refresh_token = models.TextField(blank=True, null=True, db_column="refresh_token")
     token_expires_at = models.DateTimeField(blank=True, null=True)
 
+    # Facebook-specific: Page access token (for posting to pages)
+    # This is stored separately because Facebook uses user tokens for auth
+    # but requires page tokens for posting to pages
+    _page_access_token = models.TextField(
+        blank=True, null=True, db_column="page_access_token"
+    )
+    page_id = models.CharField(max_length=255, blank=True, null=True)
+
     # Profile information from the platform
     profile_id = models.CharField(max_length=255, blank=True, null=True)
     profile_name = models.CharField(max_length=255, blank=True, null=True)
@@ -86,6 +94,18 @@ class SocialProfile(models.Model):
         self._refresh_token = encrypt_token(value) if value else None
 
     @property
+    def page_access_token(self):
+        """Get the decrypted page access token (Facebook only)."""
+        return (
+            decrypt_token(self._page_access_token) if self._page_access_token else None
+        )
+
+    @page_access_token.setter
+    def page_access_token(self, value):
+        """Set and encrypt the page access token (Facebook only)."""
+        self._page_access_token = encrypt_token(value) if value else None
+
+    @property
     def is_token_valid(self):
         """Check if the access token is still valid."""
         if not self.token_expires_at:
@@ -110,6 +130,18 @@ class SocialProfile(models.Model):
             raise ValueError("Profile is not connected")
 
         if not self.is_token_expiring_soon:
+            # For Facebook, return page token for posting
+            if self.platform == "facebook" and self.page_access_token:
+                return self.page_access_token
+            return self.access_token
+
+        # Facebook page tokens don't expire if obtained from long-lived user token
+        # They remain valid as long as the page admin doesn't revoke access
+        if self.platform == "facebook":
+            # For Facebook, we use the page access token which doesn't expire
+            if self.page_access_token:
+                return self.page_access_token
+            # Fall back to user access token if no page token
             return self.access_token
 
         if not self.refresh_token:
@@ -150,6 +182,17 @@ class SocialProfile(models.Model):
         This is the main method to use before making API calls.
         """
         return self.refresh_token_if_needed()
+
+    def get_page_token(self):
+        """
+        Get the Facebook page access token.
+        This is used for posting to Facebook pages.
+        """
+        if self.platform != "facebook":
+            raise ValueError("Page token is only available for Facebook")
+        if not self.page_access_token:
+            raise ValueError("No page access token available")
+        return self.page_access_token
 
     def disconnect(self):
         """Disconnect the social profile."""
@@ -393,3 +436,181 @@ class LinkedInWebhookEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type} for {self.for_user_id} at {self.created_at}"
+
+
+class FacebookWebhookEvent(models.Model):
+    """
+    Stores incoming webhook events from Facebook.
+
+    Facebook sends webhooks for Page events including:
+    - Feed posts (new posts, comments, reactions)
+    - Page mentions
+    - Messaging (if enabled)
+    - Ratings and reviews
+    - Video status updates
+
+    Docs: https://developers.facebook.com/docs/graph-api/webhooks/
+    """
+
+    EVENT_TYPE_CHOICES = [
+        ("feed", "Feed Update (Post/Comment/Reaction)"),
+        ("mention", "Page Mentioned"),
+        ("message", "Message Received"),
+        ("messaging_postback", "Messaging Postback"),
+        ("rating", "Page Rating"),
+        ("video", "Video Status Change"),
+        ("leadgen", "Lead Generation"),
+        ("conversations", "Conversation Update"),
+        ("feed_comment", "Comment on Feed"),
+        ("feed_reaction", "Reaction on Feed"),
+        ("feed_share", "Post Shared"),
+    ]
+
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPE_CHOICES)
+    page_id = models.CharField(
+        max_length=100, db_index=True, help_text="Facebook Page ID this event is for"
+    )
+    sender_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="ID of the user who triggered the event",
+    )
+    post_id = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="ID of the post related to this event",
+    )
+    payload = models.JSONField(
+        default=dict, help_text="Full event payload from Facebook"
+    )
+    read = models.BooleanField(
+        default=False, help_text="Whether user has seen this event"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Facebook Webhook Event"
+        verbose_name_plural = "Facebook Webhook Events"
+        indexes = [
+            models.Index(fields=["page_id", "-created_at"]),
+            models.Index(fields=["page_id", "read"]),
+            models.Index(fields=["event_type", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} for page {self.page_id} at {self.created_at}"
+
+
+class FacebookResumableUpload(models.Model):
+    """
+    Tracks resumable video upload sessions for Facebook.
+
+    For videos > 1GB, Facebook requires chunked uploads. This model stores
+    the state of in-progress uploads so they can be resumed if interrupted.
+
+    Docs: https://developers.facebook.com/docs/graph-api/guides/upload
+    """
+
+    STATUS_CHOICES = [
+        ("pending", "Pending - Not Started"),
+        ("uploading", "Uploading - In Progress"),
+        ("processing", "Processing - Upload Complete"),
+        ("completed", "Completed - Ready"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
+    ]
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="facebook_uploads"
+    )
+    page_id = models.CharField(max_length=100, help_text="Facebook Page ID")
+
+    # Facebook upload session details
+    upload_session_id = models.CharField(
+        max_length=200, unique=True, help_text="Facebook upload session ID"
+    )
+    video_id = models.CharField(
+        max_length=100, blank=True, null=True, help_text="Video ID once upload starts"
+    )
+
+    # File details
+    file_name = models.CharField(max_length=255)
+    file_size = models.BigIntegerField(help_text="Total file size in bytes")
+    content_type = models.CharField(max_length=100, default="video/mp4")
+
+    # Upload progress
+    bytes_uploaded = models.BigIntegerField(
+        default=0, help_text="Bytes uploaded so far"
+    )
+    start_offset = models.BigIntegerField(
+        default=0, help_text="Next byte offset to upload from"
+    )
+    end_offset = models.BigIntegerField(
+        default=0, help_text="End offset of last successful chunk"
+    )
+
+    # Status and metadata
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    title = models.CharField(max_length=255, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Facebook Resumable Upload"
+        verbose_name_plural = "Facebook Resumable Uploads"
+        indexes = [
+            models.Index(fields=["user", "status"]),
+            models.Index(fields=["page_id", "-created_at"]),
+        ]
+
+    def __str__(self):
+        status_display = self.get_status_display()
+        progress = f"{self.progress_percent:.1f}%"
+        return f"{self.file_name} ({status_display}) - {progress}"
+
+    @property
+    def progress_percent(self) -> float:
+        """Calculate upload progress as percentage."""
+        if self.file_size == 0:
+            return 0.0
+        return (self.bytes_uploaded / self.file_size) * 100
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if upload is complete."""
+        return self.status == "completed"
+
+    @property
+    def is_in_progress(self) -> bool:
+        """Check if upload is in progress."""
+        return self.status in ("pending", "uploading", "processing")
+
+    def mark_completed(self):
+        """Mark upload as completed."""
+        self.status = "completed"
+        self.completed_at = timezone.now()
+        self.bytes_uploaded = self.file_size
+        self.save()
+
+    def mark_failed(self, error_message: str = None):
+        """Mark upload as failed."""
+        self.status = "failed"
+        self.error_message = error_message
+        self.save()
+
+    def update_progress(self, start_offset: int, end_offset: int):
+        """Update upload progress after a successful chunk."""
+        self.start_offset = start_offset
+        self.end_offset = end_offset
+        self.bytes_uploaded = end_offset
+        self.status = "uploading"
+        self.save()

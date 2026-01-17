@@ -12,11 +12,15 @@ from .views import (
     LinkedInCallbackView,
     LinkedInDisconnectView,
     LinkedInTestConnectView,
+    LinkedInOrganizationsView,
+    LinkedInSelectOrganizationView,
     LinkedInPostView,
+    LinkedInCarouselPostView,
     LinkedInMediaUploadView,
     LinkedInVideoStatusView,
     LinkedInDocumentStatusView,
     LinkedInAnalyticsView,
+    LinkedInDeletePostView,
     LinkedInWebhookView,
     LinkedInWebhookEventsView,
     # Twitter views
@@ -25,6 +29,7 @@ from .views import (
     TwitterDisconnectView,
     TwitterTestConnectView,
     TwitterPostView,
+    TwitterCarouselPostView,
     TwitterValidateTweetView,
     TwitterMediaUploadView,
     TwitterMediaStatusView,
@@ -32,6 +37,26 @@ from .views import (
     TwitterAnalyticsView,
     TwitterWebhookView,
     TwitterWebhookEventsView,
+    # Facebook views
+    FacebookConnectView,
+    FacebookCallbackView,
+    FacebookDisconnectView,
+    FacebookTestConnectView,
+    FacebookPagesView,
+    FacebookSelectPageView,
+    FacebookPostView,
+    FacebookMediaUploadView,
+    FacebookResumableUploadView,
+    FacebookDeletePostView,
+    FacebookAnalyticsView,
+    FacebookLinkPreviewView,
+    FacebookCarouselPostView,
+    FacebookCarouselUploadView,
+    FacebookStoryView,
+    FacebookStoryDeleteView,
+    FacebookWebhookView,
+    FacebookWebhookEventsView,
+    FacebookWebhookSubscribeView,
 )
 
 router = DefaultRouter()
@@ -57,7 +82,23 @@ urlpatterns = [
         LinkedInTestConnectView.as_view(),
         name="linkedin-test-connect",
     ),
+    # LinkedIn Organizations (Company Pages)
+    path(
+        "linkedin/organizations/",
+        LinkedInOrganizationsView.as_view(),
+        name="linkedin-organizations",
+    ),
+    path(
+        "linkedin/organizations/select/",
+        LinkedInSelectOrganizationView.as_view(),
+        name="linkedin-select-organization",
+    ),
     path("linkedin/post/", LinkedInPostView.as_view(), name="linkedin-post"),
+    path(
+        "linkedin/carousel/post/",
+        LinkedInCarouselPostView.as_view(),
+        name="linkedin-carousel-post",
+    ),
     path(
         "linkedin/media/upload/",
         LinkedInMediaUploadView.as_view(),
@@ -83,7 +124,14 @@ urlpatterns = [
         "linkedin/analytics/<path:post_urn>/",
         LinkedInAnalyticsView.as_view(),
         name="linkedin-analytics-post",
-    ),  # LinkedIn Webhooks
+    ),
+    # LinkedIn Delete Post
+    path(
+        "linkedin/post/<path:post_urn>/",
+        LinkedInDeletePostView.as_view(),
+        name="linkedin-delete-post",
+    ),
+    # LinkedIn Webhooks
     path(
         "linkedin/webhook/",
         LinkedInWebhookView.as_view(),
@@ -107,6 +155,11 @@ urlpatterns = [
         name="twitter-test-connect",
     ),
     path("twitter/post/", TwitterPostView.as_view(), name="twitter-post"),
+    path(
+        "twitter/carousel/post/",
+        TwitterCarouselPostView.as_view(),
+        name="twitter-carousel-post",
+    ),
     path(
         "twitter/validate/",
         TwitterValidateTweetView.as_view(),
@@ -148,6 +201,106 @@ urlpatterns = [
         "twitter/webhooks/events/",
         TwitterWebhookEventsView.as_view(),
         name="twitter-webhook-events",
+    ),
+    # Facebook OAuth
+    path("facebook/connect/", FacebookConnectView.as_view(), name="facebook-connect"),
+    path(
+        "facebook/callback/", FacebookCallbackView.as_view(), name="facebook-callback"
+    ),
+    path(
+        "facebook/disconnect/",
+        FacebookDisconnectView.as_view(),
+        name="facebook-disconnect",
+    ),
+    path(
+        "facebook/test-connect/",
+        FacebookTestConnectView.as_view(),
+        name="facebook-test-connect",
+    ),
+    # Facebook Pages
+    path("facebook/pages/", FacebookPagesView.as_view(), name="facebook-pages"),
+    path(
+        "facebook/pages/select/",
+        FacebookSelectPageView.as_view(),
+        name="facebook-select-page",
+    ),
+    # Facebook Posting
+    path("facebook/post/", FacebookPostView.as_view(), name="facebook-post"),
+    path(
+        "facebook/media/upload/",
+        FacebookMediaUploadView.as_view(),
+        name="facebook-media-upload",
+    ),
+    # Facebook Resumable Upload (for large videos > 1GB)
+    path(
+        "facebook/upload/resumable/",
+        FacebookResumableUploadView.as_view(),
+        name="facebook-resumable-upload",
+    ),
+    path(
+        "facebook/upload/resumable/<str:action>/",
+        FacebookResumableUploadView.as_view(),
+        name="facebook-resumable-upload-action",
+    ),
+    path(
+        "facebook/post/<str:post_id>/",
+        FacebookDeletePostView.as_view(),
+        name="facebook-delete-post",
+    ),
+    # Facebook Analytics
+    path(
+        "facebook/analytics/",
+        FacebookAnalyticsView.as_view(),
+        name="facebook-analytics",
+    ),
+    path(
+        "facebook/analytics/<str:post_id>/",
+        FacebookAnalyticsView.as_view(),
+        name="facebook-analytics-post",
+    ),
+    # Facebook Link Preview
+    path(
+        "facebook/link-preview/",
+        FacebookLinkPreviewView.as_view(),
+        name="facebook-link-preview",
+    ),
+    # Facebook Carousel Posts
+    path(
+        "facebook/carousel/post/",
+        FacebookCarouselPostView.as_view(),
+        name="facebook-carousel-post",
+    ),
+    path(
+        "facebook/carousel/upload/",
+        FacebookCarouselUploadView.as_view(),
+        name="facebook-carousel-upload",
+    ),
+    # Facebook Stories
+    path(
+        "facebook/stories/",
+        FacebookStoryView.as_view(),
+        name="facebook-stories",
+    ),
+    path(
+        "facebook/stories/<str:story_id>/",
+        FacebookStoryDeleteView.as_view(),
+        name="facebook-story-delete",
+    ),
+    # Facebook Webhooks
+    path(
+        "facebook/webhook/",
+        FacebookWebhookView.as_view(),
+        name="facebook-webhook",
+    ),
+    path(
+        "facebook/webhooks/events/",
+        FacebookWebhookEventsView.as_view(),
+        name="facebook-webhook-events",
+    ),
+    path(
+        "facebook/webhooks/subscribe/",
+        FacebookWebhookSubscribeView.as_view(),
+        name="facebook-webhook-subscribe",
     ),
     # Router URLs
     path("", include(router.urls)),

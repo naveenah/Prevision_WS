@@ -11,6 +11,10 @@ TEST_REFRESH_TOKEN = "test_refresh_token_not_real"
 TWITTER_TEST_ACCESS_TOKEN = "test_twitter_access_token_not_real"
 TWITTER_TEST_REFRESH_TOKEN = "test_twitter_refresh_token_not_real"
 
+# Facebook test mode constants
+FACEBOOK_TEST_ACCESS_TOKEN = "test_facebook_access_token_not_real"
+FACEBOOK_TEST_PAGE_TOKEN = "test_facebook_page_token_not_real"
+
 # LinkedIn API limits
 LINKEDIN_POST_MAX_LENGTH = 3000
 LINKEDIN_TITLE_MAX_LENGTH = 200
@@ -23,9 +27,19 @@ TWITTER_MEDIA_MAX_VIDEO_SIZE = 512 * 1024 * 1024  # 512MB for video
 TWITTER_MEDIA_MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB for images
 TWITTER_MEDIA_MAX_GIF_SIZE = 15 * 1024 * 1024  # 15MB for GIFs
 
+# Facebook API limits
+FACEBOOK_POST_MAX_LENGTH = 63206  # Facebook page post limit
+FACEBOOK_MEDIA_MAX_IMAGES = 10  # Max images per post
+FACEBOOK_MEDIA_MAX_VIDEO_SIZE = 1024 * 1024 * 1024  # 1GB for video
+FACEBOOK_MEDIA_MAX_IMAGE_SIZE = 4 * 1024 * 1024  # 4MB for images
+
 # Twitter supported media types
 TWITTER_IMAGE_TYPES: List[str] = ["image/jpeg", "image/png", "image/gif", "image/webp"]
 TWITTER_VIDEO_TYPES: List[str] = ["video/mp4", "video/quicktime"]
+
+# Facebook supported media types
+FACEBOOK_IMAGE_TYPES: List[str] = ["image/jpeg", "image/png", "image/gif", "image/bmp"]
+FACEBOOK_VIDEO_TYPES: List[str] = ["video/mp4", "video/mov", "video/avi"]
 
 # Editable post statuses - posts with these statuses can be edited
 EDITABLE_STATUSES: List[str] = ["draft", "scheduled"]

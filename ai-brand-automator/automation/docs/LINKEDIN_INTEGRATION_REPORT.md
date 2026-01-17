@@ -154,6 +154,9 @@ CELERY_BEAT_SCHEDULE = {
 | Media Upload UI | ✅ Complete | Image & video upload in Compose/Schedule/Edit modals |
 | Analytics Dashboard | ✅ Complete | Collapsible metrics view with engagement stats |
 | Notifications | ✅ Complete | Bell icon with unread count and dropdown |
+| **Draft Save/Restore** | ✅ Complete | Auto-restore drafts on modal reopen with title, text, and media |
+| **Modal Scrolling** | ✅ Complete | Scrollable modal for long content (`max-h-[90vh] overflow-y-auto`) |
+| **Carousel Mode** | ✅ Complete | Multi-image posts (up to 9 images) |
 
 **Files:**
 - `src/app/automation/page.tsx` - Main automation page (3200+ lines)
@@ -419,6 +422,10 @@ curl -X POST http://localhost:8000/api/v1/automation/content-calendar/ \
 
 | Date | Changes |
 |------|---------|
+| 2026-01-16 | Added draft save/restore with media support (base64 images < 500KB) |
+| 2026-01-16 | Added modal scrolling for long content (`max-h-[90vh] overflow-y-auto`) |
+| 2026-01-16 | Added title field to draft save/restore |
+| 2026-01-16 | Added carousel mode for multi-image posts (up to 9 images) |
 | 2026-01-16 | Added LinkedIn Analytics dashboard with profile, network, and post metrics |
 | 2026-01-16 | Added LinkedIn Webhook notifications with bell icon and event dropdown |
 | 2026-01-16 | Added LinkedInWebhookEvent model for event persistence |
