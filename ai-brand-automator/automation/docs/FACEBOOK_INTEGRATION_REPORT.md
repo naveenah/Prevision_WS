@@ -822,6 +822,10 @@ SCOPES = ["public_profile", "pages_show_list"]
 
 | Date | Changes |
 |------|---------|
+| 2026-01-17 | Code cleanup: removed unused state variables and handlers per PR review |
+| 2026-01-17 | Fixed E501 line too long errors (88 char limit) |
+| 2026-01-17 | Added explanatory comment to empty except clause for cached stories |
+| 2026-01-17 | Removed redundant platform-specific delete handlers (unified into handleDeletePost) |
 | 2026-01-16 | Added draft save/restore with media support (title, text, base64 images < 500KB) |
 | 2026-01-16 | Added modal scrolling for long content (`max-h-[90vh] overflow-y-auto`) |
 | 2026-01-16 | Added carousel mode UI for multi-image posts |
@@ -832,4 +836,4 @@ SCOPES = ["public_profile", "pages_show_list"]
 ---
 
 *Document created: January 16, 2026*
-*Last updated: January 16, 2026*
+*Last updated: January 17, 2026*
