@@ -589,6 +589,183 @@ class LinkedInPostView(APIView):
             )
 
 
+class LinkedInCarouselPostView(APIView):
+    """
+    Create a multi-image (carousel) post on LinkedIn.
+
+    LinkedIn supports up to 9 images in a single post, allowing users
+    to swipe through them. This endpoint provides a carousel experience
+    similar to Facebook.
+    
+    Note: LinkedIn also supports document carousels (PDFs) which display
+    as swipeable pages. For document carousels, use the regular post
+    endpoint with a document URN.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Create a multi-image post on LinkedIn.
+
+        Request body:
+        - text: Post text (required, max 3000 chars)
+        - media_urns: List of pre-uploaded image asset URNs (2-9 items)
+        - title: Optional title for the post
+        """
+        text = request.data.get("text", "").strip()
+        media_urns = request.data.get("media_urns", [])
+        title = request.data.get("title", "").strip()
+
+        if not text:
+            return Response(
+                {"error": "Post text is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(text) > 3000:
+            return Response(
+                {"error": "Post text cannot exceed 3000 characters"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if title and len(title) > LINKEDIN_TITLE_MAX_LENGTH:
+            return Response(
+                {"error": f"Title cannot exceed {LINKEDIN_TITLE_MAX_LENGTH} chars"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate media_urns
+        if not media_urns:
+            return Response(
+                {"error": "media_urns is required for carousel posts"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(media_urns, list):
+            media_urns = [media_urns]
+
+        if len(media_urns) < 2:
+            return Response(
+                {"error": "Carousel posts require at least 2 images"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(media_urns) > 9:
+            return Response(
+                {"error": "LinkedIn supports maximum 9 images per post"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="linkedin", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "LinkedIn account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode - either test access token OR placeholder media URNs
+        is_test_mode = (
+            profile.access_token == TEST_ACCESS_TOKEN
+            or all(str(urn).startswith("test_") for urn in media_urns)
+        )
+        
+        if is_test_mode:
+            test_post_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
+            logger.info(f"Test LinkedIn carousel by {request.user.email}: {text[:50]}...")
+
+            # Create a ContentCalendar entry
+            post_title = (
+                title if title 
+                else f"[Carousel] {text[:40]}..." if len(text) > 40 
+                else f"[Carousel] {text}"
+            )
+            ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                media_urls=media_urns,
+                platforms=["linkedin"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "linkedin": {
+                        "test_mode": True,
+                        "post_id": test_post_id,
+                        "type": "carousel",
+                        "image_count": len(media_urns),
+                    }
+                },
+            )
+
+            return Response({
+                "test_mode": True,
+                "message": "Carousel post simulated in test mode",
+                "post_id": test_post_id,
+                "id": test_post_id,
+                "image_count": len(media_urns),
+            })
+
+        try:
+            # Get valid access token
+            access_token = profile.get_valid_access_token()
+
+            # Create post with multiple images
+            result = linkedin_service.create_share(
+                access_token=access_token,
+                user_urn=profile.profile_id,
+                text=text,
+                image_urns=media_urns,
+            )
+
+            # Store in ContentCalendar
+            post_title = (
+                title if title
+                else f"[Carousel] {text[:40]}..." if len(text) > 40
+                else f"[Carousel] {text}"
+            )
+            content = ContentCalendar.objects.create(
+                user=request.user,
+                title=post_title,
+                content=text,
+                media_urls=media_urns,
+                platforms=["linkedin"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "linkedin": result,
+                    "type": "carousel",
+                    "image_count": len(media_urns),
+                },
+            )
+            content.social_profiles.add(profile)
+
+            logger.info(
+                f"LinkedIn carousel created by {request.user.email} "
+                f"(images: {len(media_urns)})"
+            )
+
+            return Response({
+                "success": True,
+                "post_id": result.get("id"),
+                "message": "Carousel posted to LinkedIn successfully",
+                "image_count": len(media_urns),
+                **result,
+            })
+
+        except Exception as e:
+            logger.error(f"LinkedIn carousel post failed: {e}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class LinkedInMediaUploadView(APIView):
     """
     Upload media (images, videos, or documents) to LinkedIn for use in posts.
@@ -2174,6 +2351,160 @@ class TwitterPostView(APIView):
             logger.error(f"Failed to post tweet: {e}")
             return Response(
                 {"error": f"Failed to post tweet: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class TwitterCarouselPostView(APIView):
+    """
+    Create a multi-image tweet on Twitter/X.
+
+    Twitter supports up to 4 images per tweet. This endpoint provides
+    a carousel-like experience similar to Facebook's carousel posts.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Create a multi-image tweet.
+
+        Request body:
+        - text: Tweet text (required)
+        - media_ids: List of pre-uploaded media IDs (2-4 items)
+        """
+        from .services import twitter_service
+
+        text = request.data.get("text", "").strip()
+        media_ids = request.data.get("media_ids", [])
+
+        if not text:
+            return Response(
+                {"error": "Tweet text is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate length
+        validation = twitter_service.validate_tweet_length(text)
+        if not validation["is_valid"]:
+            return Response(
+                {
+                    "error": f"Tweet exceeds max length of {validation['max_length']} "
+                    f"characters (current: {validation['length']})"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate media_ids
+        if not media_ids:
+            return Response(
+                {"error": "media_ids is required for carousel posts"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(media_ids, list):
+            media_ids = [media_ids]
+
+        if len(media_ids) < 2:
+            return Response(
+                {"error": "Carousel posts require at least 2 images"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(media_ids) > 4:
+            return Response(
+                {"error": "Twitter supports maximum 4 images per tweet"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profile = SocialProfile.objects.get(
+                user=request.user, platform="twitter", status="connected"
+            )
+        except SocialProfile.DoesNotExist:
+            return Response(
+                {"error": "Twitter account not connected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check for test mode - either test access token OR placeholder media IDs
+        is_test_mode = (
+            profile.access_token == TWITTER_TEST_ACCESS_TOKEN
+            or all(str(mid).startswith("test_") for mid in media_ids)
+        )
+        
+        if is_test_mode:
+            test_tweet_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
+            logger.info(f"Test carousel tweet by {request.user.email}: {text[:50]}...")
+
+            # Create a ContentCalendar entry
+            ContentCalendar.objects.create(
+                user=request.user,
+                title=f"[Carousel] {text[:40]}..." if len(text) > 40 else f"[Carousel] {text}",
+                content=text,
+                media_urls=media_ids,
+                platforms=["twitter"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "twitter": {
+                        "test_mode": True,
+                        "tweet_id": test_tweet_id,
+                        "type": "carousel",
+                        "image_count": len(media_ids),
+                    }
+                },
+            )
+
+            return Response({
+                "test_mode": True,
+                "message": "Carousel tweet simulated in test mode",
+                "tweet_id": test_tweet_id,
+                "id": test_tweet_id,
+                "image_count": len(media_ids),
+            })
+
+        try:
+            # Get valid access token
+            access_token = profile.get_valid_access_token()
+
+            # Create tweet with multiple images
+            result = twitter_service.create_tweet(
+                access_token=access_token,
+                text=text,
+                media_ids=media_ids,
+            )
+
+            # Store in ContentCalendar
+            ContentCalendar.objects.create(
+                user=request.user,
+                title=f"[Carousel] {text[:40]}..." if len(text) > 40 else f"[Carousel] {text}",
+                content=text,
+                media_urls=media_ids,
+                platforms=["twitter"],
+                scheduled_date=timezone.now(),
+                published_at=timezone.now(),
+                status="published",
+                post_results={
+                    "twitter": result,
+                    "type": "carousel",
+                    "image_count": len(media_ids),
+                },
+            )
+
+            return Response({
+                "success": True,
+                "tweet_id": result.get("id"),
+                "message": "Carousel posted to Twitter successfully",
+                "image_count": len(media_ids),
+                **result,
+            })
+
+        except Exception as e:
+            logger.error(f"Twitter carousel post failed: {e}")
+            return Response(
+                {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -4141,8 +4472,13 @@ class FacebookCarouselPostView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Check for test mode
-        if profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN:
+        # Check for test mode - either test token OR placeholder URLs
+        is_test_mode = (
+            profile.page_access_token == FACEBOOK_TEST_PAGE_TOKEN
+            or all(str(url).startswith("carousel_image_") for url in photo_urls)
+        )
+        
+        if is_test_mode:
             test_post_id = f"test_carousel_{uuid.uuid4().hex[:8]}"
             
             # Save to ContentCalendar for history (even in test mode)

@@ -15,6 +15,7 @@ from .views import (
     LinkedInOrganizationsView,
     LinkedInSelectOrganizationView,
     LinkedInPostView,
+    LinkedInCarouselPostView,
     LinkedInMediaUploadView,
     LinkedInVideoStatusView,
     LinkedInDocumentStatusView,
@@ -28,6 +29,7 @@ from .views import (
     TwitterDisconnectView,
     TwitterTestConnectView,
     TwitterPostView,
+    TwitterCarouselPostView,
     TwitterValidateTweetView,
     TwitterMediaUploadView,
     TwitterMediaStatusView,
@@ -93,6 +95,11 @@ urlpatterns = [
     ),
     path("linkedin/post/", LinkedInPostView.as_view(), name="linkedin-post"),
     path(
+        "linkedin/carousel/post/",
+        LinkedInCarouselPostView.as_view(),
+        name="linkedin-carousel-post",
+    ),
+    path(
         "linkedin/media/upload/",
         LinkedInMediaUploadView.as_view(),
         name="linkedin-media-upload",
@@ -148,6 +155,11 @@ urlpatterns = [
         name="twitter-test-connect",
     ),
     path("twitter/post/", TwitterPostView.as_view(), name="twitter-post"),
+    path(
+        "twitter/carousel/post/",
+        TwitterCarouselPostView.as_view(),
+        name="twitter-carousel-post",
+    ),
     path(
         "twitter/validate/",
         TwitterValidateTweetView.as_view(),

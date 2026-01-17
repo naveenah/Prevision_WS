@@ -368,10 +368,18 @@ function AutomationPageContent() {
   // Thread mode
   const [isThreadMode, setIsThreadMode] = useState(false);
   const [threadTweets, setThreadTweets] = useState<string[]>(['']);
+  // Twitter Carousel mode (multi-image, max 4)
+  const [twitterCarouselMode, setTwitterCarouselMode] = useState(false);
+  const [twitterCarouselImages, setTwitterCarouselImages] = useState<{ url: string; file?: File; mediaId?: string }[]>([]);
+  const [uploadingTwitterCarouselImage, setUploadingTwitterCarouselImage] = useState(false);
   // Deleting tweet
   const [deletingTweetId, setDeletingTweetId] = useState<string | null>(null);
   // Deleting LinkedIn post
   const [deletingLinkedInPostId, setDeletingLinkedInPostId] = useState<string | null>(null);
+  // LinkedIn Carousel mode (multi-image, max 9)
+  const [linkedinCarouselMode, setLinkedinCarouselMode] = useState(false);
+  const [linkedinCarouselImages, setLinkedinCarouselImages] = useState<{ url: string; file?: File; mediaUrn?: string }[]>([]);
+  const [uploadingLinkedinCarouselImage, setUploadingLinkedinCarouselImage] = useState(false);
 
   // Facebook compose state
   const [showFacebookComposeModal, setShowFacebookComposeModal] = useState(false);
@@ -1019,6 +1027,104 @@ function AutomationPageContent() {
     }
   };
 
+  // Handle LinkedIn Carousel Post (multi-image, max 9)
+  const handleLinkedInCarouselPost = async () => {
+    if (linkedinCarouselImages.length < 2) {
+      setMessage({ type: 'error', text: 'Carousel posts require at least 2 images' });
+      return;
+    }
+    if (linkedinCarouselImages.length > 9) {
+      setMessage({ type: 'error', text: 'LinkedIn supports maximum 9 images per post' });
+      return;
+    }
+    if (!postText.trim()) {
+      setMessage({ type: 'error', text: 'Please enter some text for your post' });
+      return;
+    }
+
+    setPosting(true);
+    try {
+      // In test mode, send placeholder media_urns (backend will simulate)
+      const mediaUrns = linkedinCarouselImages.map((_, index) => `test_urn_${index + 1}`);
+      
+      const response = await apiClient.post('/automation/linkedin/carousel/post/', {
+        text: postText,
+        title: postTitle.trim() || undefined,
+        media_urns: mediaUrns,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Carousel post simulated (Test Mode)' 
+            : '✅ Carousel posted to LinkedIn successfully!',
+        });
+        resetLinkedInComposeForm();
+        setShowComposeModal(false);
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create carousel post',
+        });
+      }
+    } catch (error) {
+      console.error('LinkedIn carousel post error:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create carousel post',
+      });
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  // Reset LinkedIn compose form
+  const resetLinkedInComposeForm = () => {
+    setPostTitle('');
+    setPostText('');
+    setPostMediaUrns([]);
+    if (postMediaPreview) {
+      URL.revokeObjectURL(postMediaPreview.url);
+      setPostMediaPreview(null);
+    }
+    setLinkedinCarouselMode(false);
+    linkedinCarouselImages.forEach(img => URL.revokeObjectURL(img.url));
+    setLinkedinCarouselImages([]);
+  };
+
+  // Add images to LinkedIn carousel
+  const addLinkedinCarouselImages = (files: FileList | null) => {
+    if (!files) return;
+    
+    const currentCount = linkedinCarouselImages.length;
+    const maxAllowed = 9 - currentCount;
+    
+    if (maxAllowed <= 0) {
+      setMessage({ type: 'error', text: 'Maximum 9 images allowed' });
+      return;
+    }
+    
+    const newImages = Array.from(files).slice(0, maxAllowed).map(file => ({
+      url: URL.createObjectURL(file),
+      file,
+    }));
+    
+    setLinkedinCarouselImages(prev => [...prev, ...newImages]);
+  };
+
+  // Remove image from LinkedIn carousel
+  const removeLinkedinCarouselImage = (index: number) => {
+    setLinkedinCarouselImages(prev => {
+      const removed = prev[index];
+      if (removed) URL.revokeObjectURL(removed.url);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   // Handle posting to Twitter/X
   const handleTwitterPost = async () => {
     // Thread mode handling
@@ -1119,6 +1225,93 @@ function AutomationPageContent() {
       URL.revokeObjectURL(tweetMediaPreview.url);
       setTweetMediaPreview(null);
     }
+    // Reset carousel state
+    setTwitterCarouselMode(false);
+    twitterCarouselImages.forEach(img => URL.revokeObjectURL(img.url));
+    setTwitterCarouselImages([]);
+  };
+
+  // Handle Twitter Carousel Post (multi-image, max 4)
+  const handleTwitterCarouselPost = async () => {
+    if (twitterCarouselImages.length < 2) {
+      setMessage({ type: 'error', text: 'Carousel posts require at least 2 images' });
+      return;
+    }
+    if (twitterCarouselImages.length > 4) {
+      setMessage({ type: 'error', text: 'Twitter supports maximum 4 images per tweet' });
+      return;
+    }
+    if (!tweetText.trim()) {
+      setMessage({ type: 'error', text: 'Please enter some text for your tweet' });
+      return;
+    }
+
+    setTweetPosting(true);
+    try {
+      // In test mode, send placeholder media_ids (backend will simulate)
+      const mediaIds = twitterCarouselImages.map((_, index) => `test_media_${index + 1}`);
+      
+      const response = await apiClient.post('/automation/twitter/carousel/post/', {
+        text: tweetText,
+        media_ids: mediaIds,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessage({
+          type: 'success',
+          text: data.test_mode 
+            ? '🧪 Carousel tweet simulated (Test Mode)' 
+            : '✅ Carousel tweet posted successfully!',
+        });
+        resetTwitterComposeForm();
+        setShowTwitterComposeModal(false);
+        fetchPublishedPosts();
+      } else {
+        const error = await response.json();
+        setMessage({
+          type: 'error',
+          text: error.error || 'Failed to create carousel tweet',
+        });
+      }
+    } catch (error) {
+      console.error('Twitter carousel post error:', error);
+      setMessage({
+        type: 'error',
+        text: 'Failed to create carousel tweet',
+      });
+    } finally {
+      setTweetPosting(false);
+    }
+  };
+
+  // Add images to Twitter carousel
+  const addTwitterCarouselImages = (files: FileList | null) => {
+    if (!files) return;
+    
+    const currentCount = twitterCarouselImages.length;
+    const maxAllowed = 4 - currentCount;
+    
+    if (maxAllowed <= 0) {
+      setMessage({ type: 'error', text: 'Maximum 4 images allowed' });
+      return;
+    }
+    
+    const newImages = Array.from(files).slice(0, maxAllowed).map(file => ({
+      url: URL.createObjectURL(file),
+      file,
+    }));
+    
+    setTwitterCarouselImages(prev => [...prev, ...newImages]);
+  };
+
+  // Remove image from Twitter carousel
+  const removeTwitterCarouselImage = (index: number) => {
+    setTwitterCarouselImages(prev => {
+      const removed = prev[index];
+      if (removed) URL.revokeObjectURL(removed.url);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   // Handle thread posting (multiple tweets in sequence)
@@ -2962,11 +3155,37 @@ function AutomationPageContent() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-heading font-bold text-white">Create LinkedIn Post</h2>
+                <h2 className="text-xl font-heading font-bold text-white">
+                  {linkedinCarouselMode ? 'Create Carousel Post' : 'Create LinkedIn Post'}
+                </h2>
                 <p className="text-sm text-brand-silver/70">
-                  Share your thoughts with your network
+                  {linkedinCarouselMode ? 'Share multiple images your network can swipe through' : 'Share your thoughts with your network'}
                 </p>
               </div>
+            </div>
+
+            {/* Mode Toggle: Single Post / Carousel */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setLinkedinCarouselMode(false)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !linkedinCarouselMode 
+                    ? 'bg-[#0A66C2] text-white' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                Single Post
+              </button>
+              <button
+                onClick={() => setLinkedinCarouselMode(true)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  linkedinCarouselMode 
+                    ? 'bg-[#0A66C2] text-white' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                🖼️ Carousel (2-9 images)
+              </button>
             </div>
 
             {/* Form Fields */}
@@ -3086,6 +3305,60 @@ function AutomationPageContent() {
                 )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['linkedin'])}</p>
               </div>
+
+              {/* LinkedIn Carousel Mode */}
+              {linkedinCarouselMode && (
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-2">
+                    Carousel Images ({linkedinCarouselImages.length}/9)
+                  </label>
+                  <p className="text-xs text-brand-silver/50 mb-3">
+                    Add 2-9 images. Your network can swipe through them.
+                  </p>
+                  
+                  {/* Carousel Image Grid */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {linkedinCarouselImages.map((img, index) => (
+                      <div key={index} className="relative aspect-square group">
+                        <img
+                          src={img.url}
+                          alt={`Carousel image ${index + 1}`}
+                          className="w-full h-full object-cover rounded-lg border border-brand-ghost/30"
+                        />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                          {index + 1}
+                        </div>
+                        <button
+                          onClick={() => removeLinkedinCarouselImage(index)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    
+                    {/* Add Image Button - Inside Grid */}
+                    {linkedinCarouselImages.length < 9 && (
+                      <label className="aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer">
+                        <svg className="w-6 h-6 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="text-xs text-brand-silver mt-1">Add</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            addLinkedinCarouselImages(e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -3106,8 +3379,13 @@ function AutomationPageContent() {
                 Cancel
               </button>
               <button
-                onClick={handlePost}
-                disabled={posting || uploadingMedia || !postText.trim()}
+                onClick={linkedinCarouselMode ? handleLinkedInCarouselPost : handlePost}
+                disabled={
+                  posting || 
+                  uploadingMedia || 
+                  !postText.trim() ||
+                  (linkedinCarouselMode && linkedinCarouselImages.length < 2)
+                }
                 className="px-6 py-2.5 rounded-lg bg-[#0A66C2] hover:bg-[#004182] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {posting ? (
@@ -3116,10 +3394,12 @@ function AutomationPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Posting...
+                    {linkedinCarouselMode ? 'Posting Carousel...' : 'Posting...'}
                   </>
                 ) : (
-                  'Post'
+                  linkedinCarouselMode 
+                    ? `Post Carousel (${linkedinCarouselImages.length} images)` 
+                    : 'Post'
                 )}
               </button>
             </div>
@@ -3161,12 +3441,12 @@ function AutomationPageContent() {
               </div>
             </div>
 
-            {/* Mode Toggle: Single Tweet / Thread */}
-            <div className="mb-4 flex gap-2">
+            {/* Mode Toggle: Single Tweet / Thread / Carousel */}
+            <div className="mb-4 flex gap-2 flex-wrap">
               <button
-                onClick={() => setIsThreadMode(false)}
+                onClick={() => { setIsThreadMode(false); setTwitterCarouselMode(false); }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !isThreadMode 
+                  !isThreadMode && !twitterCarouselMode
                     ? 'bg-brand-electric text-brand-midnight' 
                     : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
                 }`}
@@ -3174,7 +3454,7 @@ function AutomationPageContent() {
                 Single Tweet
               </button>
               <button
-                onClick={() => setIsThreadMode(true)}
+                onClick={() => { setIsThreadMode(true); setTwitterCarouselMode(false); }}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isThreadMode 
                     ? 'bg-brand-electric text-brand-midnight' 
@@ -3182,6 +3462,16 @@ function AutomationPageContent() {
                 }`}
               >
                 🧵 Thread
+              </button>
+              <button
+                onClick={() => { setTwitterCarouselMode(true); setIsThreadMode(false); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  twitterCarouselMode 
+                    ? 'bg-brand-electric text-brand-midnight' 
+                    : 'bg-brand-midnight border border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                🖼️ Carousel (2-4 images)
               </button>
             </div>
 
@@ -3409,6 +3699,60 @@ function AutomationPageContent() {
                 )}
                 <p className="text-xs text-brand-silver/50 mt-1">{getMediaHelperText(['twitter'])}</p>
               </div>
+
+              {/* Twitter Carousel Mode */}
+              {twitterCarouselMode && (
+                <div>
+                  <label className="block text-sm font-medium text-brand-silver mb-2">
+                    Carousel Images ({twitterCarouselImages.length}/4)
+                  </label>
+                  <p className="text-xs text-brand-silver/50 mb-3">
+                    Add 2-4 images. Users can swipe through them.
+                  </p>
+                  
+                  {/* Carousel Image Grid */}
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {twitterCarouselImages.map((img, index) => (
+                      <div key={index} className="relative aspect-square group">
+                        <img
+                          src={img.url}
+                          alt={`Carousel image ${index + 1}`}
+                          className="w-full h-full object-cover rounded-lg border border-brand-ghost/30"
+                        />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center font-bold">
+                          {index + 1}
+                        </div>
+                        <button
+                          onClick={() => removeTwitterCarouselImage(index)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    
+                    {/* Add Image Button - Inside Grid */}
+                    {twitterCarouselImages.length < 4 && (
+                      <label className="aspect-square flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-brand-ghost/30 hover:border-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer">
+                        <svg className="w-6 h-6 text-brand-silver" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="text-xs text-brand-silver mt-1">Add</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            addTwitterCarouselImages(e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -3423,14 +3767,16 @@ function AutomationPageContent() {
                 Cancel
               </button>
               <button
-                onClick={handleTwitterPost}
+                onClick={twitterCarouselMode ? handleTwitterCarouselPost : handleTwitterPost}
                 disabled={
                   tweetPosting || 
                   uploadingTweetMedia || 
                   !tweetTitle.trim() || 
-                  (isThreadMode 
-                    ? threadTweets.filter(t => t.trim()).length === 0 || threadTweets.some(t => t.length > TWITTER_MAX_LENGTH)
-                    : !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH
+                  (twitterCarouselMode
+                    ? twitterCarouselImages.length < 2 || !tweetText.trim()
+                    : isThreadMode 
+                      ? threadTweets.filter(t => t.trim()).length === 0 || threadTweets.some(t => t.length > TWITTER_MAX_LENGTH)
+                      : !tweetText.trim() || tweetText.length > TWITTER_MAX_LENGTH
                   )
                 }
                 className="px-6 py-2.5 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 bg-black hover:bg-gray-800"
@@ -3441,10 +3787,14 @@ function AutomationPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    {isThreadMode ? 'Posting Thread...' : 'Posting...'}
+                    {twitterCarouselMode ? 'Posting Carousel...' : isThreadMode ? 'Posting Thread...' : 'Posting...'}
                   </>
                 ) : (
-                  isThreadMode ? `Post Thread (${threadTweets.filter(t => t.trim()).length} tweets)` : 'Post Tweet'
+                  twitterCarouselMode 
+                    ? `Post Carousel (${twitterCarouselImages.length} images)` 
+                    : isThreadMode 
+                      ? `Post Thread (${threadTweets.filter(t => t.trim()).length} tweets)` 
+                      : 'Post Tweet'
                 )}
               </button>
             </div>
