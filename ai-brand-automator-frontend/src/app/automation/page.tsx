@@ -6,6 +6,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api';
 import Link from 'next/link';
 
+// Draft storage keys - defined at module level
+const DRAFT_KEYS = {
+  facebook: 'fb_post_draft',
+  linkedin: 'linkedin_post_draft', 
+  twitter: 'twitter_post_draft',
+} as const;
+
 interface SocialPlatformStatus {
   connected: boolean;
   profile_name: string | null;
@@ -428,10 +435,54 @@ function AutomationPageContent() {
   const [resumableUploadDescription, setResumableUploadDescription] = useState('');
   const [currentUploadSessionId, setCurrentUploadSessionId] = useState<string | null>(null);
   
+  // Link Preview state
+  interface LinkPreview {
+    url: string;
+    title: string;
+    description: string;
+    image: string | null;
+    site_name: string;
+    type: string;
+    test_mode?: boolean;
+  }
+  const [fbLinkPreview, setFbLinkPreview] = useState<LinkPreview | null>(null);
+  const [fetchingLinkPreview, setFetchingLinkPreview] = useState(false);
+  const [lastFetchedUrl, setLastFetchedUrl] = useState<string | null>(null);
+  
   // Deleting Facebook post
   const [deletingFbPostId, setDeletingFbPostId] = useState<string | null>(null);
   // Deleting multi-platform post
   const [deletingPostId, setDeletingPostId] = useState<number | null>(null);
+
+  // Post Preview Tab state (compose vs preview)
+  const [fbComposeTab, setFbComposeTab] = useState<'compose' | 'preview'>('compose');
+  const [linkedInComposeTab, setLinkedInComposeTab] = useState<'compose' | 'preview'>('compose');
+  const [twitterComposeTab, setTwitterComposeTab] = useState<'compose' | 'preview'>('compose');
+
+  // Draft saving state
+  const [fbDraft, setFbDraft] = useState<{ 
+    title: string; 
+    text: string; 
+    savedAt: string;
+    mediaUrns?: string[];
+    mediaPreview?: { url: string; type: 'image' | 'video' } | null;
+    mediaSkipped?: boolean;
+  } | null>(null);
+  const [linkedInDraft, setLinkedInDraft] = useState<{ 
+    title?: string;
+    text: string; 
+    savedAt: string;
+    mediaUrns?: string[];
+    mediaPreview?: { url: string; type: 'image' | 'video' } | null;
+    mediaSkipped?: boolean;
+  } | null>(null);
+  const [twitterDraft, setTwitterDraft] = useState<{ 
+    text: string; 
+    savedAt: string;
+    mediaUrns?: string[];
+    mediaPreview?: { url: string; type: 'image' | 'video' } | null;
+    mediaSkipped?: boolean;
+  } | null>(null);
 
   // Facebook multi-page state
   interface FacebookPage {
@@ -446,6 +497,71 @@ function AutomationPageContent() {
   const [showFbPageSwitcher, setShowFbPageSwitcher] = useState(false);
   const [switchingFbPage, setSwitchingFbPage] = useState(false);
   const [currentFbPage, setCurrentFbPage] = useState<{ id: string; name: string } | null>(null);
+
+  // Facebook Analytics state
+  interface FbAnalytics {
+    test_mode?: boolean;
+    page_id?: string;
+    page_name?: string;
+    insights: {
+      page_impressions?: number;
+      page_engaged_users?: number;
+      page_fans?: number;
+      page_fan_adds?: number;
+      page_post_engagements?: number;
+      page_views_total?: number;
+    };
+    recent_posts: Array<{
+      id: string;
+      message: string;
+      created_time: string;
+      permalink_url?: string;
+      full_picture?: string;
+      likes: number;
+      comments: number;
+      shares: number;
+    }>;
+  }
+  const [fbAnalytics, setFbAnalytics] = useState<FbAnalytics | null>(null);
+  const [loadingFbAnalytics, setLoadingFbAnalytics] = useState(false);
+  const [showFbAnalytics, setShowFbAnalytics] = useState(false);
+
+  // Facebook Webhook Events state
+  interface FbWebhookEvent {
+    id: number;
+    event_type: string;
+    event_type_display: string;
+    sender_id: string;
+    post_id: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+    created_at: string;
+  }
+  interface FbWebhookEventsData {
+    page_id: string;
+    page_name: string;
+    events: FbWebhookEvent[];
+    total_count: number;
+    unread_count: number;
+  }
+  const [fbWebhookEvents, setFbWebhookEvents] = useState<FbWebhookEventsData | null>(null);
+  const [loadingFbWebhookEvents, setLoadingFbWebhookEvents] = useState(false);
+  const [showFbWebhookEvents, setShowFbWebhookEvents] = useState(false);
+
+  // Facebook Webhook Subscription state
+  interface FbWebhookSubscription {
+    name: string;
+    subscribed_fields: string[];
+  }
+  interface FbWebhookSubscriptionsData {
+    test_mode?: boolean;
+    page_id?: string;
+    subscriptions: FbWebhookSubscription[];
+  }
+  const [fbWebhookSubscriptions, setFbWebhookSubscriptions] = useState<FbWebhookSubscriptionsData | null>(null);
+  const [loadingFbWebhookSubscriptions, setLoadingFbWebhookSubscriptions] = useState(false);
+  const [showFbWebhookSettings, setShowFbWebhookSettings] = useState(false);
+  const [togglingWebhookSubscription, setTogglingWebhookSubscription] = useState(false);
 
   // Fetch Facebook pages
   const fetchFacebookPages = useCallback(async () => {
@@ -486,6 +602,8 @@ function AutomationPageContent() {
         });
         // Refresh profiles to update status
         fetchProfiles();
+        // Refresh analytics for new page
+        setFbAnalytics(null);
       } else {
         const errorData = await response.json();
         setMessage({
@@ -504,6 +622,106 @@ function AutomationPageContent() {
     }
   };
 
+  // Fetch Facebook Analytics
+  const fetchFbAnalytics = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setLoadingFbAnalytics(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook analytics:', error);
+    } finally {
+      setLoadingFbAnalytics(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Fetch Facebook Webhook Events
+  const fetchFbWebhookEvents = useCallback(async () => {
+    if (!profiles?.facebook?.connected) return;
+    
+    setLoadingFbWebhookEvents(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/webhooks/events/?limit=20');
+      if (response.ok) {
+        const data = await response.json();
+        setFbWebhookEvents(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Facebook webhook events:', error);
+    } finally {
+      setLoadingFbWebhookEvents(false);
+    }
+  }, [profiles?.facebook?.connected]);
+
+  // Mark webhook events as read
+  const markFbWebhookEventsAsRead = async (eventIds: number[], markAll = false) => {
+    try {
+      const response = await apiClient.post('/automation/facebook/webhooks/events/', {
+        event_ids: eventIds,
+        mark_all: markAll,
+      });
+      if (response.ok) {
+        // Refresh events
+        fetchFbWebhookEvents();
+      }
+    } catch (error) {
+      console.error('Failed to mark events as read:', error);
+    }
+  };
+
+  // Fetch Facebook webhook subscriptions
+  const fetchFbWebhookSubscriptions = async () => {
+    setLoadingFbWebhookSubscriptions(true);
+    try {
+      const response = await apiClient.get('/automation/facebook/webhooks/subscribe/');
+      if (response.ok) {
+        const data = await response.json();
+        setFbWebhookSubscriptions(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch webhook subscriptions:', error);
+    } finally {
+      setLoadingFbWebhookSubscriptions(false);
+    }
+  };
+
+  // Subscribe to Facebook webhooks
+  const subscribeFbToWebhooks = async () => {
+    setTogglingWebhookSubscription(true);
+    try {
+      const response = await apiClient.post('/automation/facebook/webhooks/subscribe/', {});
+      if (response.ok) {
+        // Refresh subscriptions
+        fetchFbWebhookSubscriptions();
+      }
+    } catch (error) {
+      console.error('Failed to subscribe to webhooks:', error);
+    } finally {
+      setTogglingWebhookSubscription(false);
+    }
+  };
+
+  // Unsubscribe from Facebook webhooks
+  const unsubscribeFbFromWebhooks = async () => {
+    setTogglingWebhookSubscription(true);
+    try {
+      const response = await apiClient.delete('/automation/facebook/webhooks/subscribe/');
+      if (response.ok) {
+        // Refresh subscriptions
+        fetchFbWebhookSubscriptions();
+      }
+    } catch (error) {
+      console.error('Failed to unsubscribe from webhooks:', error);
+    } finally {
+      setTogglingWebhookSubscription(false);
+    }
+  };
+
   // LinkedIn multi-organization (Company Page) state
   interface LinkedInOrganization {
     id: string;
@@ -519,8 +737,120 @@ function AutomationPageContent() {
   const [currentLinkedInOrg, setCurrentLinkedInOrg] = useState<{ id: string; name: string } | null>(null);
   const [linkedInPostingAs, setLinkedInPostingAs] = useState<'personal' | 'organization'>('personal');
 
+  // LinkedIn Analytics state
+  interface LinkedInPost {
+    post_urn: string;
+    text: string;
+    created_time: number;
+    metrics: {
+      likes: number;
+      comments: number;
+      shares: number;
+      impressions: number;
+    };
+  }
+  interface LinkedInAnalytics {
+    test_mode?: boolean;
+    profile?: {
+      name: string;
+      email: string;
+      picture?: string | null;
+    };
+    network?: {
+      connections: number;
+    };
+    posts: LinkedInPost[];
+    totals?: {
+      total_posts: number;
+      total_likes: number;
+      total_comments: number;
+      engagement_rate: number;
+    };
+  }
+  const [linkedInAnalytics, setLinkedInAnalytics] = useState<LinkedInAnalytics | null>(null);
+  const [loadingLinkedInAnalytics, setLoadingLinkedInAnalytics] = useState(false);
+  const [showLinkedInAnalytics, setShowLinkedInAnalytics] = useState(false);
+
+  // LinkedIn Webhook Events state
+  interface LinkedInWebhookEvent {
+    id: number;
+    event_type: string;
+    created_at: string;
+    resource_urn?: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+  }
+  interface LinkedInWebhookEventsData {
+    test_mode?: boolean;
+    events: LinkedInWebhookEvent[];
+    unread_count: number;
+  }
+  const [linkedInWebhookEvents, setLinkedInWebhookEvents] = useState<LinkedInWebhookEventsData | null>(null);
+  const [loadingLinkedInWebhookEvents, setLoadingLinkedInWebhookEvents] = useState(false);
+  const [showLinkedInWebhookEvents, setShowLinkedInWebhookEvents] = useState(false);
+
   // Twitter account panel state
   const [showTwitterAccountPanel, setShowTwitterAccountPanel] = useState(false);
+
+  // Twitter Analytics state
+  interface TwitterTweet {
+    tweet_id: string;
+    text: string;
+    created_at: string;
+    metrics: {
+      impressions: number;
+      likes: number;
+      retweets: number;
+      replies: number;
+      quotes: number;
+      bookmarks: number;
+    };
+  }
+  interface TwitterAnalytics {
+    test_mode?: boolean;
+    user?: {
+      user_id: string;
+      username: string;
+      name: string;
+      profile_image_url?: string | null;
+      metrics?: {
+        followers: number;
+        following: number;
+        tweets: number;
+        listed: number;
+      };
+    };
+    tweets: TwitterTweet[];
+    totals?: {
+      total_impressions: number;
+      total_likes: number;
+      total_retweets: number;
+      total_replies: number;
+      total_quotes: number;
+      total_bookmarks: number;
+      engagement_rate: number;
+    };
+  }
+  const [twitterAnalytics, setTwitterAnalytics] = useState<TwitterAnalytics | null>(null);
+  const [loadingTwitterAnalytics, setLoadingTwitterAnalytics] = useState(false);
+  const [showTwitterAnalytics, setShowTwitterAnalytics] = useState(false);
+
+  // Twitter Webhook Events state
+  interface TwitterWebhookEvent {
+    id: number;
+    event_type: string;
+    created_at: string;
+    payload: Record<string, unknown>;
+    read: boolean;
+  }
+  interface TwitterWebhookEventsData {
+    test_mode?: boolean;
+    events: TwitterWebhookEvent[];
+    unread_count: number;
+  }
+  const [twitterWebhookEvents, setTwitterWebhookEvents] = useState<TwitterWebhookEventsData | null>(null);
+  const [loadingTwitterWebhookEvents, setLoadingTwitterWebhookEvents] = useState(false);
+  const [showTwitterWebhookEvents, setShowTwitterWebhookEvents] = useState(false);
 
   // Fetch LinkedIn organizations
   const fetchLinkedInOrganizations = useCallback(async () => {
@@ -591,6 +921,471 @@ function AutomationPageContent() {
       setSwitchingLinkedInOrg(false);
     }
   };
+
+  // Fetch LinkedIn Analytics
+  const fetchLinkedInAnalytics = async () => {
+    setLoadingLinkedInAnalytics(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn analytics:', error);
+    } finally {
+      setLoadingLinkedInAnalytics(false);
+    }
+  };
+
+  // Fetch LinkedIn Webhook Events
+  const fetchLinkedInWebhookEvents = async () => {
+    setLoadingLinkedInWebhookEvents(true);
+    try {
+      const response = await apiClient.get('/automation/linkedin/webhooks/events/');
+      if (response.ok) {
+        const data = await response.json();
+        setLinkedInWebhookEvents(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch LinkedIn webhook events:', error);
+    } finally {
+      setLoadingLinkedInWebhookEvents(false);
+    }
+  };
+
+  // Mark LinkedIn webhook events as read
+  const markLinkedInWebhookEventsAsRead = async (eventIds: number[], markAll = false) => {
+    try {
+      const response = await apiClient.post('/automation/linkedin/webhooks/events/', {
+        event_ids: eventIds,
+        mark_all: markAll,
+      });
+      if (response.ok) {
+        fetchLinkedInWebhookEvents();
+      }
+    } catch (error) {
+      console.error('Failed to mark LinkedIn events as read:', error);
+    }
+  };
+
+  // Fetch Twitter Analytics
+  const fetchTwitterAnalytics = async () => {
+    setLoadingTwitterAnalytics(true);
+    try {
+      const response = await apiClient.get('/automation/twitter/analytics/');
+      if (response.ok) {
+        const data = await response.json();
+        setTwitterAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Twitter analytics:', error);
+    } finally {
+      setLoadingTwitterAnalytics(false);
+    }
+  };
+
+  // Fetch Twitter Webhook Events
+  const fetchTwitterWebhookEvents = async () => {
+    setLoadingTwitterWebhookEvents(true);
+    try {
+      const response = await apiClient.get('/automation/twitter/webhooks/events/');
+      if (response.ok) {
+        const data = await response.json();
+        setTwitterWebhookEvents(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch Twitter webhook events:', error);
+    } finally {
+      setLoadingTwitterWebhookEvents(false);
+    }
+  };
+
+  // Mark Twitter webhook events as read
+  const markTwitterWebhookEventsAsRead = async (eventIds: number[], markAll = false) => {
+    try {
+      const response = await apiClient.post('/automation/twitter/webhooks/events/', {
+        event_ids: eventIds,
+        mark_all: markAll,
+      });
+      if (response.ok) {
+        fetchTwitterWebhookEvents();
+      }
+    } catch (error) {
+      console.error('Failed to mark Twitter events as read:', error);
+    }
+  };
+
+  // Draft saving functions
+  
+  // Helper to convert blob URL to base64
+  const blobUrlToBase64 = async (blobUrl: string): Promise<string | null> => {
+    try {
+      const response = await fetch(blobUrl);
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const saveFbDraft = async () => {
+    if (fbPostText || fbPostTitle || fbMediaUrns.length > 0 || fbMediaPreview) {
+      // Try to convert blob preview to base64 if exists (only for small images)
+      let mediaPreviewData: { url: string; type: 'image' | 'video' } | null = null;
+      let mediaSkipped = false;
+      let savedMediaUrns: string[] | undefined = undefined;
+      
+      if (fbMediaPreview && fbMediaPreview.type === 'image') {
+        try {
+          const base64 = await blobUrlToBase64(fbMediaPreview.url);
+          // Only include if smaller than 500KB to avoid quota issues
+          if (base64 && base64.length < 500000) {
+            mediaPreviewData = { url: base64, type: fbMediaPreview.type };
+            savedMediaUrns = fbMediaUrns.length > 0 ? fbMediaUrns : undefined;
+            console.log('Media preview included in draft (size:', base64.length, 'bytes)');
+          } else {
+            mediaSkipped = true;
+            console.log('Media preview too large, skipping (size:', base64?.length || 0, 'bytes)');
+          }
+        } catch {
+          mediaSkipped = true;
+          console.log('Media preview conversion failed, skipping');
+        }
+      } else if (fbMediaPreview && fbMediaPreview.type === 'video') {
+        mediaSkipped = true;
+        console.log('Video previews cannot be saved in draft');
+      }
+
+      const draft = {
+        title: fbPostTitle,
+        text: fbPostText,
+        savedAt: new Date().toISOString(),
+        mediaUrns: savedMediaUrns,
+        mediaPreview: mediaPreviewData,
+        mediaSkipped,
+      };
+
+      try {
+        localStorage.setItem(DRAFT_KEYS.facebook, JSON.stringify(draft));
+        setFbDraft(draft);
+        if (mediaSkipped) {
+          console.log('Draft saved (media skipped - you will need to re-upload)');
+        } else {
+          console.log('Draft saved successfully with media');
+        }
+      } catch (e) {
+        // If quota exceeded, try saving without media preview
+        console.warn('Draft too large, saving without media');
+        const draftWithoutMedia = {
+          title: fbPostTitle,
+          text: fbPostText,
+          savedAt: new Date().toISOString(),
+          mediaSkipped: true,
+        };
+        try {
+          localStorage.setItem(DRAFT_KEYS.facebook, JSON.stringify(draftWithoutMedia));
+          setFbDraft(draftWithoutMedia);
+          console.log('Draft saved (without media due to size)');
+        } catch {
+          console.error('Failed to save draft:', e);
+          alert('Draft too large to save. Try removing media or shortening text.');
+        }
+      }
+    }
+  };
+
+  const loadFbDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEYS.facebook);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setFbDraft(draft);
+        return draft;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearFbDraft = () => {
+    localStorage.removeItem(DRAFT_KEYS.facebook);
+    setFbDraft(null);
+  };
+
+  const restoreFbDraft = () => {
+    if (fbDraft) {
+      setFbPostTitle(fbDraft.title);
+      setFbPostText(fbDraft.text);
+      if (fbDraft.mediaUrns) {
+        setFbMediaUrns(fbDraft.mediaUrns);
+      }
+      if (fbDraft.mediaPreview) {
+        setFbMediaPreview(fbDraft.mediaPreview);
+      }
+    }
+  };
+
+  // Open Facebook compose modal with auto-restore draft
+  const openFacebookComposeModal = () => {
+    // Load draft from localStorage
+    const saved = localStorage.getItem(DRAFT_KEYS.facebook);
+    console.log('=== OPENING FACEBOOK MODAL ===');
+    
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        console.log('Restoring draft with media:', draft);
+        setFbDraft(draft);
+        setFbPostTitle(draft.title || '');
+        setFbPostText(draft.text || '');
+        // Restore media
+        if (draft.mediaUrns && draft.mediaUrns.length > 0) {
+          setFbMediaUrns(draft.mediaUrns);
+        }
+        if (draft.mediaPreview) {
+          setFbMediaPreview(draft.mediaPreview);
+        }
+      } catch (e) {
+        console.error('Failed to parse draft:', e);
+      }
+    } else {
+      console.log('No saved draft found');
+    }
+    // Then open the modal
+    setShowFacebookComposeModal(true);
+  };
+
+  const saveLinkedInDraft = async () => {
+    if (postText || postTitle || postMediaUrns.length > 0 || postMediaPreview) {
+      // Try to convert blob preview to base64 if exists (only for small images)
+      let mediaPreviewData: { url: string; type: 'image' | 'video' } | null = null;
+      let mediaSkipped = false;
+      let savedMediaUrns: string[] | undefined = undefined;
+      
+      if (postMediaPreview && postMediaPreview.type === 'image') {
+        try {
+          const base64 = await blobUrlToBase64(postMediaPreview.url);
+          if (base64 && base64.length < 500000) {
+            mediaPreviewData = { url: base64, type: postMediaPreview.type };
+            savedMediaUrns = postMediaUrns.length > 0 ? postMediaUrns : undefined;
+          } else {
+            mediaSkipped = true;
+          }
+        } catch {
+          mediaSkipped = true;
+        }
+      } else if (postMediaPreview && postMediaPreview.type === 'video') {
+        mediaSkipped = true;
+      }
+
+      const draft = {
+        title: postTitle || undefined,
+        text: postText,
+        savedAt: new Date().toISOString(),
+        mediaUrns: savedMediaUrns,
+        mediaPreview: mediaPreviewData,
+        mediaSkipped,
+      };
+
+      try {
+        localStorage.setItem(DRAFT_KEYS.linkedin, JSON.stringify(draft));
+        setLinkedInDraft(draft);
+      } catch {
+        // If quota exceeded, save without media
+        const draftWithoutMedia = {
+          title: postTitle || undefined,
+          text: postText,
+          savedAt: new Date().toISOString(),
+          mediaSkipped: true,
+        };
+        try {
+          localStorage.setItem(DRAFT_KEYS.linkedin, JSON.stringify(draftWithoutMedia));
+          setLinkedInDraft(draftWithoutMedia);
+        } catch {
+          alert('Draft too large to save.');
+        }
+      }
+    }
+  };
+
+  const loadLinkedInDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEYS.linkedin);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setLinkedInDraft(draft);
+        return draft;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearLinkedInDraft = () => {
+    localStorage.removeItem(DRAFT_KEYS.linkedin);
+    setLinkedInDraft(null);
+  };
+
+  const restoreLinkedInDraft = () => {
+    if (linkedInDraft) {
+      setPostTitle(linkedInDraft.title || '');
+      setPostText(linkedInDraft.text);
+      if (linkedInDraft.mediaUrns) {
+        setPostMediaUrns(linkedInDraft.mediaUrns);
+      }
+      if (linkedInDraft.mediaPreview) {
+        setPostMediaPreview(linkedInDraft.mediaPreview);
+      }
+    }
+  };
+
+  // Open LinkedIn compose modal with auto-restore draft
+  const openLinkedInComposeModal = () => {
+    // Load draft from localStorage
+    const saved = localStorage.getItem(DRAFT_KEYS.linkedin);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setLinkedInDraft(draft);
+        setPostTitle(draft.title || '');
+        setPostText(draft.text || '');
+        if (draft.mediaUrns && draft.mediaUrns.length > 0) {
+          setPostMediaUrns(draft.mediaUrns);
+        }
+        if (draft.mediaPreview) {
+          setPostMediaPreview(draft.mediaPreview);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    // Then open the modal
+    setShowComposeModal(true);
+  };
+
+  const saveTwitterDraft = async () => {
+    if (tweetText || tweetMediaUrns.length > 0 || tweetMediaPreview) {
+      // Try to convert blob preview to base64 if exists (only for small images)
+      let mediaPreviewData: { url: string; type: 'image' | 'video' } | null = null;
+      let mediaSkipped = false;
+      let savedMediaUrns: string[] | undefined = undefined;
+      
+      if (tweetMediaPreview && tweetMediaPreview.type === 'image') {
+        try {
+          const base64 = await blobUrlToBase64(tweetMediaPreview.url);
+          if (base64 && base64.length < 500000) {
+            mediaPreviewData = { url: base64, type: tweetMediaPreview.type };
+            savedMediaUrns = tweetMediaUrns.length > 0 ? tweetMediaUrns : undefined;
+          } else {
+            mediaSkipped = true;
+          }
+        } catch {
+          mediaSkipped = true;
+        }
+      } else if (tweetMediaPreview && tweetMediaPreview.type === 'video') {
+        mediaSkipped = true;
+      }
+
+      const draft = {
+        title: tweetTitle,
+        text: tweetText,
+        savedAt: new Date().toISOString(),
+        mediaUrns: savedMediaUrns,
+        mediaPreview: mediaPreviewData,
+        mediaSkipped,
+      };
+
+      try {
+        localStorage.setItem(DRAFT_KEYS.twitter, JSON.stringify(draft));
+        setTwitterDraft(draft);
+      } catch {
+        // If quota exceeded, save without media
+        const draftWithoutMedia = {
+          title: tweetTitle,
+          text: tweetText,
+          savedAt: new Date().toISOString(),
+          mediaSkipped: true,
+        };
+        try {
+          localStorage.setItem(DRAFT_KEYS.twitter, JSON.stringify(draftWithoutMedia));
+          setTwitterDraft(draftWithoutMedia);
+        } catch {
+          alert('Draft too large to save.');
+        }
+      }
+    }
+  };
+
+  const loadTwitterDraft = () => {
+    const saved = localStorage.getItem(DRAFT_KEYS.twitter);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setTwitterDraft(draft);
+        return draft;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const clearTwitterDraft = () => {
+    localStorage.removeItem(DRAFT_KEYS.twitter);
+    setTwitterDraft(null);
+  };
+
+  const restoreTwitterDraft = () => {
+    if (twitterDraft) {
+      setTweetText(twitterDraft.text);
+      if (twitterDraft.mediaUrns) {
+        setTweetMediaUrns(twitterDraft.mediaUrns);
+      }
+      if (twitterDraft.mediaPreview) {
+        setTweetMediaPreview(twitterDraft.mediaPreview);
+      }
+    }
+  };
+
+  // Open Twitter compose modal with auto-restore draft
+  const openTwitterComposeModal = () => {
+    // Load draft from localStorage
+    const saved = localStorage.getItem(DRAFT_KEYS.twitter);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        setTwitterDraft(draft);
+        setTweetTitle(draft.title || '');
+        setTweetText(draft.text || '');
+        if (draft.mediaUrns && draft.mediaUrns.length > 0) {
+          setTweetMediaUrns(draft.mediaUrns);
+        }
+        if (draft.mediaPreview) {
+          setTweetMediaPreview(draft.mediaPreview);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    // Then open the modal
+    setShowTwitterComposeModal(true);
+  };
+
+  // Load drafts on mount
+  useEffect(() => {
+    loadFbDraft();
+    loadLinkedInDraft();
+    loadTwitterDraft();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Check for OAuth callback results
   useEffect(() => {
@@ -954,8 +1749,10 @@ function AutomationPageContent() {
         if (response.status === 403 && hasTwitterOnly) {
           setMessage({
             type: 'error',
-            text: 'Twitter media upload failed: Your Twitter Developer app needs "Basic" tier or "Read and Write" permissions. Check your Twitter Developer Portal settings.',
+            text: '⚠️ Twitter media upload requires a paid API tier ($100/mo). Your tweet will still work without media!',
           });
+          // Clear the failed media upload attempt
+          setMediaUrns([]);
         } else {
           setMessage({
             type: 'error',
@@ -1007,6 +1804,10 @@ function AutomationPageContent() {
           setPostMediaPreview(null);
         }
         setShowComposeModal(false);
+        // Reset compose tab
+        setLinkedInComposeTab('compose');
+        // Clear draft after successful post
+        clearLinkedInDraft();
         // Refresh published posts list
         fetchPublishedPosts();
       } else {
@@ -1061,6 +1862,7 @@ function AutomationPageContent() {
             ? '🧪 Carousel post simulated (Test Mode)' 
             : '✅ Carousel posted to LinkedIn successfully!',
         });
+        clearLinkedInDraft();
         resetLinkedInComposeForm();
         setShowComposeModal(false);
         fetchPublishedPosts();
@@ -1082,7 +1884,7 @@ function AutomationPageContent() {
     }
   };
 
-  // Reset LinkedIn compose form
+  // Reset LinkedIn compose form (does NOT clear draft - draft persists until post is published)
   const resetLinkedInComposeForm = () => {
     setPostTitle('');
     setPostText('');
@@ -1094,6 +1896,9 @@ function AutomationPageContent() {
     setLinkedinCarouselMode(false);
     linkedinCarouselImages.forEach(img => URL.revokeObjectURL(img.url));
     setLinkedinCarouselImages([]);
+    // Reset compose tab
+    setLinkedInComposeTab('compose');
+    // NOTE: Draft is NOT cleared here - it persists until post is successfully published
   };
 
   // Add images to LinkedIn carousel
@@ -1189,6 +1994,7 @@ function AutomationPageContent() {
             ? '🧪 Tweet simulated (Test Mode - saved to history)' 
             : `Tweet posted successfully! Tweet ID: ${data.tweet_id}`,
         });
+        clearTwitterDraft();
         resetTwitterComposeForm();
         setShowTwitterComposeModal(false);
         // Refresh published posts to show the new tweet
@@ -1211,7 +2017,7 @@ function AutomationPageContent() {
     }
   };
 
-  // Reset Twitter compose form
+  // Reset Twitter compose form (does NOT clear draft - draft persists until post is published)
   const resetTwitterComposeForm = () => {
     setTweetTitle('');
     setTweetText('');
@@ -1229,6 +2035,9 @@ function AutomationPageContent() {
     setTwitterCarouselMode(false);
     twitterCarouselImages.forEach(img => URL.revokeObjectURL(img.url));
     setTwitterCarouselImages([]);
+    // Reset compose tab
+    setTwitterComposeTab('compose');
+    // NOTE: Draft is NOT cleared here - it persists until post is successfully published
   };
 
   // Handle Twitter Carousel Post (multi-image, max 4)
@@ -1264,6 +2073,7 @@ function AutomationPageContent() {
             ? '🧪 Carousel tweet simulated (Test Mode)' 
             : '✅ Carousel tweet posted successfully!',
         });
+        clearTwitterDraft();
         resetTwitterComposeForm();
         setShowTwitterComposeModal(false);
         fetchPublishedPosts();
@@ -1431,6 +2241,8 @@ function AutomationPageContent() {
             ? '🧪 Facebook post simulated (Test Mode - saved to history)' 
             : `Posted to Facebook successfully! Post ID: ${data.post_id}`,
         });
+        // Clear draft on successful post
+        clearFbDraft();
         resetFacebookComposeForm();
         setShowFacebookComposeModal(false);
         // Refresh published posts to show the new post
@@ -1887,7 +2699,54 @@ function AutomationPageContent() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  // Reset Facebook compose form
+  // Extract first URL from text
+  const extractFirstUrl = (text: string): string | null => {
+    const urlRegex = /(https?:\/\/[^\s]+)/gi;
+    const matches = text.match(urlRegex);
+    return matches ? matches[0] : null;
+  };
+
+  // Fetch link preview for Facebook post
+  const fetchLinkPreview = async (url: string) => {
+    if (!url || url === lastFetchedUrl) return;
+    
+    setFetchingLinkPreview(true);
+    try {
+      const response = await apiClient.get(`/automation/facebook/link-preview/?url=${encodeURIComponent(url)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setFbLinkPreview(data);
+        setLastFetchedUrl(url);
+      }
+    } catch (error) {
+      console.error('Failed to fetch link preview:', error);
+    } finally {
+      setFetchingLinkPreview(false);
+    }
+  };
+
+  // Handle Facebook post text change with link detection
+  const handleFbPostTextChange = (text: string) => {
+    setFbPostText(text);
+    
+    // Detect URL in text and fetch preview (with debounce)
+    const url = extractFirstUrl(text);
+    if (url && url !== lastFetchedUrl && !fetchingLinkPreview) {
+      // Simple debounce - only fetch if URL is complete (ends with space or is at end)
+      const urlEndIndex = text.indexOf(url) + url.length;
+      if (urlEndIndex === text.length || text[urlEndIndex] === ' ' || text[urlEndIndex] === '\n') {
+        fetchLinkPreview(url);
+      }
+    }
+    
+    // Clear preview if no URL in text
+    if (!url) {
+      setFbLinkPreview(null);
+      setLastFetchedUrl(null);
+    }
+  };
+
+  // Reset Facebook compose form (does NOT clear draft - draft persists until post is published)
   const resetFacebookComposeForm = () => {
     setFbPostTitle('');
     setFbPostText('');
@@ -1904,6 +2763,12 @@ function AutomationPageContent() {
       }
     });
     setFbCarouselImages([]);
+    // Reset link preview
+    setFbLinkPreview(null);
+    setLastFetchedUrl(null);
+    // Reset compose tab
+    setFbComposeTab('compose');
+    // NOTE: Draft is NOT cleared here - it persists until post is successfully published
   };
 
   // Handle deleting a Facebook post
@@ -2415,7 +3280,7 @@ function AutomationPageContent() {
                     </a>
                     {platform === 'linkedin' && (
                       <button
-                        onClick={() => setShowComposeModal(true)}
+                        onClick={openLinkedInComposeModal}
                         className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2426,7 +3291,7 @@ function AutomationPageContent() {
                     )}
                     {platform === 'twitter' && (
                       <button
-                        onClick={() => setShowTwitterComposeModal(true)}
+                        onClick={openTwitterComposeModal}
                         className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2437,7 +3302,7 @@ function AutomationPageContent() {
                     )}
                     {platform === 'facebook' && (
                       <button
-                        onClick={() => setShowFacebookComposeModal(true)}
+                        onClick={openFacebookComposeModal}
                         className="text-sm text-brand-mint hover:text-brand-mint/80 flex items-center gap-1"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2509,6 +3374,333 @@ function AutomationPageContent() {
                               )}
                             </button>
                           ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Analytics Section */}
+                {platform === 'facebook' && isConnected && (
+                  <div className="mt-4 border-t border-brand-ghost/20 pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-brand-silver/70 font-medium">📊 Page Analytics</span>
+                      <button
+                        onClick={() => {
+                          setShowFbAnalytics(!showFbAnalytics);
+                          if (!fbAnalytics && !loadingFbAnalytics) {
+                            fetchFbAnalytics();
+                          }
+                        }}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showFbAnalytics ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {showFbAnalytics ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    
+                    {showFbAnalytics && (
+                      <div className="bg-white/5 rounded-lg p-3">
+                        {loadingFbAnalytics ? (
+                          <div className="flex items-center justify-center py-4">
+                            <svg className="animate-spin w-5 h-5 text-brand-electric" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </div>
+                        ) : fbAnalytics ? (
+                          <>
+                            {fbAnalytics.test_mode && (
+                              <div className="mb-3 px-2 py-1.5 bg-blue-500/10 rounded text-xs text-blue-400">
+                                🧪 Test mode - showing sample data
+                              </div>
+                            )}
+                            
+                            {/* Insights Grid */}
+                            <div className="grid grid-cols-3 gap-2 mb-3">
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_fans || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Followers</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_impressions || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Impressions</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_engaged_users || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Engaged</p>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-3 gap-2 mb-3">
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-green-400">
+                                  +{(fbAnalytics.insights.page_fan_adds || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">New Fans</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_post_engagements || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Engagements</p>
+                              </div>
+                              <div className="text-center p-2 bg-white/5 rounded">
+                                <p className="text-lg font-bold text-white">
+                                  {(fbAnalytics.insights.page_views_total || 0).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-brand-silver/70">Views</p>
+                              </div>
+                            </div>
+                            
+                            {/* Recent Posts */}
+                            {fbAnalytics.recent_posts && fbAnalytics.recent_posts.length > 0 && (
+                              <div className="mt-3 border-t border-brand-ghost/20 pt-3">
+                                <p className="text-xs font-medium text-brand-silver mb-2">Recent Posts</p>
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                  {fbAnalytics.recent_posts.slice(0, 3).map((post) => (
+                                    <div key={post.id} className="flex items-start gap-2 p-2 bg-white/5 rounded text-xs">
+                                      {post.full_picture && (
+                                        <img src={post.full_picture} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-white truncate">{post.message || '(No text)'}</p>
+                                        <div className="flex gap-2 text-brand-silver/50 mt-0.5">
+                                          <span>❤️ {post.likes}</span>
+                                          <span>💬 {post.comments}</span>
+                                          <span>🔗 {post.shares}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Refresh Button */}
+                            <button
+                              onClick={fetchFbAnalytics}
+                              className="mt-3 w-full text-xs text-brand-electric hover:underline"
+                            >
+                              ↻ Refresh Analytics
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No analytics data available
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Webhook Events Section */}
+                {platform === 'facebook' && isConnected && (
+                  <div className="mt-4 border-t border-brand-ghost/20 pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">🔔 Webhook Events</span>
+                        {fbWebhookEvents && fbWebhookEvents.unread_count > 0 && (
+                          <span className="px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                            {fbWebhookEvents.unread_count}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowFbWebhookEvents(!showFbWebhookEvents);
+                          if (!fbWebhookEvents && !loadingFbWebhookEvents) {
+                            fetchFbWebhookEvents();
+                          }
+                        }}
+                        className="text-xs text-brand-electric hover:underline flex items-center gap-1"
+                      >
+                        <svg className={`w-3 h-3 transition-transform ${showFbWebhookEvents ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        {showFbWebhookEvents ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    
+                    {showFbWebhookEvents && (
+                      <div className="bg-white/5 rounded-lg p-3">
+                        {loadingFbWebhookEvents ? (
+                          <div className="flex items-center justify-center py-4">
+                            <svg className="animate-spin w-5 h-5 text-brand-electric" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </div>
+                        ) : fbWebhookEvents && fbWebhookEvents.events.length > 0 ? (
+                          <>
+                            <div className="flex items-center justify-between mb-2 text-xs text-brand-silver/70">
+                              <span>{fbWebhookEvents.total_count} events total</span>
+                              {fbWebhookEvents.unread_count > 0 && (
+                                <button
+                                  onClick={() => markFbWebhookEventsAsRead([], true)}
+                                  className="text-brand-electric hover:underline"
+                                >
+                                  Mark all as read
+                                </button>
+                              )}
+                            </div>
+                            
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                              {fbWebhookEvents.events.map((event) => (
+                                <div 
+                                  key={event.id} 
+                                  className={`p-2 rounded text-xs ${event.read ? 'bg-white/5' : 'bg-blue-500/10 border border-blue-500/20'}`}
+                                >
+                                  <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className={`font-medium ${event.read ? 'text-brand-silver' : 'text-white'}`}>
+                                          {event.event_type_display || event.event_type}
+                                        </span>
+                                        {!event.read && (
+                                          <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                                        )}
+                                      </div>
+                                      {event.post_id && (
+                                        <p className="text-brand-silver/50 mt-0.5">Post: {event.post_id}</p>
+                                      )}
+                                      <p className="text-brand-silver/50 mt-0.5">
+                                        {new Date(event.created_at).toLocaleString()}
+                                      </p>
+                                    </div>
+                                    {!event.read && (
+                                      <button
+                                        onClick={() => markFbWebhookEventsAsRead([event.id])}
+                                        className="text-brand-silver/50 hover:text-brand-electric"
+                                        title="Mark as read"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            
+                            <button
+                              onClick={fetchFbWebhookEvents}
+                              className="mt-3 w-full text-xs text-brand-electric hover:underline"
+                            >
+                              ↻ Refresh Events
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No webhook events yet. Events will appear here when Facebook sends notifications about your page activity.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Facebook Webhook Subscription Settings */}
+                {platform === 'facebook' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowFbWebhookSettings(!showFbWebhookSettings);
+                        if (!showFbWebhookSettings && !fbWebhookSubscriptions) {
+                          fetchFbWebhookSubscriptions();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">⚙️ Webhook Settings</span>
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showFbWebhookSettings ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showFbWebhookSettings && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-3">
+                        {loadingFbWebhookSubscriptions ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : fbWebhookSubscriptions ? (
+                          <>
+                            {fbWebhookSubscriptions.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {fbWebhookSubscriptions.subscriptions && fbWebhookSubscriptions.subscriptions.length > 0 ? (
+                              <div className="space-y-3">
+                                <div className="text-xs text-brand-silver/70">
+                                  <strong>Current Subscriptions:</strong>
+                                </div>
+                                {fbWebhookSubscriptions.subscriptions.map((sub, idx) => (
+                                  <div key={idx} className="bg-white/5 rounded-lg p-2">
+                                    <div className="text-sm text-white font-medium">{sub.name}</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {sub.subscribed_fields.map((field, fieldIdx) => (
+                                        <span
+                                          key={fieldIdx}
+                                          className="text-xs bg-brand-electric/20 text-brand-electric px-2 py-0.5 rounded"
+                                        >
+                                          {field}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                                <button
+                                  onClick={unsubscribeFbFromWebhooks}
+                                  disabled={togglingWebhookSubscription}
+                                  className="w-full text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                  {togglingWebhookSubscription ? 'Unsubscribing...' : '🔕 Unsubscribe from Webhooks'}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="text-center py-2 text-brand-silver/50 text-sm">
+                                  Not subscribed to webhooks. Subscribe to receive real-time notifications about your page activity.
+                                </div>
+                                <button
+                                  onClick={subscribeFbToWebhooks}
+                                  disabled={togglingWebhookSubscription}
+                                  className="w-full text-xs bg-brand-electric/20 text-brand-electric hover:bg-brand-electric/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                  {togglingWebhookSubscription ? 'Subscribing...' : '🔔 Subscribe to Webhooks'}
+                                </button>
+                              </div>
+                            )}
+                            <button
+                              onClick={fetchFbWebhookSubscriptions}
+                              disabled={loadingFbWebhookSubscriptions}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            Failed to load subscription settings. Click refresh to try again.
+                          </div>
                         )}
                       </div>
                     )}
@@ -2622,6 +3814,198 @@ function AutomationPageContent() {
                   </div>
                 )}
 
+                {/* LinkedIn Analytics Section */}
+                {platform === 'linkedin' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowLinkedInAnalytics(!showLinkedInAnalytics);
+                        if (!showLinkedInAnalytics && !linkedInAnalytics) {
+                          fetchLinkedInAnalytics();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">📊 Analytics</span>
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showLinkedInAnalytics ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showLinkedInAnalytics && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-3">
+                        {loadingLinkedInAnalytics ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : linkedInAnalytics ? (
+                          <>
+                            {linkedInAnalytics.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {/* Profile & Network Stats */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-brand-electric">{linkedInAnalytics.network?.connections || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Connections</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-green-400">{linkedInAnalytics.totals?.total_posts || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Posts</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-blue-400">{linkedInAnalytics.totals?.total_likes || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Likes</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-purple-400">{linkedInAnalytics.totals?.engagement_rate?.toFixed(1) || 0}%</div>
+                                <div className="text-xs text-brand-silver/60">Engagement</div>
+                              </div>
+                            </div>
+                            {/* Recent Posts */}
+                            {linkedInAnalytics.posts && linkedInAnalytics.posts.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs text-brand-silver/70 font-medium">Recent Posts</div>
+                                {linkedInAnalytics.posts.slice(0, 3).map((post) => (
+                                  <div key={post.post_urn} className="bg-white/5 rounded-lg p-2">
+                                    <div className="text-xs text-white line-clamp-2">{post.text}</div>
+                                    <div className="flex gap-3 mt-1 text-xs text-brand-silver/60">
+                                      <span>👍 {post.metrics.likes}</span>
+                                      <span>💬 {post.metrics.comments}</span>
+                                      <span>🔄 {post.metrics.shares}</span>
+                                      <span>👁 {post.metrics.impressions}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              onClick={fetchLinkedInAnalytics}
+                              disabled={loadingLinkedInAnalytics}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No analytics data available yet.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* LinkedIn Webhook Events Section */}
+                {platform === 'linkedin' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowLinkedInWebhookEvents(!showLinkedInWebhookEvents);
+                        if (!showLinkedInWebhookEvents && !linkedInWebhookEvents) {
+                          fetchLinkedInWebhookEvents();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">🔔 Webhook Events</span>
+                        {linkedInWebhookEvents && linkedInWebhookEvents.unread_count > 0 && (
+                          <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                            {linkedInWebhookEvents.unread_count}
+                          </span>
+                        )}
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showLinkedInWebhookEvents ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showLinkedInWebhookEvents && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-2 max-h-64 overflow-y-auto">
+                        {loadingLinkedInWebhookEvents ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : linkedInWebhookEvents && linkedInWebhookEvents.events.length > 0 ? (
+                          <>
+                            {linkedInWebhookEvents.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {linkedInWebhookEvents.events.map((event) => (
+                              <div
+                                key={event.id}
+                                className={`p-2 rounded-lg ${event.read ? 'bg-white/5' : 'bg-brand-electric/10 border border-brand-electric/20'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-white capitalize">
+                                    {event.event_type.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-xs text-brand-silver/50">
+                                    {new Date(event.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+                                {event.payload && (
+                                  <div className="text-xs text-brand-silver/60 mt-1">
+                                    {(event.payload as { actor?: { name?: string } })?.actor?.name && (
+                                      <span>by {(event.payload as { actor: { name: string } }).actor.name}</span>
+                                    )}
+                                  </div>
+                                )}
+                                {!event.read && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markLinkedInWebhookEventsAsRead([event.id]);
+                                    }}
+                                    className="text-xs text-brand-electric hover:underline mt-1"
+                                  >
+                                    Mark as read
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {linkedInWebhookEvents.unread_count > 0 && (
+                              <button
+                                onClick={() => markLinkedInWebhookEventsAsRead([], true)}
+                                className="text-xs text-brand-electric hover:underline"
+                              >
+                                Mark all as read
+                              </button>
+                            )}
+                            <button
+                              onClick={fetchLinkedInWebhookEvents}
+                              disabled={loadingLinkedInWebhookEvents}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh Events
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No webhook events yet. Events will appear here when LinkedIn sends notifications about your activity.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Twitter Account Switcher */}
                 {platform === 'twitter' && isConnected && (
                   <div className="mt-4">
@@ -2669,13 +4053,208 @@ function AutomationPageContent() {
                   </div>
                 )}
 
+                {/* Twitter Analytics Section */}
+                {platform === 'twitter' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowTwitterAnalytics(!showTwitterAnalytics);
+                        if (!showTwitterAnalytics && !twitterAnalytics) {
+                          fetchTwitterAnalytics();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">📊 Analytics</span>
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showTwitterAnalytics ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showTwitterAnalytics && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-3">
+                        {loadingTwitterAnalytics ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : twitterAnalytics ? (
+                          <>
+                            {twitterAnalytics.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {/* User Stats */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-brand-electric">{twitterAnalytics.user?.metrics?.followers || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Followers</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-green-400">{twitterAnalytics.user?.metrics?.following || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Following</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-blue-400">{twitterAnalytics.totals?.total_impressions || 0}</div>
+                                <div className="text-xs text-brand-silver/60">Impressions</div>
+                              </div>
+                              <div className="bg-white/5 rounded-lg p-2 text-center">
+                                <div className="text-lg font-bold text-purple-400">{twitterAnalytics.totals?.engagement_rate?.toFixed(1) || 0}%</div>
+                                <div className="text-xs text-brand-silver/60">Engagement</div>
+                              </div>
+                            </div>
+                            {/* Recent Tweets */}
+                            {twitterAnalytics.tweets && twitterAnalytics.tweets.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs text-brand-silver/70 font-medium">Recent Tweets</div>
+                                {twitterAnalytics.tweets.slice(0, 3).map((tweet) => (
+                                  <div key={tweet.tweet_id} className="bg-white/5 rounded-lg p-2">
+                                    <div className="text-xs text-white line-clamp-2">{tweet.text}</div>
+                                    <div className="flex gap-3 mt-1 text-xs text-brand-silver/60">
+                                      <span>❤️ {tweet.metrics.likes}</span>
+                                      <span>🔁 {tweet.metrics.retweets}</span>
+                                      <span>💬 {tweet.metrics.replies}</span>
+                                      <span>👁 {tweet.metrics.impressions}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <button
+                              onClick={fetchTwitterAnalytics}
+                              disabled={loadingTwitterAnalytics}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No analytics data available yet.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Twitter Webhook Events Section */}
+                {platform === 'twitter' && isConnected && (
+                  <div className="mt-4">
+                    <div
+                      className="flex items-center justify-between cursor-pointer p-2 rounded-lg hover:bg-white/5"
+                      onClick={() => {
+                        setShowTwitterWebhookEvents(!showTwitterWebhookEvents);
+                        if (!showTwitterWebhookEvents && !twitterWebhookEvents) {
+                          fetchTwitterWebhookEvents();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-brand-silver/70 font-medium">🔔 Webhook Events</span>
+                        {twitterWebhookEvents && twitterWebhookEvents.unread_count > 0 && (
+                          <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                            {twitterWebhookEvents.unread_count}
+                          </span>
+                        )}
+                      </div>
+                      <svg
+                        className={`w-4 h-4 text-brand-silver/50 transition-transform ${showTwitterWebhookEvents ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                    {showTwitterWebhookEvents && (
+                      <div className="mt-2 bg-white/5 rounded-lg p-3 space-y-2 max-h-64 overflow-y-auto">
+                        {loadingTwitterWebhookEvents ? (
+                          <div className="flex items-center justify-center py-4">
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-brand-electric border-t-transparent"></div>
+                          </div>
+                        ) : twitterWebhookEvents && twitterWebhookEvents.events.length > 0 ? (
+                          <>
+                            {twitterWebhookEvents.test_mode && (
+                              <div className="text-xs text-yellow-400/80 bg-yellow-400/10 rounded px-2 py-1 inline-block mb-2">
+                                🧪 Test Mode
+                              </div>
+                            )}
+                            {twitterWebhookEvents.events.map((event) => (
+                              <div
+                                key={event.id}
+                                className={`p-2 rounded-lg ${event.read ? 'bg-white/5' : 'bg-brand-electric/10 border border-brand-electric/20'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-medium text-white capitalize">
+                                    {event.event_type.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-xs text-brand-silver/50">
+                                    {new Date(event.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+                                {event.payload && (
+                                  <div className="text-xs text-brand-silver/60 mt-1">
+                                    {(event.payload as { user?: { screen_name?: string }; source?: { screen_name?: string } })?.user?.screen_name && (
+                                      <span>@{(event.payload as { user: { screen_name: string } }).user.screen_name}</span>
+                                    )}
+                                    {(event.payload as { source?: { screen_name?: string } })?.source?.screen_name && (
+                                      <span>@{(event.payload as { source: { screen_name: string } }).source.screen_name}</span>
+                                    )}
+                                  </div>
+                                )}
+                                {!event.read && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markTwitterWebhookEventsAsRead([event.id]);
+                                    }}
+                                    className="text-xs text-brand-electric hover:underline mt-1"
+                                  >
+                                    Mark as read
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {twitterWebhookEvents.unread_count > 0 && (
+                              <button
+                                onClick={() => markTwitterWebhookEventsAsRead([], true)}
+                                className="text-xs text-brand-electric hover:underline"
+                              >
+                                Mark all as read
+                              </button>
+                            )}
+                            <button
+                              onClick={fetchTwitterWebhookEvents}
+                              disabled={loadingTwitterWebhookEvents}
+                              className="text-xs text-brand-silver/50 hover:text-brand-silver transition-colors disabled:opacity-50"
+                            >
+                              ↻ Refresh Events
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center py-4 text-brand-silver/50 text-sm">
+                            No webhook events yet. Events will appear here when Twitter sends notifications about your activity.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 <div className="mt-6 space-y-2">
                   {isConnected ? (
                     <>
                       {platform === 'linkedin' && (
                         <button
-                          onClick={() => setShowComposeModal(true)}
+                          onClick={openLinkedInComposeModal}
                           className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                         >
                           📝 Compose Post
@@ -2683,7 +4262,7 @@ function AutomationPageContent() {
                       )}
                       {platform === 'twitter' && (
                         <button
-                          onClick={() => setShowTwitterComposeModal(true)}
+                          onClick={openTwitterComposeModal}
                           className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                         >
                           🐦 Compose Tweet
@@ -2692,7 +4271,7 @@ function AutomationPageContent() {
                       {platform === 'facebook' && (
                         <>
                           <button
-                            onClick={() => setShowFacebookComposeModal(true)}
+                            onClick={openFacebookComposeModal}
                             className="w-full py-2.5 px-4 rounded-lg bg-brand-electric hover:bg-brand-electric/80 text-brand-midnight font-bold transition-colors"
                           >
                             📘 Compose Post
@@ -3132,7 +4711,7 @@ function AutomationPageContent() {
       {/* Compose Post Modal */}
       {showComposeModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="glass-card w-full max-w-lg p-6 relative">
+          <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
             {/* Close button */}
             <button
               onClick={() => {
@@ -3164,6 +4743,133 @@ function AutomationPageContent() {
               </div>
             </div>
 
+            {/* Draft Indicator & Save */}
+            {(linkedInDraft || postText || postTitle) && (
+              <div className="mb-4 flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2 text-amber-400 text-sm">
+                  <span>📝</span>
+                  {linkedInDraft && !postText && !postTitle ? (
+                    <>
+                      <span>Draft saved {new Date(linkedInDraft.savedAt).toLocaleString()}</span>
+                      {linkedInDraft.mediaSkipped && <span className="text-amber-300 text-xs">(media not saved)</span>}
+                      <button
+                        onClick={restoreLinkedInDraft}
+                        className="text-amber-300 hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  ) : linkedInDraft && linkedInDraft.text === postText && linkedInDraft.title === postTitle ? (
+                    <span className="text-green-400">
+                      ✓ Draft saved {new Date(linkedInDraft.savedAt).toLocaleString()}
+                      {linkedInDraft.mediaSkipped && <span className="text-amber-300 text-xs ml-1">(media not saved - too large)</span>}
+                    </span>
+                  ) : (
+                    <span>Unsaved changes</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveLinkedInDraft}
+                    className="text-xs text-amber-300 hover:text-amber-200"
+                  >
+                    💾 Save Draft
+                  </button>
+                  {linkedInDraft && (
+                    <button
+                      onClick={clearLinkedInDraft}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compose / Preview Tab Toggle */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setLinkedInComposeTab('compose')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  linkedInComposeTab === 'compose'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                ✏️ Compose
+              </button>
+              <button
+                onClick={() => setLinkedInComposeTab('preview')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  linkedInComposeTab === 'preview'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                👁️ Preview
+              </button>
+            </div>
+
+            {/* Preview Tab */}
+            {linkedInComposeTab === 'preview' && (
+              <div className="mb-6">
+                <div className="bg-white rounded-lg overflow-hidden shadow-lg">
+                  {/* LinkedIn Post Header */}
+                  <div className="p-3 flex items-center gap-3">
+                    {profiles?.linkedin?.profile_image_url ? (
+                      <img 
+                        src={profiles.linkedin.profile_image_url} 
+                        alt="Profile" 
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-[#0A66C2] flex items-center justify-center text-white font-bold">
+                        {(profiles?.linkedin?.profile_name || 'U')[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">
+                        {linkedInPostingAs === 'organization' && currentLinkedInOrg 
+                          ? currentLinkedInOrg.name 
+                          : profiles?.linkedin?.profile_name || 'Your Name'}
+                      </p>
+                      <p className="text-xs text-gray-500">Just now • 🌐</p>
+                    </div>
+                  </div>
+                  {/* Post Content */}
+                  <div className="px-3 pb-2">
+                    <p className="text-gray-900 text-sm whitespace-pre-wrap">
+                      {postText || 'Your post content will appear here...'}
+                    </p>
+                  </div>
+                  {/* Carousel Images Preview */}
+                  {linkedinCarouselMode && linkedinCarouselImages.length > 0 && (
+                    <div className="flex overflow-x-auto gap-2 px-3 pb-3">
+                      {linkedinCarouselImages.map((img, idx) => (
+                        <div key={idx} className="flex-shrink-0 w-48 h-48 rounded-lg overflow-hidden">
+                          <img src={img.url} alt={`Slide ${idx + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Engagement Bar */}
+                  <div className="px-3 py-2 border-t border-gray-200 flex justify-between text-xs text-gray-500">
+                    <span>👍 Like</span>
+                    <span>💬 Comment</span>
+                    <span>↗️ Repost</span>
+                    <span>📤 Send</span>
+                  </div>
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-2 text-center">
+                  This is a preview. Actual appearance may vary slightly.
+                </p>
+              </div>
+            )}
+
+            {/* Compose Tab Content */}
+            {linkedInComposeTab === 'compose' && (
+              <>
             {/* Mode Toggle: Single Post / Carousel */}
             <div className="mb-4 flex gap-2">
               <button
@@ -3360,6 +5066,8 @@ function AutomationPageContent() {
                 </div>
               )}
             </div>
+              </>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3 justify-end">
@@ -3441,6 +5149,143 @@ function AutomationPageContent() {
               </div>
             </div>
 
+            {/* Draft Indicator & Save */}
+            {(twitterDraft || tweetText) && (
+              <div className="mb-4 flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2 text-amber-400 text-sm">
+                  <span>📝</span>
+                  {twitterDraft && !tweetText ? (
+                    <>
+                      <span>Draft saved {new Date(twitterDraft.savedAt).toLocaleString()}</span>
+                      {twitterDraft.mediaSkipped && <span className="text-amber-300 text-xs">(media not saved)</span>}
+                      <button
+                        onClick={restoreTwitterDraft}
+                        className="text-amber-300 hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  ) : twitterDraft && twitterDraft.text === tweetText ? (
+                    <span className="text-green-400">
+                      ✓ Draft saved {new Date(twitterDraft.savedAt).toLocaleString()}
+                      {twitterDraft.mediaSkipped && <span className="text-amber-300 text-xs ml-1">(media not saved - too large)</span>}
+                    </span>
+                  ) : (
+                    <span>Unsaved changes</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveTwitterDraft}
+                    className="text-xs text-amber-300 hover:text-amber-200"
+                  >
+                    💾 Save Draft
+                  </button>
+                  {twitterDraft && (
+                    <button
+                      onClick={clearTwitterDraft}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compose / Preview Tab Toggle */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setTwitterComposeTab('compose')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  twitterComposeTab === 'compose'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                ✏️ Compose
+              </button>
+              <button
+                onClick={() => setTwitterComposeTab('preview')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  twitterComposeTab === 'preview'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                👁️ Preview
+              </button>
+            </div>
+
+            {/* Preview Tab */}
+            {twitterComposeTab === 'preview' && (
+              <div className="mb-6">
+                <div className="bg-black rounded-xl overflow-hidden border border-gray-800">
+                  {/* Twitter Post Header */}
+                  <div className="p-4 flex items-start gap-3">
+                    {profiles?.twitter?.profile_image_url ? (
+                      <img 
+                        src={profiles.twitter.profile_image_url} 
+                        alt="Profile" 
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-white font-bold">
+                        {(profiles?.twitter?.profile_name || 'U')[0].toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">
+                          {profiles?.twitter?.profile_name || 'Your Name'}
+                        </span>
+                        <span className="text-gray-500 text-sm">
+                          @{profiles?.twitter?.profile_name?.toLowerCase().replace(/\s/g, '') || 'username'}
+                        </span>
+                        <span className="text-gray-500 text-sm">· Just now</span>
+                      </div>
+                      {/* Tweet Content */}
+                      <div className="mt-1">
+                        <p className="text-white text-sm whitespace-pre-wrap">
+                          {tweetText || 'Your tweet will appear here...'}
+                        </p>
+                      </div>
+                      {/* Carousel Images Preview */}
+                      {twitterCarouselMode && twitterCarouselImages.length > 0 && (
+                        <div className={`mt-3 grid gap-0.5 rounded-xl overflow-hidden ${
+                          twitterCarouselImages.length === 1 ? 'grid-cols-1' : 
+                          twitterCarouselImages.length === 2 ? 'grid-cols-2' :
+                          twitterCarouselImages.length === 3 ? 'grid-cols-2' : 'grid-cols-2'
+                        }`}>
+                          {twitterCarouselImages.slice(0, 4).map((img, idx) => (
+                            <div key={idx} className={`aspect-video ${
+                              twitterCarouselImages.length === 3 && idx === 0 ? 'row-span-2' : ''
+                            }`}>
+                              <img src={img.url} alt={`Media ${idx + 1}`} className="w-full h-full object-cover" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Engagement Bar */}
+                      <div className="mt-3 flex justify-between text-gray-500 text-sm max-w-xs">
+                        <span>💬 0</span>
+                        <span>🔄 0</span>
+                        <span>❤️ 0</span>
+                        <span>📈 0</span>
+                        <span>📤</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-2 text-center">
+                  This is a preview. Actual appearance may vary slightly.
+                </p>
+              </div>
+            )}
+
+            {/* Compose Tab Content */}
+            {twitterComposeTab === 'compose' && (
+              <>
             {/* Mode Toggle: Single Tweet / Thread / Carousel */}
             <div className="mb-4 flex gap-2 flex-wrap">
               <button
@@ -3601,6 +5446,10 @@ function AutomationPageContent() {
               {/* Media Upload for Twitter */}
               <div>
                 <label className="block text-sm font-medium text-brand-silver mb-1">Media (optional)</label>
+                {/* Twitter API Tier Warning */}
+                <div className="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
+                  ⚠️ <strong>Note:</strong> Twitter media uploads require a paid API tier ($100/mo). Text-only tweets work on the free tier.
+                </div>
                 <div className="flex items-center gap-3">
                   <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-ghost/30 text-brand-silver hover:bg-white/5 transition-colors cursor-pointer ${uploadingTweetMedia ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3754,6 +5603,8 @@ function AutomationPageContent() {
                 </div>
               )}
             </div>
+              </>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3 justify-end">
@@ -3839,6 +5690,151 @@ function AutomationPageContent() {
               </p>
             </div>
 
+            {/* Draft Indicator & Save */}
+            {(fbDraft || fbPostText || fbPostTitle) && (
+              <div className="mb-4 flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center gap-2 text-amber-400 text-sm">
+                  <span>📝</span>
+                  {fbDraft && !fbPostText && !fbPostTitle ? (
+                    <>
+                      <span>Draft saved {new Date(fbDraft.savedAt).toLocaleString()}</span>
+                      {fbDraft.mediaSkipped && <span className="text-amber-300 text-xs">(media not saved)</span>}
+                      <button
+                        onClick={restoreFbDraft}
+                        className="text-amber-300 hover:underline"
+                      >
+                        Restore
+                      </button>
+                    </>
+                  ) : fbDraft && fbDraft.text === fbPostText && fbDraft.title === fbPostTitle ? (
+                    <span className="text-green-400">
+                      ✓ Draft saved {new Date(fbDraft.savedAt).toLocaleString()}
+                      {fbDraft.mediaSkipped && <span className="text-amber-300 text-xs ml-1">(media not saved - too large)</span>}
+                    </span>
+                  ) : (
+                    <span>Unsaved changes</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveFbDraft}
+                    className="text-xs text-amber-300 hover:text-amber-200"
+                  >
+                    💾 Save Draft
+                  </button>
+                  {fbDraft && (
+                    <button
+                      onClick={clearFbDraft}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Compose / Preview Tab Toggle */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => setFbComposeTab('compose')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  fbComposeTab === 'compose'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                ✏️ Compose
+              </button>
+              <button
+                onClick={() => setFbComposeTab('preview')}
+                className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+                  fbComposeTab === 'preview'
+                    ? 'border-brand-electric bg-brand-electric/20 text-brand-electric'
+                    : 'border-brand-ghost/30 text-brand-silver hover:bg-white/5'
+                }`}
+              >
+                👁️ Preview
+              </button>
+            </div>
+
+            {/* Preview Tab */}
+            {fbComposeTab === 'preview' && (
+              <div className="mb-6">
+                <div className="bg-white rounded-lg overflow-hidden shadow-lg">
+                  {/* Facebook Post Header */}
+                  <div className="p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
+                      {(currentFbPage?.name || profiles?.facebook?.profile_name || 'P')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">
+                        {currentFbPage?.name || profiles?.facebook?.profile_name || 'Your Page'}
+                      </p>
+                      <p className="text-xs text-gray-500">Just now · 🌐</p>
+                    </div>
+                  </div>
+                  {/* Post Content */}
+                  <div className="px-3 pb-2">
+                    <p className="text-gray-900 text-sm whitespace-pre-wrap">
+                      {fbPostText || 'Your post content will appear here...'}
+                    </p>
+                  </div>
+                  {/* Image/Carousel Preview */}
+                  {fbCarouselMode && fbCarouselImages.length > 0 && (
+                    <div className={`grid gap-1 ${fbCarouselImages.length === 1 ? 'grid-cols-1' : fbCarouselImages.length === 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
+                      {fbCarouselImages.slice(0, 4).map((img, idx) => (
+                        <div key={idx} className="relative aspect-square">
+                          <img src={img.url} alt={`Preview ${idx + 1}`} className="w-full h-full object-cover" />
+                          {idx === 3 && fbCarouselImages.length > 4 && (
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-2xl font-bold">
+                              +{fbCarouselImages.length - 4}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!fbCarouselMode && fbMediaPreview && (
+                    <div className="aspect-video bg-gray-100">
+                      {fbMediaPreview.type === 'image' ? (
+                        <img src={fbMediaPreview.url} alt="Preview" className="w-full h-full object-cover" />
+                      ) : (
+                        <video src={fbMediaPreview.url} className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                  )}
+                  {/* Link Preview in Post */}
+                  {fbLinkPreview && (
+                    <div className="mx-3 mb-3 border border-gray-200 rounded-lg overflow-hidden">
+                      {fbLinkPreview.image && (
+                        <img src={fbLinkPreview.image} alt="" className="w-full h-32 object-cover" />
+                      )}
+                      <div className="p-2 bg-gray-50">
+                        <p className="text-xs text-gray-500 uppercase">
+                          {fbLinkPreview.site_name || new URL(fbLinkPreview.url).hostname}
+                        </p>
+                        <p className="font-semibold text-gray-900 text-sm">{fbLinkPreview.title}</p>
+                        <p className="text-xs text-gray-600 line-clamp-2">{fbLinkPreview.description}</p>
+                      </div>
+                    </div>
+                  )}
+                  {/* Engagement Bar */}
+                  <div className="px-3 py-2 border-t border-gray-200 flex justify-between text-xs text-gray-500">
+                    <span>👍 Like</span>
+                    <span>💬 Comment</span>
+                    <span>↗️ Share</span>
+                  </div>
+                </div>
+                <p className="text-xs text-brand-silver/50 mt-2 text-center">
+                  This is a preview. Actual appearance may vary slightly.
+                </p>
+              </div>
+            )}
+
+            {/* Compose Tab Content */}
+            {fbComposeTab === 'compose' && (
+              <>
             {/* Post Type Toggle */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-brand-silver mb-2">Post Type</label>
@@ -3883,8 +5879,8 @@ function AutomationPageContent() {
                 <label className="block text-sm font-medium text-brand-silver mb-1">Content</label>
                 <textarea
                   value={fbPostText}
-                  onChange={(e) => setFbPostText(e.target.value)}
-                  placeholder="What's on your mind?"
+                  onChange={(e) => handleFbPostTextChange(e.target.value)}
+                  placeholder="What's on your mind? Paste a URL to see a preview!"
                   rows={5}
                   maxLength={FACEBOOK_MAX_POST_LENGTH}
                   className="w-full bg-brand-midnight border border-brand-ghost/30 rounded-lg p-3 text-white placeholder-brand-silver/50 focus:outline-none focus:ring-2 focus:ring-brand-electric/50 resize-none"
@@ -3900,6 +5896,70 @@ function AutomationPageContent() {
                     {fbPostText.length} / {FACEBOOK_MAX_POST_LENGTH} characters
                   </span>
                 </div>
+                
+                {/* Link Preview */}
+                {fetchingLinkPreview && (
+                  <div className="mt-3 p-3 rounded-lg border border-brand-ghost/30 bg-brand-midnight/50">
+                    <div className="flex items-center gap-2 text-brand-silver">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Fetching link preview...
+                    </div>
+                  </div>
+                )}
+                
+                {fbLinkPreview && !fetchingLinkPreview && (
+                  <div className="mt-3 rounded-lg border border-brand-ghost/30 overflow-hidden bg-brand-midnight/50">
+                    <div className="flex">
+                      {fbLinkPreview.image && (
+                        <div className="w-24 h-24 flex-shrink-0">
+                          <img 
+                            src={fbLinkPreview.image} 
+                            alt="Link preview" 
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+                      <div className="flex-1 p-3 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs text-brand-silver/50 uppercase truncate">
+                              {fbLinkPreview.site_name || new URL(fbLinkPreview.url).hostname}
+                            </p>
+                            <h4 className="text-sm font-medium text-white truncate mt-0.5">
+                              {fbLinkPreview.title || 'No title'}
+                            </h4>
+                            <p className="text-xs text-brand-silver/70 line-clamp-2 mt-0.5">
+                              {fbLinkPreview.description || 'No description available'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setFbLinkPreview(null);
+                              setLastFetchedUrl(null);
+                            }}
+                            className="text-brand-silver/50 hover:text-red-400 flex-shrink-0"
+                            title="Remove preview"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {fbLinkPreview.test_mode && (
+                      <div className="px-3 py-1.5 bg-blue-500/10 border-t border-brand-ghost/30">
+                        <span className="text-xs text-blue-400">🧪 Test mode preview</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Media Upload for Facebook - Single Post Mode */}
@@ -4085,6 +6145,8 @@ function AutomationPageContent() {
               </div>
               )}
             </div>
+              </>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3 justify-end">
