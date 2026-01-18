@@ -3990,6 +3990,17 @@ function AutomationPageContent() {
                         Create Post
                       </button>
                     )}
+                    {platform === 'instagram' && (
+                      <button
+                        onClick={openInstagramComposeModal}
+                        className="text-sm text-pink-400 hover:text-pink-300 flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Post
+                      </button>
+                    )}
                   </div>
                 )}
 
