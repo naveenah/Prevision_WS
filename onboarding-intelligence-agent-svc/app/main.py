@@ -200,8 +200,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     # J-01: PROCESS mode executor. Shares the BackendClient and Redis.
+    from app.cache.idempotency import IdempotencyGuard
     from app.logic.process_executor import ProcessExecutor
 
+    app.state.guard = IdempotencyGuard(app.state.redis)
     app.state.process_executor = ProcessExecutor(
         app.state.redis,
         backend=app.state.backend,
@@ -209,6 +211,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         llm=LLMProvider(settings.GEMINI_KEY, breaker=app.state.breakers.get("llm")),
         kafka=app.state.kafka,
         events=None,  # wired below after EventEmitter is created
+        guard=app.state.guard,
     )
 
     app.state.prep = PrepExecutor(

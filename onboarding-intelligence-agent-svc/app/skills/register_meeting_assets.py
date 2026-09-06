@@ -14,10 +14,10 @@ has via its update_or_create guard.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from app.cache.redis_manager import RedisManager, TTL_IDEMPOTENCY
+from app.cache.idempotency import IdempotencyGuard
+from app.cache.redis_manager import RedisManager
 from app.core.logging import get_logger
 from app.services.backend_client import BackendClient
 from app.skills.base import BaseSkill
@@ -41,6 +41,7 @@ class RegisterMeetingAssets(BaseSkill):
         super().__init__(meta)
         self._backend = backend
         self._redis = redis
+        self._guard = IdempotencyGuard(redis) if redis is not None else None
 
     async def run(self, context: SkillContext) -> SkillResult:
         session_id = context.input_context.get("session_id")
@@ -65,7 +66,11 @@ class RegisterMeetingAssets(BaseSkill):
                 output={"registered": [], "error": "backend client not configured"},
             )
 
-        cached = await self._check_idempotency(tenant_id, session_id)
+        cached = (
+            await self._guard.check(tenant_id, f"skl11:{session_id}")
+            if self._guard is not None
+            else None
+        )
         if cached is not None:
             logger.info("register_assets_idempotent_hit", session_id=session_id)
             return SkillResult(skill_id=SKILL_ID, output=cached)
@@ -110,36 +115,7 @@ class RegisterMeetingAssets(BaseSkill):
             "failed_count": len(failed),
         }
 
-        if registered:
-            await self._store_idempotency(tenant_id, session_id, output)
+        if registered and self._guard is not None:
+            await self._guard.store(tenant_id, f"skl11:{session_id}", output)
 
         return SkillResult(skill_id=SKILL_ID, output=output)
-
-    # ── Idempotency ──────────────────────────────────────────────────
-
-    async def _check_idempotency(
-        self, tenant_id: str, session_id: str
-    ) -> dict[str, Any] | None:
-        if self._redis is None:
-            return None
-        keys = self._redis.keys_for(tenant_id)
-        key = keys.idempotency(f"skl11:{session_id}")
-        raw = await self._redis.client.get(key)
-        if raw is None:
-            return None
-        try:
-            parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return None
-        if isinstance(parsed, dict):
-            return parsed
-        return None
-
-    async def _store_idempotency(
-        self, tenant_id: str, session_id: str, output: dict[str, Any]
-    ) -> None:
-        if self._redis is None:
-            return
-        keys = self._redis.keys_for(tenant_id)
-        key = keys.idempotency(f"skl11:{session_id}")
-        await self._redis.client.set(key, json.dumps(output), ex=TTL_IDEMPOTENCY)

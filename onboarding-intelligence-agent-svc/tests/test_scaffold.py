@@ -110,6 +110,9 @@ IMPLEMENTED = {
 #: rather than a silent one.
 IMPLEMENTED |= {"app.api.deps", "app.api.schemas"}
 
+#: B-06 (Gap 5): IdempotencyGuard extracted from ProcessExecutor.
+IMPLEMENTED |= {"app.cache.idempotency"}
+
 #: Implemented by C-02. §18.2 specified config/circuit_breakers.yaml and this
 #: module from the start, but no story owned building them — the scaffold
 #: docstring named A-06, whose acceptance criteria never mention breakers.

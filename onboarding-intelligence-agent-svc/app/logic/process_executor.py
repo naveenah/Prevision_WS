@@ -15,7 +15,8 @@ import uuid
 from typing import Any, Literal
 
 from app.api.schemas import EvidenceManifest, ProcessResponse
-from app.cache.redis_manager import RedisManager, TTL_IDEMPOTENCY, TTL_SESSION
+from app.cache.idempotency import IdempotencyGuard
+from app.cache.redis_manager import RedisManager, TTL_SESSION
 from app.core.logging import get_logger
 from app.events.catalog import EventType
 from app.events.emitter import EventEmitter
@@ -57,6 +58,7 @@ class ProcessExecutor:
         llm: LLMProvider | None = None,
         kafka: KafkaProducer | None = None,
         events: EventEmitter | None = None,
+        guard: IdempotencyGuard | None = None,
     ) -> None:
         self._redis = redis
         self._backend = backend
@@ -64,6 +66,7 @@ class ProcessExecutor:
         self._llm = llm
         self._kafka = kafka
         self._events = events
+        self._guard = guard or IdempotencyGuard(redis)
         self._prompt_loader: Any = None
         self._running_tasks: set[asyncio.Task[None]] = set()
 
@@ -78,7 +81,7 @@ class ProcessExecutor:
         idempotency_key: str,
     ) -> ProcessResponse:
         """Accept a PROCESS job, returning 202 immediately."""
-        cached = await self._check_idempotency(tenant.tenant_id, idempotency_key)
+        cached = await self._guard.check(tenant.tenant_id, f"process:{idempotency_key}")
         if cached is not None:
             logger.info(
                 "process_idempotent_hit",
@@ -101,9 +104,9 @@ class ProcessExecutor:
             "created_at": time.time(),
         }
 
-        keys = self._redis.keys_for(tenant.tenant_id)
-        job_key = keys.idempotency(f"process:job:{job_id}")
-        await self._redis.client.set(job_key, json.dumps(job_state), ex=JOB_TTL)
+        await self._guard.store(
+            tenant.tenant_id, f"process:job:{job_id}", job_state, JOB_TTL
+        )
 
         response = ProcessResponse(
             job_id=job_id,
@@ -112,8 +115,10 @@ class ProcessExecutor:
             callback_url=callback_url,
         )
 
-        await self._store_idempotency(
-            tenant.tenant_id, idempotency_key, response.model_dump()
+        await self._guard.store(
+            tenant.tenant_id,
+            f"process:{idempotency_key}",
+            response.model_dump(),
         )
 
         task = asyncio.create_task(
@@ -133,16 +138,7 @@ class ProcessExecutor:
 
     async def get_job(self, tenant_id: str, job_id: str) -> dict[str, Any] | None:
         """Retrieve job state from Redis."""
-        keys = self._redis.keys_for(tenant_id)
-        job_key = keys.idempotency(f"process:job:{job_id}")
-        raw = await self._redis.client.get(job_key)
-        if raw is None:
-            return None
-        try:
-            data: dict[str, Any] = json.loads(raw)
-            return data
-        except (json.JSONDecodeError, TypeError):
-            return None
+        return await self._guard.check(tenant_id, f"process:job:{job_id}")
 
     async def _run_job(
         self,
@@ -694,24 +690,3 @@ class ProcessExecutor:
                 job_id=job_id,
                 callback_url=callback_url,
             )
-
-    async def _check_idempotency(
-        self, tenant_id: str, idempotency_key: str
-    ) -> dict[str, Any] | None:
-        keys = self._redis.keys_for(tenant_id)
-        key = keys.idempotency(f"process:{idempotency_key}")
-        raw = await self._redis.client.get(key)
-        if raw is None:
-            return None
-        try:
-            data: dict[str, Any] = json.loads(raw)
-            return data
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-    async def _store_idempotency(
-        self, tenant_id: str, idempotency_key: str, response: dict[str, Any]
-    ) -> None:
-        keys = self._redis.keys_for(tenant_id)
-        key = keys.idempotency(f"process:{idempotency_key}")
-        await self._redis.client.set(key, json.dumps(response), ex=TTL_IDEMPOTENCY)
