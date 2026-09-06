@@ -46,10 +46,12 @@ class IdempotencyGuard:
         if raw is None:
             return None
         try:
-            data: dict[str, Any] = json.loads(raw)
-            return data
+            parsed = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
     async def store(
         self,

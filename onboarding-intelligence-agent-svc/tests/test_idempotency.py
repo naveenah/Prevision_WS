@@ -84,3 +84,14 @@ async def test_store_overwrites_existing(guard: IdempotencyGuard):
     await guard.store(TENANT, "overwrite", {"v": 1})
     await guard.store(TENANT, "overwrite", {"v": 2})
     assert (await guard.check(TENANT, "overwrite")) == {"v": 2}
+
+
+async def test_check_returns_none_for_non_dict_json(
+    guard: IdempotencyGuard, live_redis: RedisManager
+):
+    """Valid JSON that is not a dict (list, string, number) is a miss."""
+    keys = live_redis.keys_for(TENANT)
+    for label, value in [("list", "[1,2,3]"), ("str", '"hello"'), ("num", "42")]:
+        key = keys.idempotency(f"non-dict-{label}")
+        await live_redis.client.set(key, value, ex=60)
+        assert await guard.check(TENANT, f"non-dict-{label}") is None

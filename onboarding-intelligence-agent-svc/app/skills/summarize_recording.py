@@ -76,11 +76,8 @@ class SummarizeRecording(BaseSkill):
         if self._redis is None or self._llm is None:
             raise RuntimeError("SummarizeRecording requires llm and redis providers")
 
-        cached = (
-            await self._guard.check(tenant_id, f"skl08:{recording_id}")
-            if self._guard is not None
-            else None
-        )
+        assert self._guard is not None  # guaranteed by _redis check above
+        cached = await self._guard.check(tenant_id, f"skl08:{recording_id}")
         if cached is not None and "transcript_segments" in cached:
             logger.info("summary_idempotent_hit", recording_id=recording_id)
             return SkillResult(skill_id=self.meta.skill_id, output=cached)
@@ -113,8 +110,7 @@ class SummarizeRecording(BaseSkill):
                 transcript_segments=segments,
             )
 
-            if self._guard is not None:
-                await self._guard.store(tenant_id, f"skl08:{recording_id}", output)
+            await self._guard.store(tenant_id, f"skl08:{recording_id}", output)
 
         return SkillResult(skill_id=self.meta.skill_id, output=output)
 
