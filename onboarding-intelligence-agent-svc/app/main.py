@@ -252,6 +252,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.redis.client,
     )
 
+    # Phase B: GCS storage provider with LOCAL_DISK_SPOOL degraded mode.
+    from app.providers.storage import StorageProvider, register_spool_drain
+
+    app.state.storage = StorageProvider(
+        settings.GCS_BUCKET,
+        breaker=app.state.breakers.get("gcs"),
+        spool_dir=settings.GCS_SPOOL_DIR,
+        spool_max_bytes=settings.GCS_SPOOL_MAX_BYTES,
+        signed_url_expiry_s=settings.GCS_SIGNED_URL_EXPIRY_S,
+    )
+    register_spool_drain(
+        app.state.breakers.get("gcs"),
+        app.state.storage,
+    )
+    startup_spool_drained = await app.state.storage.drain_spool()
+    if startup_spool_drained:
+        logger.info("spool_startup_drain", drained=startup_spool_drained)
+
     # L-01: prompt resolution chain. Built after the breaker registry so POI
     # calls are protected by the poi breaker (§18.2, circuit_breakers.yaml).
     from app.prompts.loader import PromptLoader
@@ -304,6 +322,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "redis": app.state.redis,
             "prompt_loader": app.state.prompt_loader,
             "producer": app.state.kafka,
+            "storage": app.state.storage,
         }
     )
     app.state.skill_registry.load()

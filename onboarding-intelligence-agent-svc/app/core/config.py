@@ -153,6 +153,11 @@ class Settings(BaseSettings):
     WATCHDOG_INTERVAL_S: int = 60
     WATCHDOG_TIMEOUT_S: int = 300
 
+    # ── GCS spool (LOCAL_DISK_SPOOL degraded mode, §18.2) ──
+    GCS_SPOOL_DIR: str = "/tmp/oia-spool"
+    GCS_SPOOL_MAX_BYTES: int = 524_288_000  # 500 MB per instance
+    GCS_SIGNED_URL_EXPIRY_S: int = 3600
+
     # ── Observability ────────────────────────────────────────
     OTEL_EXPORTER_ENDPOINT: str = ""
 

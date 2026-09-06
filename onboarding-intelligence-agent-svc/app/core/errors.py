@@ -314,3 +314,9 @@ class RateLimitedError(OIAError):
     """ERR-14 — tenant or user throttle applied (IG-07)."""
 
     code = ErrorCode.RATE_LIMITED
+
+
+class SpoolBoundExceeded(OIAError):
+    """ERR-16 — GCS spool bound exceeded, recording must stop gracefully."""
+
+    code = ErrorCode.SPOOL_BOUND_EXCEEDED
