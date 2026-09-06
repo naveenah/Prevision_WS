@@ -195,6 +195,10 @@ class FakeBucket:
             if name.startswith(prefix)
         ]
 
+    def delete_blobs(self, blobs: list["FakeBlob"]) -> None:
+        for blob in blobs:
+            blob.delete()
+
 
 class FakeBlob:
     def __init__(self, name: str, bucket: FakeBucket) -> None:
@@ -377,8 +381,8 @@ async def test_drain_empty_spool(tmp_path: object) -> None:
 
 
 @pytest.mark.asyncio
-async def test_drain_bad_filename_skipped(tmp_path: object) -> None:
-    """A chunk file with an unparseable sequence is skipped, not crashed."""
+async def test_drain_bad_filename_deleted(tmp_path: object) -> None:
+    """A chunk file with an unparseable sequence is deleted, not left behind."""
     from pathlib import Path
 
     b = _open_breaker()
@@ -394,11 +398,15 @@ async def test_drain_bad_filename_skipped(tmp_path: object) -> None:
 
     await p.upload_chunk(TENANT, RECORDING, b"good-data", seq=0)
     recording_dir = Path(str(tmp_path)) / TENANT / RECORDING
-    (recording_dir / "chunk_badname.opus").write_bytes(b"corrupt")
+    bad_file = recording_dir / "chunk_badname.opus"
+    bad_file.write_bytes(b"corrupt")
+    spool_before = p.spool_bytes
 
     b.reset()
     drained = await p.drain_spool()
     assert drained == 1
+    assert not bad_file.exists()
+    assert p.spool_bytes < spool_before
 
 
 # ── Startup drain ───────────────────────────────────────────────────

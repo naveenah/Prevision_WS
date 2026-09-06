@@ -186,7 +186,10 @@ class OutboxWriter:
                     tenant=entry.get("tenant_id"),
                 )
             else:
-                await cast(Any, self._redis.client.lpush(key, raw))
+                pipe = self._redis.client.pipeline()
+                pipe.lpush(key, raw)
+                pipe.expire(key, TTL_OUTBOX)
+                await pipe.execute()
                 return drained, True
         return drained, False
 

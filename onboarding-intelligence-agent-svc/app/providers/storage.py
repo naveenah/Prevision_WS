@@ -13,6 +13,10 @@ closes; a startup drain handles leftovers from a killed instance.
 Cloud Run ephemeral storage is lost on instance restart — the startup drain is
 best-effort, not a durability guarantee. A durable spool (Redis or GCS
 multipart) would require a separate design.
+
+All GCS and filesystem calls are wrapped in ``asyncio.to_thread`` so they
+do not block the event loop. CLAUDE.md is explicit: "the fleet's blocks the
+event loop, which would stall a live meeting."
 """
 
 from __future__ import annotations
@@ -130,7 +134,9 @@ class StorageProvider:
         try:
             bucket = self._ensure_bucket()
             blob = bucket.blob(blob_path)
-            blob.upload_from_string(data, content_type="audio/opus")
+            await asyncio.to_thread(
+                blob.upload_from_string, data, content_type="audio/opus"
+            )
         except Exception as exc:
             self._breaker.record_failure()
             logger.warning(
@@ -168,7 +174,7 @@ class StorageProvider:
             bucket = self._ensure_bucket()
             prefix = f"{LANDING_PREFIX}/{tenant_id}/{recording_id}/chunk_"
             blobs = sorted(
-                bucket.list_blobs(prefix=prefix),
+                await asyncio.to_thread(lambda: list(bucket.list_blobs(prefix=prefix))),
                 key=lambda b: b.name,
             )
 
@@ -177,13 +183,11 @@ class StorageProvider:
                 return self._final_path(tenant_id, recording_id)
 
             final_path = self._final_path(tenant_id, recording_id)
-            composed = self._compose_recursive(bucket, blobs, final_path)
+            composed = await asyncio.to_thread(
+                self._compose_recursive, bucket, blobs, final_path
+            )
 
-            for blob in blobs:
-                try:
-                    blob.delete()
-                except Exception:
-                    pass
+            await asyncio.to_thread(self._delete_blobs_batch, bucket, blobs)
 
         except StorageUnavailable:
             raise
@@ -193,6 +197,18 @@ class StorageProvider:
 
         self._breaker.record_success()
         return str(composed.name)
+
+    @staticmethod
+    def _delete_blobs_batch(bucket: Any, blobs: list[Any]) -> None:
+        """Delete blobs using batch request where available, else one by one."""
+        try:
+            bucket.delete_blobs(blobs)
+        except Exception:
+            for blob in blobs:
+                try:
+                    blob.delete()
+                except Exception:
+                    pass
 
     def _compose_recursive(self, bucket: Any, blobs: list[Any], dest_path: str) -> Any:
         """Compose blobs into one, handling the 32-source GCS limit."""
@@ -205,8 +221,8 @@ class StorageProvider:
             return dest
 
         intermediates: list[Any] = []
-        for i in range(0, len(blobs), max_compose - 1):
-            batch = blobs[i : i + max_compose - 1]
+        for i in range(0, len(blobs), max_compose):
+            batch = blobs[i : i + max_compose]
             intermediate_path = f"{dest_path}.part_{i:04d}"
             intermediate = bucket.blob(intermediate_path)
             intermediate.compose(batch)
@@ -243,7 +259,8 @@ class StorageProvider:
             bucket = self._ensure_bucket()
             blob = bucket.blob(blob_path)
             expiry = expiry_seconds or self._signed_url_expiry_s
-            url = blob.generate_signed_url(
+            url = await asyncio.to_thread(
+                blob.generate_signed_url,
                 expiration=datetime.timedelta(seconds=expiry),
                 method="GET",
             )
@@ -270,7 +287,7 @@ class StorageProvider:
         try:
             bucket = self._ensure_bucket()
             blob = bucket.blob(blob_path)
-            blob.delete()
+            await asyncio.to_thread(blob.delete)
         except StorageUnavailable:
             raise
         except Exception as exc:
@@ -295,11 +312,13 @@ class StorageProvider:
         try:
             bucket = self._ensure_bucket()
             prefix = f"{LANDING_PREFIX}/{tenant_id}/{recording_id}"
-            blobs = list(bucket.list_blobs(prefix=prefix))
+            blobs = await asyncio.to_thread(
+                lambda: list(bucket.list_blobs(prefix=prefix))
+            )
             count = 0
             for blob in blobs:
                 try:
-                    blob.delete()
+                    await asyncio.to_thread(blob.delete)
                     count += 1
                 except Exception:
                     pass
@@ -333,9 +352,13 @@ class StorageProvider:
             )
 
         recording_dir = self._spool_dir / tenant_id / recording_id
-        recording_dir.mkdir(parents=True, exist_ok=True)
         chunk_file = recording_dir / f"chunk_{seq:06d}.opus"
-        chunk_file.write_bytes(data)
+
+        def _write() -> None:
+            recording_dir.mkdir(parents=True, exist_ok=True)
+            chunk_file.write_bytes(data)
+
+        await asyncio.to_thread(_write)
         self._spool_bytes += len(data)
 
         logger.info(
@@ -430,16 +453,21 @@ class StorageProvider:
                 seq = int(seq_str)
             except ValueError:
                 logger.warning("spool_bad_filename", path=str(chunk_file))
+                file_size = chunk_file.stat().st_size
+                chunk_file.unlink()
+                self._spool_bytes = max(0, self._spool_bytes - file_size)
                 continue
 
             blob_path = self._chunk_path(tenant_id, recording_id, seq)
-            data = chunk_file.read_bytes()
+            data = await asyncio.to_thread(chunk_file.read_bytes)
             file_size = len(data)
 
             try:
                 bucket = self._ensure_bucket()
                 blob = bucket.blob(blob_path)
-                blob.upload_from_string(data, content_type="audio/opus")
+                await asyncio.to_thread(
+                    blob.upload_from_string, data, content_type="audio/opus"
+                )
             except Exception as exc:
                 self._breaker.record_failure()
                 logger.warning(
@@ -452,7 +480,7 @@ class StorageProvider:
                 return drained
 
             self._breaker.record_success()
-            chunk_file.unlink()
+            await asyncio.to_thread(chunk_file.unlink)
             self._spool_bytes = max(0, self._spool_bytes - file_size)
             drained += 1
             logger.info(

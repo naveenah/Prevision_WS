@@ -172,9 +172,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if hasattr(app.state, "events") and app.state.events is not None:
             import uuid
 
+            try:
+                tid = uuid.UUID(tenant_id) if tenant_id else uuid.uuid4()
+            except ValueError:
+                tid = uuid.uuid4()
             await app.state.events.emit(
                 EventType.AGENT_OUTBOX_OVERFLOW,
-                tenant_id=uuid.UUID(tenant_id) if tenant_id else uuid.uuid4(),
+                tenant_id=tid,
                 correlation_id=f"outbox-overflow-{tenant_id}",
                 payload={"tenant_id": tenant_id, "dropped": dropped},
             )
