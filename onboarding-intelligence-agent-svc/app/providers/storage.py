@@ -458,10 +458,13 @@ class StorageProvider:
                 seq = int(seq_str)
             except ValueError:
                 logger.warning("spool_bad_filename", path=str(chunk_file))
-                file_size = await asyncio.to_thread(
-                    lambda p=chunk_file: p.stat().st_size
-                )
-                await asyncio.to_thread(chunk_file.unlink)
+
+                def _stat_and_unlink(p: Path) -> int:
+                    size = p.stat().st_size
+                    p.unlink()
+                    return size
+
+                file_size = await asyncio.to_thread(_stat_and_unlink, chunk_file)
                 self._spool_bytes = max(0, self._spool_bytes - file_size)
                 continue
 
