@@ -266,6 +266,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         spool_max_bytes=settings.GCS_SPOOL_MAX_BYTES,
         signed_url_expiry_s=settings.GCS_SIGNED_URL_EXPIRY_S,
     )
+    await app.state.storage.initialize()
     register_spool_drain(
         app.state.breakers.get("gcs"),
         app.state.storage,

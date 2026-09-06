@@ -15,8 +15,7 @@ best-effort, not a durability guarantee. A durable spool (Redis or GCS
 multipart) would require a separate design.
 
 All GCS and filesystem calls are wrapped in ``asyncio.to_thread`` so they
-do not block the event loop. CLAUDE.md is explicit: "the fleet's blocks the
-event loop, which would stall a live meeting."
+do not block the event loop during a live meeting.
 """
 
 from __future__ import annotations
@@ -86,7 +85,12 @@ class StorageProvider:
         self._client = client
         self._bucket: Any | None = None
         self._draining = False
-        self._spool_bytes = self._measure_spool_size()
+        self._spool_lock = asyncio.Lock()
+        self._spool_bytes = 0
+
+    async def initialize(self) -> None:
+        """Measure the existing spool size off the event loop."""
+        self._spool_bytes = await asyncio.to_thread(self._measure_spool_size)
 
     @property
     def configured(self) -> bool:
@@ -258,7 +262,11 @@ class StorageProvider:
         try:
             bucket = self._ensure_bucket()
             blob = bucket.blob(blob_path)
-            expiry = expiry_seconds or self._signed_url_expiry_s
+            expiry = (
+                expiry_seconds
+                if expiry_seconds is not None
+                else self._signed_url_expiry_s
+            )
             url = await asyncio.to_thread(
                 blob.generate_signed_url,
                 expiration=datetime.timedelta(seconds=expiry),
@@ -315,13 +323,9 @@ class StorageProvider:
             blobs = await asyncio.to_thread(
                 lambda: list(bucket.list_blobs(prefix=prefix))
             )
-            count = 0
-            for blob in blobs:
-                try:
-                    await asyncio.to_thread(blob.delete)
-                    count += 1
-                except Exception:
-                    pass
+            count = len(blobs)
+            if blobs:
+                await asyncio.to_thread(self._delete_blobs_batch, bucket, blobs)
         except StorageUnavailable:
             raise
         except Exception as exc:
@@ -341,25 +345,26 @@ class StorageProvider:
         seq: int,
     ) -> str:
         """Write a chunk to the local disk spool. Raises SpoolBoundExceeded."""
-        if self._spool_bytes + len(data) > self._spool_max_bytes:
-            raise SpoolBoundExceeded(
-                f"spool would exceed {self._spool_max_bytes} bytes "
-                f"(current: {self._spool_bytes}, chunk: {len(data)})",
-                tenant_id=tenant_id,
-                recording_id=recording_id,
-                spool_bytes=self._spool_bytes,
-                spool_max=self._spool_max_bytes,
-            )
+        async with self._spool_lock:
+            if self._spool_bytes + len(data) > self._spool_max_bytes:
+                raise SpoolBoundExceeded(
+                    f"spool would exceed {self._spool_max_bytes} bytes "
+                    f"(current: {self._spool_bytes}, chunk: {len(data)})",
+                    tenant_id=tenant_id,
+                    recording_id=recording_id,
+                    spool_bytes=self._spool_bytes,
+                    spool_max=self._spool_max_bytes,
+                )
 
-        recording_dir = self._spool_dir / tenant_id / recording_id
-        chunk_file = recording_dir / f"chunk_{seq:06d}.opus"
+            recording_dir = self._spool_dir / tenant_id / recording_id
+            chunk_file = recording_dir / f"chunk_{seq:06d}.opus"
 
-        def _write() -> None:
-            recording_dir.mkdir(parents=True, exist_ok=True)
-            chunk_file.write_bytes(data)
+            def _write() -> None:
+                recording_dir.mkdir(parents=True, exist_ok=True)
+                chunk_file.write_bytes(data)
 
-        await asyncio.to_thread(_write)
-        self._spool_bytes += len(data)
+            await asyncio.to_thread(_write)
+            self._spool_bytes += len(data)
 
         logger.info(
             "chunk_spooled",
@@ -453,8 +458,10 @@ class StorageProvider:
                 seq = int(seq_str)
             except ValueError:
                 logger.warning("spool_bad_filename", path=str(chunk_file))
-                file_size = chunk_file.stat().st_size
-                chunk_file.unlink()
+                file_size = await asyncio.to_thread(
+                    lambda p=chunk_file: p.stat().st_size
+                )
+                await asyncio.to_thread(chunk_file.unlink)
                 self._spool_bytes = max(0, self._spool_bytes - file_size)
                 continue
 
@@ -490,14 +497,17 @@ class StorageProvider:
                 seq=seq,
             )
 
-        if not any(recording_dir.iterdir()):
-            recording_dir.rmdir()
-
-        tenant_dir = recording_dir.parent
-        if not any(tenant_dir.iterdir()):
-            tenant_dir.rmdir()
-
+        await asyncio.to_thread(self._cleanup_empty_dir, recording_dir)
         return drained
+
+    @staticmethod
+    def _cleanup_empty_dir(directory: Path) -> None:
+        """Remove a recording dir and its parent tenant dir if both are empty."""
+        if not any(directory.iterdir()):
+            directory.rmdir()
+            parent = directory.parent
+            if not any(parent.iterdir()):
+                parent.rmdir()
 
 
 def register_spool_drain(

@@ -126,6 +126,8 @@ async def test_spool_size_initializes_from_disk(tmp_path: object) -> None:
     (recording_dir / "chunk_000001.opus").write_bytes(b"y" * 300)
 
     p = _provider(tmp_path, breaker=_breaker())
+    assert p.spool_bytes == 0
+    await p.initialize()
     assert p.spool_bytes == 800
 
 
@@ -430,6 +432,7 @@ async def test_startup_drain_picks_up_leftovers(tmp_path: object) -> None:
         spool_max_bytes=1_000_000,
         client=client,
     )
+    await p.initialize()
 
     assert p.spool_bytes == len(b"leftover-1") + len(b"leftover-2")
     drained = await p.drain_spool()
