@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Brand Automator is a **multi-tenant SaaS platform** for AI-powered brand building. Django REST Framework backend + Next.js 15 frontend + 27 Python FastAPI microservices, connected via Kafka event streaming and HTTP callbacks. AI powered by Google Gemini (default `gemini-3.5-flash`, set in `ai_services/services.py`) and Anthropic Claude. ~8,470 test functions across all components (excluding the vendored Odoo submodule).
+AI Brand Automator is a **multi-tenant SaaS platform** for AI-powered brand building. Django REST Framework backend + Next.js 15 frontend + 27 Python FastAPI microservices, connected via Kafka event streaming and HTTP callbacks. AI powered by Google Gemini (default `gemini-3.5-flash`, set in `ai_services/services.py`) and Anthropic Claude. ~10,300 test functions across all components (excluding the vendored Odoo submodule and `.venv`).
 
 ## Monorepo Layout
 
@@ -39,6 +39,7 @@ odoo-worker-agent-svc/          # FastAPI — Multi-persona Odoo worker, PAOR lo
 prompt-optimization-svc/        # FastAPI — MLflow prompt registry + GEPA optimization (port 8110)
 onboarding-intelligence-agent-svc/ # FastAPI — OIA: PREP/LIVE/PROCESS onboarding intelligence, STT + OCR + Gemini (port 8120)
 spike-stt-v2/                    # Timeboxed spike — GCP Speech-to-Text v2 streaming latency/diarization (port 8120)
+spike-ws-gateway/                # Timeboxed spike (A-02) — authenticated WebSocket upgrade through Kong vs Cloud Run; disposable, not in Compose/CI
 vendor/odoo/community/           # Git submodule — Odoo Community Edition 19.0
 deployment/                      # Master docker-compose, Kong config, GCP Cloud Run deploy scripts (gcp/)
 docs/                            # Architecture docs
@@ -59,7 +60,7 @@ cd ai-brand-automator && source ../.venv/bin/activate
 python manage.py runserver 0.0.0.0:8001
 
 # Tests
-pytest -v                                    # All ~2470 tests
+pytest -v                                    # All ~3070 tests
 pytest automation/tests/ -v                  # Single app
 pytest media_curation/tests/test_views.py -v # Single file
 pytest -k "test_my_function" -v              # Single test by name
@@ -243,7 +244,22 @@ The `workspace` app provides visual workflow editing with React Flow. Models: `U
 
 Schema-based via `django-tenants`. All models have a nullable `tenant` FK. Most apps run in the shared (public) schema. The `files` app is the only app in `TENANT_APPS`, running in per-tenant schemas.
 
-`SHARED_APPS` (public schema): `tenants`, `ai_services` (Gemini integration + logging), `onboarding` (company data), `subscriptions` (Stripe), `automation` (social media + MCP server), `kafka_service`, `data_ingestion` / `media_curation` / `rag_index` (hexagonal pipeline apps), `orchestration`, `workspace`, `analytics`, `optimization` (COA background service), `intelligence_loop` (ILA/WF3.5). `daphne` must precede `django.contrib.staticfiles`; `django_tenants` must be first.
+`SHARED_APPS` (public schema): `tenants`, `ai_services` (Gemini integration + logging), `onboarding` (company data), `subscriptions` (Stripe), `automation` (social media + MCP server), `kafka_service`, `data_ingestion` / `media_curation` / `rag_index` (hexagonal pipeline apps), `orchestration`, `workspace`, `analytics`, `optimization` (COA background service), `intelligence_loop` (ILA/WF3.5), `apps.onboarding` / `apps.integrations` (see below). `daphne` is listed first, then `django_tenants`; `daphne` must precede `django.contrib.staticfiles`.
+
+### The `apps/` Namespace Package (Django side of OIA)
+
+`ai-brand-automator/apps/` is a second Django app package, separate from the flat top-level apps. It holds the backend half of the Onboarding Intelligence Agent — the agent service (`onboarding-intelligence-agent-svc/`, port 8120) does the STT/OCR/Gemini work, Django owns the session records and the review endpoints.
+
+| Package | App label | Purpose |
+|---------|-----------|---------|
+| `apps.onboarding` | **`onboarding_sessions`** | OIA session state: `OnboardingSession`, `Questionnaire`, `Question`, `MeetingRecording`, `ConsentRecord`, `FieldProvenance`, `ResearchBrief` |
+| `apps.integrations` | `integrations` | Tenant-owned provider connections — `CalendarConnection`, Google Calendar OAuth + sync (D-02/D-03) |
+
+**App-label collision — the reason this is easy to get wrong.** There are two distinct onboarding apps. The top-level `onboarding/` is the 5-step wizard (company data) and owns the label `onboarding`. `apps.onboarding` therefore registers via `apps.onboarding.apps.OnboardingSessionsConfig` with the label **`onboarding_sessions`**. Use that label for migrations, `apps.get_model()`, and `related_name` targets — not `onboarding`.
+
+**URL mounting** (`brand_automator/urls.py`): the wizard is mounted at the API root (`path("", include("onboarding.urls"))`), OIA sessions at `path("onboarding/", include("apps.onboarding.urls"))`, and integrations at `path("integrations/", include("apps.integrations.urls"))` — a tenant's calendar grant belongs to the tenant, not to any one session.
+
+**Event emission is privacy-constrained.** `apps/onboarding/events.py` emits only EVT-109 (`onboarding.provenance.reviewed`) to `agent.events.{tenant_id}`; the full event catalogue lives in the agent at `app/events/catalog.py` and the two must be changed together (no shared package enforces it). The payload deliberately carries **no field values** — only `field_name`, `action`, `edit_distance`, `classification` — because the event stream fans out to observability tooling with a lower trust level than the tenant-scoped store. Do not add values to it. Emission is gated on `ONBOARDING_KAFKA_ENABLED` (false everywhere deployed) and queued through Celery so a reviewer's click never blocks on Kafka I/O.
 
 ### Service-to-Service Authentication
 
@@ -513,7 +529,10 @@ Use "Digital Twilight" dark theme classes: `glass-card`, `bg-brand-midnight`, `t
 | Frontend workspace API client | `ai-brand-automator-frontend/src/lib/workspace.ts` |
 | Frontend workflow canvas | `ai-brand-automator-frontend/src/components/workspace/WorkflowCanvas.tsx` |
 | Frontend env config | `ai-brand-automator-frontend/src/lib/env.ts` |
-| Onboarding pipeline service | `ai-brand-automator/onboarding/services.py` |
+| Onboarding wizard pipeline service | `ai-brand-automator/onboarding/services.py` |
+| OIA session models + review API (label `onboarding_sessions`) | `ai-brand-automator/apps/onboarding/` |
+| OIA EVT-109 emitter (value-free payload) | `ai-brand-automator/apps/onboarding/events.py` |
+| Calendar provider connections (D-02) | `ai-brand-automator/apps/integrations/` |
 | Backend Procfile (11 processes) | `ai-brand-automator/Procfile` |
 | Architecture overview | `ARCHITECTURE.md` |
 | Copilot instructions | `.github/copilot-instructions.md` |
@@ -582,7 +601,7 @@ Each microservice uses its own env-var prefix (e.g., `DISCOVERY_REDIS_URL`, `CON
 
 ## CI/CD
 
-**Tests** (`.github/workflows/ci-cd.yml`) — 10 jobs: backend-tests, test-media-curation, orchestrator-tests, discovery-agent-tests, intelligence-agent-tests, odoo-mcp-server-tests, odoo-worker-tests, frontend-tests, integration-tests, build-images. Backend CI runs `black --check .`, `flake8 .`, `pytest --cov`, and MCP server tests.
+**Tests** (`.github/workflows/ci-cd.yml`) — 12 jobs: backend-tests, backend-property-tests, test-media-curation, orchestrator-tests, discovery-agent-tests, intelligence-agent-tests, odoo-mcp-server-tests, odoo-worker-tests, onboarding-intelligence-agent-tests, frontend-tests, integration-tests, build-images. Backend CI runs `black --check .`, `flake8 .`, `pytest --cov`, and MCP server tests.
 
 **Two-tier branching.** Feature branch → PR into `development_main` (dev tier) → PR/sync merge into `main` (production tier). `ci-cd.yml` runs on pushes and PRs to `main`, `develop`, `development_main` (plus pushes to `bugfixes/**`). `docker-publish.yml` builds on pushes to `main` **and** `development_main` and on PRs — PR builds get branch+SHA tags for pre-merge testing. Only `main` triggers the GCP deploy; `development_main` images are tagged `:development_main` and picked up by a **Watchtower** container (5-minute poll) running alongside `deployment/docker-compose.production.yml` on the dev host, which auto-pulls and recreates changed containers.
 
