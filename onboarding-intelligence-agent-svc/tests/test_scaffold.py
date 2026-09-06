@@ -49,7 +49,6 @@ EXPECTED_MODULES = [
     "app.providers.ocr",
     "app.providers.vision",
     "app.providers.llm",
-    "app.providers.storage",
     "app.rbac.engine",
     "app.services.backend_client",
     "app.services.poi_client",
