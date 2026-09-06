@@ -10,7 +10,8 @@ from typing import Any
 
 from app.core.logging import get_logger
 
-from app.cache.redis_manager import RedisManager, TTL_IDEMPOTENCY
+from app.cache.idempotency import IdempotencyGuard
+from app.cache.redis_manager import RedisManager
 from app.providers.llm import LLMProvider
 from app.services.backend_client import BackendClient
 from app.skills.base import BaseSkill
@@ -63,6 +64,7 @@ class SummarizeRecording(BaseSkill):
         self._llm = llm
         self._backend = backend
         self._redis = redis
+        self._guard = IdempotencyGuard(redis) if redis is not None else None
 
     async def run(self, context: SkillContext) -> SkillResult:
         recording_id = context.input_context["recording_id"]
@@ -74,7 +76,11 @@ class SummarizeRecording(BaseSkill):
         if self._redis is None or self._llm is None:
             raise RuntimeError("SummarizeRecording requires llm and redis providers")
 
-        cached = await self._check_idempotency(tenant_id, recording_id)
+        cached = (
+            await self._guard.check(tenant_id, f"skl08:{recording_id}")
+            if self._guard is not None
+            else None
+        )
         if cached is not None and "transcript_segments" in cached:
             logger.info("summary_idempotent_hit", recording_id=recording_id)
             return SkillResult(skill_id=self.meta.skill_id, output=cached)
@@ -107,7 +113,8 @@ class SummarizeRecording(BaseSkill):
                 transcript_segments=segments,
             )
 
-            await self._store_idempotency(tenant_id, recording_id, output)
+            if self._guard is not None:
+                await self._guard.store(tenant_id, f"skl08:{recording_id}", output)
 
         return SkillResult(skill_id=self.meta.skill_id, output=output)
 
@@ -170,31 +177,6 @@ class SummarizeRecording(BaseSkill):
             moments.append({"t": snapped, "label": str(label)})
 
         return {"text": str(text), "key_moments": moments}
-
-    # -- idempotency -----------------------------------------------------------
-
-    async def _check_idempotency(
-        self, tenant_id: str, recording_id: str
-    ) -> dict[str, Any] | None:
-        assert self._redis is not None
-        keys = self._redis.keys_for(tenant_id)
-        key = keys.idempotency(f"skl08:{recording_id}")
-        raw = await self._redis.client.get(key)
-        if raw is None:
-            return None
-        try:
-            parsed: dict[str, Any] = json.loads(raw)
-            return parsed
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-    async def _store_idempotency(
-        self, tenant_id: str, recording_id: str, summary: dict[str, Any]
-    ) -> None:
-        assert self._redis is not None
-        keys = self._redis.keys_for(tenant_id)
-        key = keys.idempotency(f"skl08:{recording_id}")
-        await self._redis.client.set(key, json.dumps(summary), ex=TTL_IDEMPOTENCY)
 
 
 # -- pure helpers (module-level for testability) ------------------------------
